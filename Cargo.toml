@@ -1,5 +1,7 @@
 [workspace]
+resolver = "2"
 members = [
-  "bitpart",
-  "bitpart-plugin"
+  # "crates/bitpart-cli",
+  "crates/bitpart-server",
+  "crates/bitpart-server/migration",
 ]

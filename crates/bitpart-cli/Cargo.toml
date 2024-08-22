@@ -1,0 +1,20 @@
+[package]
+name = "bitpart"
+version = "0.1.0"
+authors = ["Josh King <josh@throneless.tech>"]
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4", features = ["derive"] }
+config = { version = "0.14", features = ["toml"] }
+csml_interpreter = "1.8"
+directories = "5.0"
+log = "0.4"
+pretty_env_logger = "0.5"
+wasmtime = "19.0"
+
+[dev-dependencies]
+rusty-hook = "^0.11"
+trybuild = "1.0"
+trycmd = "0.15"
