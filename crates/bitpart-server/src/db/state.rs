@@ -64,6 +64,31 @@ pub async fn set(
     Ok(())
 }
 
+pub async fn delete(
+    client: &Client,
+    r#type: &str,
+    key: &str,
+    db: &DatabaseConnection,
+) -> Result<(), BitpartError> {
+    let entry = Memory::find()
+        .filter(state::Column::BotId.eq(client.bot_id.to_owned()))
+        .filter(state::Column::ChannelId.eq(client.channel_id.to_owned()))
+        .filter(state::Column::UserId.eq(client.user_id.to_owned()))
+        .filter(state::Column::Type.eq(r#type))
+        .filter(state::Column::Key.eq(key))
+        .one(db)
+        .await?;
+
+    match entry {
+        Some(e) => {
+            e.delete(db).await?;
+        }
+        None => {}
+    }
+
+    Ok(())
+}
+
 // pub async fn set_many(
 //     client: &Client,
 //     r#type: &str,

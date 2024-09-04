@@ -1,7 +1,7 @@
 use chrono::NaiveDateTime;
-use csml_interpreter::data::Client;
+use csml_interpreter::data::{Client, Memory as CsmlMemory};
 use sea_orm::*;
-use serde_json::Value;
+use std::collections::HashMap;
 use uuid;
 
 use super::entities::{prelude::*, *};
@@ -9,22 +9,26 @@ use crate::error::BitpartError;
 
 pub async fn create(
     client: &Client,
-    key: &str,
-    value: Value,
+    memories: &HashMap<String, CsmlMemory>,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
-    let entry = memory::ActiveModel {
-        id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
-        bot_id: ActiveValue::Set(client.bot_id.to_owned()),
-        channel_id: ActiveValue::Set(client.channel_id.to_owned()),
-        user_id: ActiveValue::Set(client.user_id.to_owned()),
-        key: ActiveValue::Set(key.to_owned()),
-        value: ActiveValue::Set(value.to_string()),
-        expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
-        ..Default::default()
-    };
-    entry.insert(db).await?;
+    let mut new_memories = vec![];
+
+    for (key, value) in memories.iter() {
+        let entry = memory::ActiveModel {
+            id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
+            bot_id: ActiveValue::Set(client.bot_id.to_owned()),
+            channel_id: ActiveValue::Set(client.channel_id.to_owned()),
+            user_id: ActiveValue::Set(client.user_id.to_owned()),
+            key: ActiveValue::Set(key.to_owned()),
+            value: ActiveValue::Set(value.value.to_string()),
+            expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
+            ..Default::default()
+        };
+        new_memories.push(entry);
+    }
+    Memory::insert_many(new_memories).exec(db).await?;
     Ok(())
 }
 

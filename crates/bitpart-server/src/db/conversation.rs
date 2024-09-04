@@ -13,9 +13,10 @@ pub async fn create(
     client: &Client,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<String, BitpartError> {
+    let id = uuid::Uuid::new_v4().to_string();
     let entry = conversation::ActiveModel {
-        id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
+        id: ActiveValue::Set(id.clone()),
         bot_id: ActiveValue::Set(client.bot_id.to_owned()),
         channel_id: ActiveValue::Set(client.channel_id.to_owned()),
         user_id: ActiveValue::Set(client.user_id.to_owned()),
@@ -25,7 +26,7 @@ pub async fn create(
         ..Default::default()
     };
     entry.insert(db).await?;
-    Ok(())
+    Ok(id)
 }
 
 pub async fn set_status_by_id(

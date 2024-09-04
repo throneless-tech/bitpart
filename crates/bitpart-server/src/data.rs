@@ -1,7 +1,16 @@
 use csml_interpreter::data::{Client, Context, CsmlBot, CsmlFlow, Message, Module, MultiBot};
+use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
-use crate::error::BitpartError;
+use crate::{db, error::BitpartError};
+
+#[derive(Debug, Clone)]
+pub struct SwitchBot {
+    pub bot_id: String,
+    pub version_id: Option<String>,
+    pub flow: Option<String>,
+    pub step: String,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FlowTrigger {
@@ -13,7 +22,10 @@ pub struct FlowTrigger {
 pub struct Request {
     pub id: String,
     pub client: Client,
+    pub metadata: serde_json::Value,
     pub payload: serde_json::Value,
+    pub step_limit: Option<usize>,
+    pub callback_url: Option<String>,
 }
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,10 +82,7 @@ impl SerializeCsmlBot {
             default_flow: self.default_flow.to_owned(),
             bot_ast: None,
             no_interruption_delay: self.no_interruption_delay,
-            env: match self.env.to_owned() {
-                Some(value) => decrypt_data(value).ok(),
-                None => None,
-            },
+            env: self.env.as_ref().map(|e| serde_json::from_str(&e).unwrap()),
             modules: self.modules.to_owned(),
             multibot: None,
         }
@@ -85,8 +94,12 @@ pub struct ConversationData {
     pub conversation_id: String,
     pub request_id: String,
     pub client: Client,
+    pub callback_url: Option<String>,
     pub context: Context,
+    pub metadata: serde_json::Value,
     pub messages: Vec<Message>,
+    pub ttl: Option<chrono::Duration>,
+    pub low_data: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -111,7 +124,7 @@ pub enum BotOpt {
 }
 
 impl BotOpt {
-    pub fn search_bot(&self, db: &mut Database) -> Result<CsmlBot, BitpartError> {
+    pub async fn search_bot(&self, db: &DatabaseConnection) -> Result<CsmlBot, BitpartError> {
         match self {
             BotOpt::CsmlBot(csml_bot) => Ok(csml_bot.to_owned()),
             BotOpt::BotId {
@@ -119,7 +132,7 @@ impl BotOpt {
                 apps_endpoint,
                 multibot,
             } => {
-                let bot_version = db_connectors::bot::get_last_bot_version(&bot_id, db)?;
+                let bot_version = db::bot::get_latest_by_bot_id(&bot_id, db).await?;
 
                 match bot_version {
                     Some(mut bot_version) => {
@@ -135,11 +148,11 @@ impl BotOpt {
             }
             BotOpt::Id {
                 version_id,
-                bot_id,
+                bot_id: _,
                 apps_endpoint,
                 multibot,
             } => {
-                let bot_version = db_connectors::bot::get_by_version_id(&version_id, &bot_id, db)?;
+                let bot_version = db::bot::get_by_id(&version_id, db).await?;
 
                 match bot_version {
                     Some(mut bot_version) => {

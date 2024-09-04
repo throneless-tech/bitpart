@@ -1,11 +1,19 @@
-use crate::data::Conversation;
+use crate::data::{ConversationData, SwitchBot};
+use crate::db;
+use crate::utils::{
+    get_current_step_hash, get_flow_by_id, messages_formatter, send_msg_to_callback_url,
+    update_current_context,
+};
+
 use crate::error::BitpartError;
+use chrono::Utc;
 use csml_interpreter::csml_logs::{csml_logger, CsmlLog, LogLvl};
 use csml_interpreter::data::{
-    ast::ForgetMemory, context::ContextStepInfo, event::Event, CsmlBot, CsmlFlow, Hold, Message,
-    MSG,
+    ast::ForgetMemory, context::ContextStepInfo, event::Event, Client, CsmlBot, CsmlFlow, Hold,
+    Memory, Message, MultiBot, MSG,
 };
 use csml_interpreter::interpret;
+use sea_orm::DatabaseConnection;
 use serde_json::{map::Map, Value};
 use std::collections::HashMap;
 use std::sync::mpsc;
@@ -18,18 +26,11 @@ enum InterpreterReturn {
     SwitchBot(SwitchBot),
 }
 
-#[derive(Debug, Clone)]
-pub struct SwitchBot {
-    pub bot_id: String,
-    pub version_id: Option<String>,
-    pub flow: Option<String>,
-    pub step: String,
-}
-
-pub fn step(
-    data: &mut Conversation,
+pub async fn step(
+    data: &mut ConversationData,
     event: Event,
     bot: &CsmlBot,
+    db: &DatabaseConnection,
 ) -> Result<(Map<String, Value>, Option<SwitchBot>), BitpartError> {
     let mut current_flow: &CsmlFlow = get_flow_by_id(&data.context.flow, &bot.flows)?;
     let mut interaction_order = 0;
@@ -74,16 +75,16 @@ pub fn step(
             MSG::Forget(mem) => match mem {
                 ForgetMemory::ALL => {
                     memories.clear();
-                    delete_client_memories(&data.client)?;
+                    db::memory::delete_by_client(&data.client, db).await?;
                 }
                 ForgetMemory::SINGLE(memory) => {
                     memories.remove(&memory.ident);
-                    crate::delete_client_memory(&data.client, &memory.ident)?;
+                    db::memory::delete(&data.client, &memory.ident, db).await?;
                 }
                 ForgetMemory::LIST(mem_list) => {
                     for mem in mem_list.iter() {
                         memories.remove(&mem.ident);
-                        crate::delete_client_memory(&data.client, &mem.ident)?;
+                        db::memory::delete(&data.client, &mem.ident, db).await?;
                     }
                 }
             },
@@ -157,13 +158,15 @@ pub fn step(
                     LogLvl::Debug,
                 );
 
-                set_state_items(
+                db::state::set(
                     &data.client,
                     "hold",
-                    vec![("position", &state_hold)],
-                    data.ttl,
-                    &mut data.db,
-                )?;
+                    "position",
+                    &state_hold,
+                    data.ttl.map(|t| Utc::now().naive_utc() + t),
+                    db,
+                )
+                .await?;
                 data.context.hold = Some(Hold {
                     index,
                     step_vars,
@@ -187,7 +190,10 @@ pub fn step(
                     &mut memories,
                     flow,
                     step,
-                ) {
+                    db,
+                )
+                .await
+                {
                     break;
                 }
             }
@@ -197,8 +203,16 @@ pub fn step(
                 step,
                 bot: Some(target_bot),
             } => {
-                if let Ok(InterpreterReturn::SwitchBot(s_bot)) =
-                    manage_switch_bot(data, &mut interaction_order, &bot, flow, step, target_bot)
+                if let Ok(InterpreterReturn::SwitchBot(s_bot)) = manage_switch_bot(
+                    data,
+                    &mut interaction_order,
+                    &bot,
+                    flow,
+                    step,
+                    target_bot,
+                    db,
+                )
+                .await
                 {
                     switch_bot = Some(s_bot);
                     break;
@@ -219,7 +233,7 @@ pub fn step(
 
                 send_msg_to_callback_url(data, vec![err_msg.clone()], interaction_order, true);
                 data.messages.push(err_msg);
-                close_conversation(&data.conversation_id, &data.client, &mut data.db)?;
+                db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", db).await?;
             }
         }
     }
@@ -232,10 +246,10 @@ pub fn step(
         .collect();
 
     if !data.low_data {
-        add_messages_bulk(data, msgs, interaction_order, "SEND")?;
+        db::message::create(data, &msgs, interaction_order, "SEND", None, db).await?;
     }
 
-    add_memories(data, &memories)?;
+    db::memory::create(&data.client, &memories, None, db).await?;
 
     Ok((
         messages_formatter(
@@ -248,13 +262,14 @@ pub fn step(
     ))
 }
 
-fn manage_switch_bot<'a>(
-    data: &mut Conversation,
+async fn manage_switch_bot<'a>(
+    data: &mut ConversationData,
     interaction_order: &mut i32,
     bot: &'a CsmlBot,
     flow: Option<String>,
     step: Option<ContextStepInfo>,
     target_bot: String,
+    db: &DatabaseConnection,
 ) -> Result<InterpreterReturn, BitpartError> {
     // check if we are allow to switch to 'target_bot'
 
@@ -390,7 +405,7 @@ fn manage_switch_bot<'a>(
         LogLvl::Info,
     );
 
-    close_conversation(&data.conversation_id, &data.client, &mut data.db)?;
+    db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", db).await?;
 
     let previous_bot: Value = serde_json::json!({
         "bot": data.client.bot_id,
@@ -398,17 +413,19 @@ fn manage_switch_bot<'a>(
         "step": data.context.step,
     });
 
-    set_state_items(
+    db::state::set(
         &Client::new(
             next_bot.id.to_owned(),
             data.client.channel_id.clone(),
             data.client.user_id.clone(),
         ),
         "bot",
-        vec![("previous", &previous_bot)],
-        data.ttl,
-        &mut data.db,
-    )?;
+        "previous",
+        &previous_bot,
+        data.ttl.map(|t| Utc::now().naive_utc() + t),
+        db,
+    )
+    .await?;
 
     Ok(InterpreterReturn::SwitchBot(SwitchBot {
         bot_id: next_bot.id.to_owned(),
@@ -418,8 +435,8 @@ fn manage_switch_bot<'a>(
     }))
 }
 
-fn manage_internal_goto<'a>(
-    data: &mut Conversation,
+async fn manage_internal_goto<'a>(
+    data: &mut ConversationData,
     conversation_end: &mut bool,
     interaction_order: &mut i32,
     current_flow: &mut &'a CsmlFlow,
@@ -427,6 +444,7 @@ fn manage_internal_goto<'a>(
     memories: &mut HashMap<String, Memory>,
     flow: Option<String>,
     step: Option<ContextStepInfo>,
+    db: &DatabaseConnection,
 ) -> Result<InterpreterReturn, BitpartError> {
     match (flow, step) {
         (Some(flow), Some(step)) => {
@@ -446,7 +464,7 @@ fn manage_internal_goto<'a>(
                 LogLvl::Debug,
             );
             update_current_context(data, &memories);
-            goto_flow(data, interaction_order, current_flow, &bot, flow, step)?
+            goto_flow(data, interaction_order, current_flow, &bot, flow, step, db).await?
         }
         (Some(flow), None) => {
             csml_logger(
@@ -466,7 +484,7 @@ fn manage_internal_goto<'a>(
             update_current_context(data, &memories);
             let step = ContextStepInfo::Normal("start".to_owned());
 
-            goto_flow(data, interaction_order, current_flow, &bot, flow, step)?
+            goto_flow(data, interaction_order, current_flow, &bot, flow, step, db).await?
         }
         (None, Some(step)) => {
             csml_logger(
@@ -484,7 +502,7 @@ fn manage_internal_goto<'a>(
                 ),
                 LogLvl::Debug,
             );
-            if goto_step(data, conversation_end, interaction_order, step)? {
+            if goto_step(data, conversation_end, interaction_order, step, db).await? {
                 return Ok(InterpreterReturn::End);
             }
         }
@@ -504,7 +522,7 @@ fn manage_internal_goto<'a>(
             );
 
             let step = ContextStepInfo::Normal("end".to_owned());
-            if goto_step(data, conversation_end, interaction_order, step)? {
+            if goto_step(data, conversation_end, interaction_order, step, db).await? {
                 return Ok(InterpreterReturn::End);
             }
         }
@@ -516,23 +534,26 @@ fn manage_internal_goto<'a>(
 /**
  * CSML `goto flow` action
  */
-fn goto_flow<'a>(
-    data: &mut Conversation,
+async fn goto_flow<'a>(
+    data: &mut ConversationData,
     interaction_order: &mut i32,
     current_flow: &mut &'a CsmlFlow,
     bot: &'a CsmlBot,
     nextflow: String,
     nextstep: ContextStepInfo,
+    db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
     *current_flow = get_flow_by_id(&nextflow, &bot.flows)?;
     data.context.flow = nextflow;
     data.context.step = nextstep;
 
-    update_conversation(
-        data,
+    db::conversation::update(
+        &data.conversation_id,
         Some(current_flow.id.clone()),
         Some(data.context.step.get_step()),
-    )?;
+        db,
+    )
+    .await?;
 
     *interaction_order += 1;
 
@@ -542,24 +563,31 @@ fn goto_flow<'a>(
 /**
  * CSML `goto step` action
  */
-fn goto_step<'a>(
-    data: &mut Conversation,
+async fn goto_step<'a>(
+    data: &mut ConversationData,
     conversation_end: &mut bool,
     interaction_order: &mut i32,
     nextstep: ContextStepInfo,
+    db: &DatabaseConnection,
 ) -> Result<bool, BitpartError> {
     if nextstep.is_step("end") {
         *conversation_end = true;
 
         // send end of conversation
         send_msg_to_callback_url(data, vec![], *interaction_order, *conversation_end);
-        close_conversation(&data.conversation_id, &data.client, &mut data.db)?;
+        db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", db).await?;
 
         // break interpret_step loop
         return Ok(*conversation_end);
     } else {
         data.context.step = nextstep;
-        update_conversation(data, None, Some(data.context.step.get_step()))?;
+        db::conversation::update(
+            &data.conversation_id,
+            None,
+            Some(data.context.step.get_step()),
+            db,
+        )
+        .await?;
     }
 
     *interaction_order += 1;
