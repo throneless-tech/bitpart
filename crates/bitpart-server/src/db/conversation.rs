@@ -78,12 +78,16 @@ pub async fn get_latest_by_client(
 
 pub async fn get_by_client(
     client: &Client,
+    limit: Option<u64>,
+    offset: Option<u64>,
     db: &DatabaseConnection,
 ) -> Result<Vec<conversation::Model>, BitpartError> {
     let entry = Conversation::find()
         .filter(conversation::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(conversation::Column::ChannelId.eq(client.channel_id.to_owned()))
         .filter(conversation::Column::UserId.eq(client.user_id.to_owned()))
+        .limit(limit)
+        .offset(offset)
         .all(db)
         .await?;
 

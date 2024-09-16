@@ -1,3 +1,4 @@
+use csml_interpreter::data::CsmlBot;
 use sea_orm::*;
 use std::env;
 use uuid;
@@ -6,25 +7,43 @@ use super::entities::{prelude::*, *};
 use crate::data::{BotVersion, SerializeCsmlBot};
 use crate::error::BitpartError;
 
-pub async fn create(bot_id: &str, bot: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<bot::Model, BitpartError> {
     let entry = bot::ActiveModel {
         id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
-        bot_id: ActiveValue::Set(bot_id.to_owned()),
-        bot: ActiveValue::Set(bot.to_owned()),
+        bot_id: ActiveValue::Set(bot.id.to_owned()),
+        bot: ActiveValue::Set(bot.to_json().to_string()),
         engine_version: ActiveValue::Set(env!["CARGO_PKG_VERSION"].to_owned()),
         ..Default::default()
     };
-    entry.insert(db).await?;
-    Ok(())
+    Ok(entry.insert(db).await?)
 }
 
-// pub fn get(
-//     bot_id: &str,
-//     limit: Option<usize>,
-//     offset: Option<usize>,
-//     db: &DatabaseConnection,
-// ) -> Result<Option<Vec<CsmlBot>>, BitpartError> {
-// }
+pub async fn get(
+    bot_id: &str,
+    limit: Option<u64>,
+    offset: Option<u64>,
+    db: &DatabaseConnection,
+) -> Result<Vec<BotVersion>, BitpartError> {
+    let entries = Bot::find()
+        .filter(bot::Column::BotId.eq(bot_id))
+        .order_by(bot::Column::CreatedAt, Order::Desc)
+        .limit(limit)
+        .offset(offset)
+        .all(db)
+        .await?;
+
+    Ok(entries
+        .into_iter()
+        .map(|e| {
+            let bot: SerializeCsmlBot = serde_json::from_str(&e.bot).unwrap();
+            BotVersion {
+                bot: bot.to_bot(),
+                version_id: bot.id.to_string(),
+                engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
+            }
+        })
+        .collect())
+}
 
 pub async fn get_by_id(
     id: &str,

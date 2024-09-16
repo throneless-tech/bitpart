@@ -8,7 +8,7 @@ use csml_interpreter::data::{
 use csml_interpreter::get_step;
 use csml_interpreter::interpreter::json_to_literal;
 use md5::{Digest, Md5};
-use rand::seq::SliceRandom;
+use rand::{seq::SliceRandom, thread_rng, Rng};
 use regex::Regex;
 use sea_orm::DatabaseConnection;
 use serde_json::{json, map::Map, Value};
@@ -341,7 +341,8 @@ pub async fn search_flow<'a>(
                 }
             }
 
-            match random_flows.choose(&mut rand::thread_rng()) {
+            let random = thread_rng().gen_range(0..random_flows.len());
+            match random_flows.get(random) {
                 Some(flow) => {
                     db::state::delete(&client, "hold", "position", db).await?;
                     Ok((flow, "start".to_owned()))
@@ -366,7 +367,8 @@ pub async fn search_flow<'a>(
                 }
             }
 
-            match random_flows.choose(&mut rand::thread_rng()) {
+            let random = thread_rng().gen_range(0..random_flows.len());
+            match random_flows.get(random) {
                 Some(flow) => {
                     db::state::delete(&client, "hold", "position", db).await?;
                     Ok((flow, "start".to_owned()))

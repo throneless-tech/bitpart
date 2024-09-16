@@ -41,6 +41,12 @@ pub struct BotVersion {
     pub engine_version: String,
 }
 
+// impl IntoResponse for BotVersion {
+//     fn into_response(self) -> axum::response::Response {
+//         (StatusCode::CREATED, self).into_response()
+//     }
+// }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SerializeCsmlBot {
     pub id: String,
@@ -166,6 +172,64 @@ impl BotOpt {
                     ))),
                 }
             }
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RunRequest {
+    pub bot: Option<CsmlBot>,
+    pub bot_id: Option<String>,
+    pub version_id: Option<String>,
+    #[serde(alias = "fn_endpoint")]
+    pub apps_endpoint: Option<String>,
+    pub multibot: Option<Vec<MultiBot>>,
+    pub event: Request,
+}
+
+impl RunRequest {
+    pub fn get_bot_opt(&self) -> Result<BotOpt, BitpartError> {
+        match self.clone() {
+            // Bot
+            RunRequest {
+                bot: Some(mut csml_bot),
+                multibot,
+                ..
+            } => {
+                csml_bot.multibot = multibot;
+
+                Ok(BotOpt::CsmlBot(csml_bot))
+            }
+
+            // version id
+            RunRequest {
+                version_id: Some(version_id),
+                bot_id: Some(bot_id),
+                apps_endpoint,
+                multibot,
+                ..
+            } => Ok(BotOpt::Id {
+                version_id,
+                bot_id,
+                apps_endpoint,
+                multibot,
+            }),
+
+            // get bot by id will search for the last version id
+            RunRequest {
+                bot_id: Some(bot_id),
+                apps_endpoint,
+                multibot,
+                ..
+            } => Ok(BotOpt::BotId {
+                bot_id,
+                apps_endpoint,
+                multibot,
+            }),
+
+            _ => Err(BitpartError::Interpreter(
+                "Invalid bot_opt format".to_owned(),
+            )),
         }
     }
 }

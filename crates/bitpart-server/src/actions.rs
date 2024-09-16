@@ -249,7 +249,7 @@ pub async fn step(
         db::message::create(data, &msgs, interaction_order, "SEND", None, db).await?;
     }
 
-    db::memory::create(&data.client, &memories, None, db).await?;
+    db::memory::create_many(&data.client, &memories, None, db).await?;
 
     Ok((
         messages_formatter(

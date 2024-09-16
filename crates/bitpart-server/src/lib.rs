@@ -1,4 +1,5 @@
 mod actions;
+pub mod api;
 pub mod csml;
 mod data;
 mod db;
@@ -148,7 +149,7 @@ pub async fn init_conversation_info<'a>(
             .await?;
 
     context.metadata = get_hashmap_from_json(&request.metadata, &context.flow);
-    let memories = db::memory::get_by_client(&request.client, db).await?;
+    let memories = db::memory::get_by_client(&request.client, None, None, db).await?;
     let mut map = serde_json::Map::new();
     for mem in memories {
         if !map.contains_key(&mem.key) {
@@ -326,7 +327,7 @@ pub async fn switch_bot(
     )
     .await?;
 
-    let memories = db::memory::get_by_client(&data.client, db).await?;
+    let memories = db::memory::get_by_client(&data.client, None, None, db).await?;
     let mut map = serde_json::Map::new();
     for mem in memories {
         if !map.contains_key(&mem.key) {
@@ -341,7 +342,7 @@ pub async fn switch_bot(
     Ok(())
 }
 
-#[async_recursion(?Send)]
+#[async_recursion]
 async fn check_switch_bot(
     result: Result<
         (

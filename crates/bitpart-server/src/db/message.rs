@@ -49,7 +49,7 @@ pub async fn delete_by_client(
     client: &Client,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
-    let conversations = super::conversation::get_by_client(client, db).await?;
+    let conversations = super::conversation::get_by_client(client, None, None, db).await?;
     for convo in conversations {
         Message::delete_many()
             .filter(message::Column::ConversationId.eq(convo.id.to_owned()))
@@ -61,13 +61,17 @@ pub async fn delete_by_client(
 
 pub async fn get_by_client(
     client: &Client,
+    limit: Option<u64>,
+    offset: Option<u64>,
     db: &DatabaseConnection,
 ) -> Result<Vec<message::Model>, BitpartError> {
     let mut messages = vec![];
-    let conversations = super::conversation::get_by_client(client, db).await?;
+    let conversations = super::conversation::get_by_client(client, limit, offset, db).await?;
     for convo in conversations {
         let entry = Message::find()
             .filter(message::Column::ConversationId.eq(convo.id.to_owned()))
+            .limit(limit)
+            .offset(offset)
             .all(db)
             .await?;
         messages.extend(entry);

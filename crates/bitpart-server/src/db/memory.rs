@@ -9,6 +9,27 @@ use crate::error::BitpartError;
 
 pub async fn create(
     client: &Client,
+    key: &str,
+    value: &str,
+    expires_at: Option<NaiveDateTime>,
+    db: &DatabaseConnection,
+) -> Result<(), BitpartError> {
+    let entry = memory::ActiveModel {
+        id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
+        bot_id: ActiveValue::Set(client.bot_id.to_owned()),
+        channel_id: ActiveValue::Set(client.channel_id.to_owned()),
+        user_id: ActiveValue::Set(client.user_id.to_owned()),
+        key: ActiveValue::Set(key.to_owned()),
+        value: ActiveValue::Set(value.to_owned()),
+        expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
+        ..Default::default()
+    };
+    Memory::insert(entry).exec(db).await?;
+    Ok(())
+}
+
+pub async fn create_many(
+    client: &Client,
     memories: &HashMap<String, CsmlMemory>,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
@@ -50,12 +71,16 @@ pub async fn get(
 
 pub async fn get_by_client(
     client: &Client,
+    limit: Option<u64>,
+    offset: Option<u64>,
     db: &DatabaseConnection,
 ) -> Result<Vec<memory::Model>, BitpartError> {
     let entry = Memory::find()
         .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
         .filter(memory::Column::UserId.eq(client.user_id.to_owned()))
+        .limit(limit)
+        .offset(offset)
         .all(db)
         .await?;
 

@@ -26,6 +26,19 @@ pub async fn get(
     Ok(entry.value.into())
 }
 
+pub async fn get_by_client(
+    client: &Client,
+    db: &DatabaseConnection,
+) -> Result<Vec<Value>, BitpartError> {
+    let entries = State::find()
+        .filter(state::Column::BotId.eq(&client.bot_id))
+        .filter(state::Column::ChannelId.eq(&client.channel_id))
+        .filter(state::Column::UserId.eq(&client.user_id))
+        .all(db)
+        .await?;
+    Ok(entries.into_iter().map(|e| e.value.into()).collect())
+}
+
 pub async fn set(
     client: &Client,
     r#type: &str,

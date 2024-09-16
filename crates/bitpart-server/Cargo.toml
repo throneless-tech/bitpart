@@ -5,8 +5,13 @@ authors = ["Josh King <josh@throneless.tech>"]
 edition = "2021"
 
 [dependencies]
+aide = { version = "0.13.4", features = ["axum", "macros"] }
 anyhow = "1.0"
 async-recursion = "1.1.1"
+axum = { version = "0.7.5", features = ["http2", "macros"] }
+axum-server = "0.7.1"
+axum-typed-routing = { version = "0.2.1", features = ["aide"] }
+axum-typed-routing-macros = "0.2.1"
 base64 = "0.22.1"
 bincode = "1.3.3"
 chrono = "0.4"

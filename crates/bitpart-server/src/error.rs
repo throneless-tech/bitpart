@@ -1,21 +1,26 @@
+use aide::OperationIo;
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error, OperationIo)]
 pub enum BitpartError {
+    #[error("Interpreter error: `{0}`")]
     Interpreter(String),
+    #[error("Manager error: `{0}`")]
     Manager(String),
-    Db(DbErr),
-    Serde(SerdeError),
+    #[error("Database error")]
+    Db(#[from] DbErr),
+    #[error("Serialization/deserialization error")]
+    Serde(#[from] SerdeError),
 }
 
-impl From<DbErr> for BitpartError {
-    fn from(item: DbErr) -> Self {
-        BitpartError::Db(item)
-    }
-}
-impl From<SerdeError> for BitpartError {
-    fn from(item: SerdeError) -> Self {
-        BitpartError::Serde(item)
+impl IntoResponse for BitpartError {
+    fn into_response(self) -> Response {
+        (StatusCode::INTERNAL_SERVER_ERROR, self).into_response()
     }
 }
