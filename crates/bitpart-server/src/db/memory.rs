@@ -49,7 +49,9 @@ pub async fn create_many(
         };
         new_memories.push(entry);
     }
-    Memory::insert_many(new_memories).exec(db).await?;
+    if new_memories.len() > 0 {
+        Memory::insert_many(new_memories).exec(db).await?;
+    }
     Ok(())
 }
 

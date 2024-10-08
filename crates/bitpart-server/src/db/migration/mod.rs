@@ -6,6 +6,8 @@ mod m20240801_000003_create_memory;
 mod m20240801_000004_create_message;
 mod m20240801_000005_create_state;
 
+use crate::error::BitpartError;
+
 pub struct Migrator;
 
 #[async_trait::async_trait]
@@ -19,4 +21,10 @@ impl MigratorTrait for Migrator {
             Box::new(m20240801_000005_create_state::Migration),
         ]
     }
+}
+
+pub async fn migrate(uri: &str) -> Result<(), BitpartError> {
+    let db = sea_orm::Database::connect(uri).await?;
+    Migrator::refresh(&db).await?;
+    Ok(())
 }

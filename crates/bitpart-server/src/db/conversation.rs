@@ -22,6 +22,7 @@ pub async fn create(
         user_id: ActiveValue::Set(client.user_id.to_owned()),
         flow_id: ActiveValue::Set(flow_id.to_owned()),
         step_id: ActiveValue::Set(step_id.to_owned()),
+        status: ActiveValue::Set("OPEN".to_owned()),
         expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
         ..Default::default()
     };

@@ -1,14 +1,14 @@
 mod actions;
 pub mod api;
-pub mod csml;
 mod data;
-mod db;
+pub mod db;
 pub mod error;
 mod event;
-mod utils;
+pub mod utils;
 use sea_orm::*;
 
 use async_recursion::async_recursion;
+use base64::prelude::*;
 use chrono::Utc;
 use csml_interpreter::data::{
     ast::Flow,
@@ -209,9 +209,8 @@ fn set_bot_ast(bot: &mut CsmlBot) -> Result<(), BitpartError> {
             errors: None,
             ..
         } => {
-            bot.bot_ast = Some(base64::encode(
-                bincode::serialize(&(&flows, &extern_flows)).unwrap(),
-            ));
+            bot.bot_ast =
+                Some(BASE64_STANDARD.encode(bincode::serialize(&(&flows, &extern_flows)).unwrap()));
         }
         CsmlResult {
             flows: Some(flows),
@@ -221,9 +220,8 @@ fn set_bot_ast(bot: &mut CsmlBot) -> Result<(), BitpartError> {
         } => {
             let extern_flows: HashMap<String, Flow> = HashMap::new();
 
-            bot.bot_ast = Some(base64::encode(
-                bincode::serialize(&(&flows, &extern_flows)).unwrap(),
-            ));
+            bot.bot_ast =
+                Some(BASE64_STANDARD.encode(bincode::serialize(&(&flows, &extern_flows)).unwrap()));
         }
         CsmlResult {
             errors: Some(errors),

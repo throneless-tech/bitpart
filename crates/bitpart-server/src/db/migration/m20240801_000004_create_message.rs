@@ -32,12 +32,38 @@ impl MigrationTrait for Migration {
                             .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(Message::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(Message::UpdatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(Message::CreatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Message::UpdatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(Message::ExpiresAt).date_time())
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        let db = manager.get_connection();
+
+        db.execute_unprepared(
+            "CREATE TRIGGER message_updated_at
+            AFTER UPDATE ON message
+            FOR EACH ROW
+            BEGIN
+                UPDATE message
+                SET updated_at = (datetime('now','localtime'))
+                WHERE id = NEW.id;
+            END;",
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {

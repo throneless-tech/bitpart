@@ -7,15 +7,24 @@ use super::entities::{prelude::*, *};
 use crate::data::{BotVersion, SerializeCsmlBot};
 use crate::error::BitpartError;
 
-pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<bot::Model, BitpartError> {
-    let entry = bot::ActiveModel {
+pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion, BitpartError> {
+    let model = bot::ActiveModel {
         id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
         bot_id: ActiveValue::Set(bot.id.to_owned()),
         bot: ActiveValue::Set(bot.to_json().to_string()),
         engine_version: ActiveValue::Set(env!["CARGO_PKG_VERSION"].to_owned()),
         ..Default::default()
     };
-    Ok(entry.insert(db).await?)
+
+    let entry = model.insert(db).await?;
+
+    let bot: SerializeCsmlBot = serde_json::from_str(&entry.bot).unwrap();
+
+    Ok(BotVersion {
+        bot: bot.to_bot(),
+        version_id: entry.id,
+        engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
+    })
 }
 
 pub async fn get(
@@ -68,11 +77,14 @@ pub async fn get_latest_by_bot_id(
     bot_id: &str,
     db: &DatabaseConnection,
 ) -> Result<Option<BotVersion>, BitpartError> {
+    println!("bot_id: {:?}", bot_id);
     let entry = Bot::find()
         .filter(bot::Column::BotId.eq(bot_id))
         .order_by(bot::Column::CreatedAt, Order::Desc)
         .one(db)
         .await?;
+
+    println!("Entry: {:?}", entry);
 
     match entry {
         Some(e) => {

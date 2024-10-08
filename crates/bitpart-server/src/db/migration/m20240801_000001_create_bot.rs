@@ -15,11 +15,37 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Bot::BotId).string().not_null())
                     .col(ColumnDef::new(Bot::Bot).string().not_null())
                     .col(ColumnDef::new(Bot::EngineVersion).string().not_null())
-                    .col(ColumnDef::new(Bot::UpdatedAt).date_time().not_null())
-                    .col(ColumnDef::new(Bot::CreatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(Bot::UpdatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Bot::CreatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        let db = manager.get_connection();
+
+        db.execute_unprepared(
+            "CREATE TRIGGER bot_updated_at
+            AFTER UPDATE ON bot
+            FOR EACH ROW
+            BEGIN
+                UPDATE bot
+                SET updated_at = (datetime('now','localtime'))
+                WHERE id = NEW.id;
+            END;",
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {

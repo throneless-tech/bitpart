@@ -26,22 +26,41 @@ impl MigrationTrait for Migration {
                     .col(
                         ColumnDef::new(Conversation::LastInteractionAt)
                             .date_time()
+                            .default(Expr::current_timestamp())
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(Conversation::UpdatedAt)
                             .date_time()
+                            .default(Expr::current_timestamp())
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(Conversation::CreatedAt)
                             .date_time()
+                            .default(Expr::current_timestamp())
                             .not_null(),
                     )
                     .col(ColumnDef::new(Conversation::ExpiresAt).date_time())
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        let db = manager.get_connection();
+
+        db.execute_unprepared(
+            "CREATE TRIGGER conversation_updated_at
+            AFTER UPDATE ON conversation
+            FOR EACH ROW
+            BEGIN
+                UPDATE conversation
+                SET updated_at = (datetime('now','localtime'))
+                WHERE id = NEW.id;
+            END;",
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {

@@ -1,7 +1,6 @@
 use crate::data::{FlowTrigger, Request};
 use crate::error::BitpartError;
 use csml_interpreter::data::Event;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, BitpartError> {
@@ -87,12 +86,6 @@ fn request_to_event(request: &Request) -> Result<Event, BitpartError> {
         secure: json_event["payload"]["secure"].as_bool().unwrap_or(false),
     })
 }
-
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// pub struct Event {
-//     content_type: String,
-//     content: String,
-// }
 
 impl TryFrom<&Request> for Event {
     type Error = BitpartError;

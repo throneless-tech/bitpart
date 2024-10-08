@@ -17,12 +17,38 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Memory::UserId).string().not_null())
                     .col(ColumnDef::new(Memory::Key).string().not_null())
                     .col(ColumnDef::new(Memory::Value).string().not_null())
-                    .col(ColumnDef::new(Memory::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(Memory::UpdatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(Memory::CreatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Memory::UpdatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(Memory::ExpiresAt).date_time())
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        let db = manager.get_connection();
+
+        db.execute_unprepared(
+            "CREATE TRIGGER memory_updated_at
+            AFTER UPDATE ON memory
+            FOR EACH ROW
+            BEGIN
+                UPDATE memory
+                SET updated_at = (datetime('now','localtime'))
+                WHERE id = NEW.id;
+            END;",
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {

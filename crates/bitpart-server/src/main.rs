@@ -1,18 +1,30 @@
 use axum::{
-    routing::{delete, get, patch, post},
+    extract::{Request, State},
+    http::{header, StatusCode},
+    middleware::{self, Next},
+    response::Response,
+    routing::{get, post},
     Router,
 };
 use clap::Parser;
-use sea_orm::Database;
-use std::env;
+use sea_orm::{ConnectionTrait, Database};
+//use sea_orm_migration::prelude::*;
 use std::net::SocketAddr;
 
-use bitpart_server::{api, error::BitpartError};
+use bitpart_server::{
+    api::{self, ApiState},
+    db::migration::migrate,
+    error::BitpartError,
+};
 
-/// The Bitpart interpreter
+/// The Bitpart server
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// API authentication token
+    #[arg(short, long)]
+    auth: String,
+
     /// IP address and port to bind to
     #[arg(short, long)]
     bind: String,
@@ -20,9 +32,27 @@ struct Args {
     /// Path to sqlcipher database file
     #[arg(short, long)]
     database: String,
+
+    /// Database encryption key
+    #[arg(short, long)]
+    key: String,
 }
 
-const API_BASE: &str = concat!("/api/v", env!("CARGO_PKG_VERSION_MAJOR"), "/");
+async fn auth(
+    State(state): State<ApiState>,
+    req: Request,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let auth_header = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|header| header.to_str().ok());
+
+    match auth_header {
+        Some(auth_header) if auth_header == state.auth => Ok(next.run(req).await),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // PUBLIC FUNCTION
@@ -32,10 +62,18 @@ const API_BASE: &str = concat!("/api/v", env!("CARGO_PKG_VERSION_MAJOR"), "/");
 async fn main() -> Result<(), BitpartError> {
     let args = Args::parse();
 
-    println!("{}", args.bind);
-    println!("{}", args.database);
+    println!("Server is running!");
 
-    let db = Database::connect(format!("sqlite://{}?mode=rwc", args.database)).await?;
+    let uri = format!("sqlite://{}?mode=rwc", args.database);
+    let db = Database::connect(&uri).await?;
+    let key_query = format!("PRAGMA key = '{}';", args.key);
+    db.execute_unprepared(&key_query).await?;
+    migrate(&uri).await?;
+
+    let state = ApiState {
+        db,
+        auth: args.auth,
+    };
 
     let app = Router::new()
         .route("/api/v1/bots", post(api::post_bot))
@@ -66,7 +104,8 @@ async fn main() -> Result<(), BitpartError> {
         .route("/api/v1/messages", get(api::get_messages))
         .route("/api/v1/state", get(api::get_state))
         .route("/api/v1/requests", post(api::post_request))
-        .with_state(db);
+        .route_layer(middleware::from_fn_with_state(state.clone(), auth))
+        .with_state(state);
 
     let addr: SocketAddr = args.bind.parse().expect("Unable to parse bind address");
 

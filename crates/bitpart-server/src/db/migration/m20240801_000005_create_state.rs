@@ -18,12 +18,38 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(State::Type).string().not_null())
                     .col(ColumnDef::new(State::Key).string().not_null())
                     .col(ColumnDef::new(State::Value).string().not_null())
-                    .col(ColumnDef::new(State::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(State::UpdatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(State::CreatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(State::UpdatedAt)
+                            .date_time()
+                            .default(Expr::current_timestamp())
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(State::ExpiresAt).date_time())
                     .to_owned(),
             )
-            .await
+            .await?;
+
+        let db = manager.get_connection();
+
+        db.execute_unprepared(
+            "CREATE TRIGGER state_updated_at
+            AFTER UPDATE ON state
+            FOR EACH ROW
+            BEGIN
+                UPDATE state
+                SET updated_at = (datetime('now','localtime'))
+                WHERE id = NEW.id;
+            END;",
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {

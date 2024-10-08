@@ -13,7 +13,7 @@ pub enum BitpartError {
     Interpreter(String),
     #[error("Manager error: `{0}`")]
     Manager(String),
-    #[error("Database error")]
+    #[error("Database error: `{0}`")]
     Db(#[from] DbErr),
     #[error("Serialization/deserialization error")]
     Serde(#[from] SerdeError),
@@ -21,6 +21,7 @@ pub enum BitpartError {
 
 impl IntoResponse for BitpartError {
     fn into_response(self) -> Response {
-        (StatusCode::INTERNAL_SERVER_ERROR, self).into_response()
+        println!("{:?}", self.to_string());
+        (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()).into_response()
     }
 }

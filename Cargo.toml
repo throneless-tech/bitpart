@@ -3,5 +3,4 @@ resolver = "2"
 members = [
   # "crates/bitpart-cli",
   "crates/bitpart-server",
-  "crates/bitpart-server/migration",
 ]

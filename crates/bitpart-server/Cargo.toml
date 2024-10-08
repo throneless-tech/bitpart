@@ -10,6 +10,7 @@ anyhow = "1.0"
 async-recursion = "1.1.1"
 axum = { version = "0.7.5", features = ["http2", "macros"] }
 axum-server = "0.7.1"
+axum-test = "16.0.0"
 axum-typed-routing = { version = "0.2.1", features = ["aide"] }
 axum-typed-routing-macros = "0.2.1"
 base64 = "0.22.1"
@@ -27,10 +28,12 @@ rand = "0.8.5"
 regex = "1.10.6"
 rustls = { version = "0.21.12", features = ["dangerous_configuration"]}
 sea-orm = { version = "~1.0", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
+sea-orm-migration = "1.0.1"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.117"
 thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["full"] }
+tower-http = { version = "0.5.2", features = ["auth"] }
 ureq = "2.8"
 uuid = { version = "1.10.0", features = ["v4", "fast-rng", "macro-diagnostics"]}
 

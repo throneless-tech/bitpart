@@ -1,3 +1,15 @@
+#[cfg(test)]
+use crate::api::ApiState;
+#[cfg(test)]
+use axum::Router;
+#[cfg(test)]
+use axum_test::TestServer;
+#[cfg(test)]
+use sea_orm::Database;
+#[cfg(test)]
+use sea_orm_migration::MigratorTrait;
+
+use base64::prelude::*;
 use chrono::{SecondsFormat, Utc};
 use csml_interpreter::csml_logs::{csml_logger, CsmlLog, LogLvl};
 use csml_interpreter::data::{
@@ -8,29 +20,48 @@ use csml_interpreter::data::{
 use csml_interpreter::get_step;
 use csml_interpreter::interpreter::json_to_literal;
 use md5::{Digest, Md5};
-use rand::{seq::SliceRandom, thread_rng, Rng};
+use rand::{thread_rng, Rng};
 use regex::Regex;
 use sea_orm::DatabaseConnection;
 use serde_json::{json, map::Map, Value};
 use std::collections::HashMap;
 use std::env;
-use std::ffi::OsStr;
-use std::{fs, io, path::PathBuf};
+// use std::ffi::OsStr;
+// use std::{fs, io, path::PathBuf};
 
 use crate::data::{ConversationData, FlowTrigger};
 use crate::db;
 use crate::error::BitpartError;
 
-fn find_csml(path: &str) -> io::Result<Vec<PathBuf>> {
-    let entries = fs::read_dir(path)?
-        .filter_map(|res| match res.ok()?.path() {
-            path if path.extension() == Some(OsStr::new("csml")) => Some(path),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+#[cfg(test)]
+pub async fn get_test_server(app: Router<ApiState>) -> TestServer {
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    db::migration::Migrator::refresh(&db).await.unwrap();
 
-    Ok(entries)
+    let state = ApiState {
+        db,
+        auth: "test".into(),
+    };
+    TestServer::builder()
+        // Preserve cookies across requests
+        // for the session cookie to work.
+        .save_cookies()
+        //.expect_success_by_default()
+        .mock_transport()
+        .build(app.with_state(state))
+        .unwrap()
 }
+
+// fn find_csml(path: &str) -> io::Result<Vec<PathBuf>> {
+//     let entries = fs::read_dir(path)?
+//         .filter_map(|res| match res.ok()?.path() {
+//             path if path.extension() == Some(OsStr::new("csml")) => Some(path),
+//             _ => None,
+//         })
+//         .collect::<Vec<_>>();
+
+//     Ok(entries)
+// }
 
 fn add_info_to_message(data: &ConversationData, mut msg: Message, interaction_order: i32) -> Value {
     let payload = msg.message_to_json();
@@ -178,7 +209,7 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
 
             let ast = match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = base64::decode(&ast).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(&ast).unwrap();
                     let csml_bot: HashMap<String, Flow> =
                         bincode::deserialize(&base64decoded[..]).unwrap();
                     match csml_bot.get(&context.flow) {
@@ -199,7 +230,7 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
 
             match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = base64::decode(&ast).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(&ast).unwrap();
                     let csml_bot: HashMap<String, Flow> =
                         bincode::deserialize(&base64decoded[..]).unwrap();
 
@@ -247,7 +278,7 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
 
             let ast = match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = base64::decode(&ast).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(&ast).unwrap();
                     let csml_bot: HashMap<String, Flow> =
                         bincode::deserialize(&base64decoded[..]).unwrap();
 
@@ -341,7 +372,12 @@ pub async fn search_flow<'a>(
                 }
             }
 
-            let random = thread_rng().gen_range(0..random_flows.len());
+            // gen_range will panic if range is empty
+            let random = if random_flows.len() != 0 {
+                thread_rng().gen_range(0..random_flows.len())
+            } else {
+                0
+            };
             match random_flows.get(random) {
                 Some(flow) => {
                     db::state::delete(&client, "hold", "position", db).await?;
@@ -367,7 +403,12 @@ pub async fn search_flow<'a>(
                 }
             }
 
-            let random = thread_rng().gen_range(0..random_flows.len());
+            // gen_range will panic if range is empty
+            let random = if random_flows.len() != 0 {
+                thread_rng().gen_range(0..random_flows.len())
+            } else {
+                0
+            };
             match random_flows.get(random) {
                 Some(flow) => {
                     db::state::delete(&client, "hold", "position", db).await?;
