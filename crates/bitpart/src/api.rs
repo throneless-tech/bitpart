@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 //use std::env;
 
-use crate::{data::RunRequest, db, error::BitpartError, start_conversation};
+use crate::{conversation::start_conversation, data::Request, db, error::BitpartError};
 
 #[derive(Deserialize)]
 pub struct QueryPagination {
@@ -419,7 +419,7 @@ Request
 
 pub async fn post_request(
     State(state): State<ApiState>,
-    Json(body): Json<RunRequest>,
+    Json(body): Json<Request>,
 ) -> Result<impl IntoResponse, BitpartError> {
     let mut request = body.event.to_owned();
 

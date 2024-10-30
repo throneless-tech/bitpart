@@ -19,7 +19,7 @@ pub struct FlowTrigger {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Request {
+pub struct SerializedEvent {
     pub id: String,
     pub client: Client,
     pub metadata: serde_json::Value,
@@ -48,7 +48,7 @@ pub struct BotVersion {
 // }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializeCsmlBot {
+pub struct SerializedCsmlBot {
     pub id: String,
     pub name: String,
     pub flows: Vec<CsmlFlow>,
@@ -60,7 +60,7 @@ pub struct SerializeCsmlBot {
     pub modules: Option<Vec<Module>>,
 }
 
-impl SerializeCsmlBot {
+impl SerializedCsmlBot {
     pub fn to_bot(&self) -> CsmlBot {
         CsmlBot {
             id: self.id.to_owned(),
@@ -116,14 +116,12 @@ pub enum BotOpt {
     Id {
         version_id: String,
         bot_id: String,
-        #[serde(alias = "fn_endpoint")]
         apps_endpoint: Option<String>,
         multibot: Option<Vec<MultiBot>>,
     },
     #[serde(rename = "bot_id")]
     BotId {
         bot_id: String,
-        #[serde(alias = "fn_endpoint")]
         apps_endpoint: Option<String>,
         multibot: Option<Vec<MultiBot>>,
     },
@@ -177,21 +175,21 @@ impl BotOpt {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct RunRequest {
+pub struct Request {
     pub bot: Option<CsmlBot>,
     pub bot_id: Option<String>,
     pub version_id: Option<String>,
     #[serde(alias = "fn_endpoint")]
     pub apps_endpoint: Option<String>,
     pub multibot: Option<Vec<MultiBot>>,
-    pub event: Request,
+    pub event: SerializedEvent,
 }
 
-impl RunRequest {
+impl Request {
     pub fn get_bot_opt(&self) -> Result<BotOpt, BitpartError> {
         match self.clone() {
             // Bot
-            RunRequest {
+            Request {
                 bot: Some(mut csml_bot),
                 multibot,
                 ..
@@ -202,7 +200,7 @@ impl RunRequest {
             }
 
             // version id
-            RunRequest {
+            Request {
                 version_id: Some(version_id),
                 bot_id: Some(bot_id),
                 apps_endpoint,
@@ -216,7 +214,7 @@ impl RunRequest {
             }),
 
             // get bot by id will search for the last version id
-            RunRequest {
+            Request {
                 bot_id: Some(bot_id),
                 apps_endpoint,
                 multibot,

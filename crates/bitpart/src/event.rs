@@ -1,4 +1,4 @@
-use crate::data::{FlowTrigger, Request};
+use crate::data::{FlowTrigger, SerializedEvent};
 use crate::error::BitpartError;
 use csml_interpreter::data::Event;
 use serde_json::{json, Value};
@@ -60,7 +60,7 @@ fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, Bit
     }
 }
 
-fn request_to_event(request: &Request) -> Result<Event, BitpartError> {
+fn request_to_event(request: &SerializedEvent) -> Result<Event, BitpartError> {
     let step_limit = request.step_limit;
     let json_event = json!(request);
 
@@ -87,18 +87,18 @@ fn request_to_event(request: &Request) -> Result<Event, BitpartError> {
     })
 }
 
-impl TryFrom<&Request> for Event {
+impl TryFrom<&SerializedEvent> for Event {
     type Error = BitpartError;
 
-    fn try_from(val: &Request) -> Result<Event, Self::Error> {
+    fn try_from(val: &SerializedEvent) -> Result<Event, Self::Error> {
         request_to_event(val)
     }
 }
 
-impl TryFrom<Request> for Event {
+impl TryFrom<SerializedEvent> for Event {
     type Error = BitpartError;
 
-    fn try_from(val: Request) -> Result<Event, Self::Error> {
+    fn try_from(val: SerializedEvent) -> Result<Event, Self::Error> {
         request_to_event(&val)
     }
 }

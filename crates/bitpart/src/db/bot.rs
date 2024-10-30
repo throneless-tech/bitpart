@@ -4,7 +4,7 @@ use std::env;
 use uuid;
 
 use super::entities::{prelude::*, *};
-use crate::data::{BotVersion, SerializeCsmlBot};
+use crate::data::{BotVersion, SerializedCsmlBot};
 use crate::error::BitpartError;
 
 pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion, BitpartError> {
@@ -18,7 +18,7 @@ pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion,
 
     let entry = model.insert(db).await?;
 
-    let bot: SerializeCsmlBot = serde_json::from_str(&entry.bot).unwrap();
+    let bot: SerializedCsmlBot = serde_json::from_str(&entry.bot).unwrap();
 
     Ok(BotVersion {
         bot: bot.to_bot(),
@@ -44,7 +44,7 @@ pub async fn get(
     Ok(entries
         .into_iter()
         .map(|e| {
-            let bot: SerializeCsmlBot = serde_json::from_str(&e.bot).unwrap();
+            let bot: SerializedCsmlBot = serde_json::from_str(&e.bot).unwrap();
             BotVersion {
                 bot: bot.to_bot(),
                 version_id: bot.id.to_string(),
@@ -61,7 +61,7 @@ pub async fn get_by_id(
     let entry = Bot::find_by_id(id).one(db).await?;
     match entry {
         Some(e) => {
-            let bot: SerializeCsmlBot = serde_json::from_str(&e.bot)?;
+            let bot: SerializedCsmlBot = serde_json::from_str(&e.bot)?;
 
             Ok(Some(BotVersion {
                 bot: bot.to_bot(),
@@ -88,7 +88,7 @@ pub async fn get_latest_by_bot_id(
 
     match entry {
         Some(e) => {
-            let bot: SerializeCsmlBot = serde_json::from_str(&e.bot)?;
+            let bot: SerializedCsmlBot = serde_json::from_str(&e.bot)?;
 
             Ok(Some(BotVersion {
                 bot: bot.to_bot(),

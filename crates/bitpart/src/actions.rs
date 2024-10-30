@@ -7,7 +7,7 @@ use crate::utils::{
 
 use crate::error::BitpartError;
 use chrono::Utc;
-use csml_interpreter::csml_logs::{csml_logger, CsmlLog, LogLvl};
+use csml_interpreter::csml_logs::LogLvl;
 use csml_interpreter::data::{
     ast::ForgetMemory, context::ContextStepInfo, event::Event, Client, CsmlBot, CsmlFlow, Hold,
     Memory, Message, MultiBot, MSG,
@@ -18,6 +18,7 @@ use serde_json::{map::Map, Value};
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::thread;
+use tracing::{debug, error, info, trace, warn};
 
 #[derive(Debug, Clone)]
 enum InterpreterReturn {
@@ -38,27 +39,17 @@ pub async fn step(
     let (sender, receiver) = mpsc::channel::<MSG>();
     let context = data.context.clone();
     let mut switch_bot = None;
-
-    csml_logger(
-        CsmlLog::new(
-            None,
-            Some(data.context.flow.to_string()),
-            None,
-            format!("interpreter: start interpretations of bot {:?}", bot.id),
-        ),
-        LogLvl::Info,
+    info!(
+        flow = data.context.flow.to_string(),
+        "interpreter: start interpretations of bot {:?}", bot.id
     );
-    csml_logger(
-        CsmlLog::new(
-            Some(&data.client),
-            Some(data.context.flow.to_string()),
-            None,
-            format!(
-                "interpreter: start interpretations of bot {:?}, with ",
-                bot.id
-            ),
-        ),
-        LogLvl::Debug,
+    debug!(
+        bot_id = data.client.bot_id.to_string(),
+        user_id = data.client.user_id.to_string(),
+        channel_id = data.client.channel_id.to_string(),
+        flow = data.context.flow.to_string(),
+        "interpreter: start interpretations of bot {:?}, with ",
+        bot.id
     );
     let new_bot = bot.clone();
     thread::spawn(move || {
@@ -89,23 +80,14 @@ pub async fn step(
                 }
             },
             MSG::Message(msg) => {
-                csml_logger(
-                    CsmlLog::new(
-                        None,
-                        Some(data.context.flow.to_string()),
-                        None,
-                        format!("sending message"),
-                    ),
-                    LogLvl::Info,
-                );
-                csml_logger(
-                    CsmlLog::new(
-                        Some(&data.client),
-                        Some(data.context.flow.to_string()),
-                        None,
-                        format!("sending message {:?}", msg),
-                    ),
-                    LogLvl::Debug,
+                info!(flow = data.context.flow.to_string(), "sending message");
+                debug!(
+                    bot_id = data.client.bot_id.to_string(),
+                    user_id = data.client.user_id.to_string(),
+                    channel_id = data.client.channel_id.to_string(),
+                    flow = data.context.flow.to_string(),
+                    "sending message {:?}",
+                    msg
                 );
 
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
@@ -117,10 +99,48 @@ pub async fn step(
                 message,
                 log_lvl,
             } => {
-                csml_logger(
-                    CsmlLog::new(Some(&data.client), Some(flow), Some(line), message),
-                    log_lvl,
-                );
+                match log_lvl {
+                    LogLvl::Error => error!(
+                        bot_id = data.client.bot_id.to_string(),
+                        user_id = data.client.user_id.to_string(),
+                        channel_id = data.client.channel_id.to_string(),
+                        flow,
+                        line,
+                        message
+                    ),
+                    LogLvl::Warn => warn!(
+                        bot_id = data.client.bot_id.to_string(),
+                        user_id = data.client.user_id.to_string(),
+                        channel_id = data.client.channel_id.to_string(),
+                        flow,
+                        line,
+                        message
+                    ),
+                    LogLvl::Info => info!(
+                        bot_id = data.client.bot_id.to_string(),
+                        user_id = data.client.user_id.to_string(),
+                        channel_id = data.client.channel_id.to_string(),
+                        flow,
+                        line,
+                        message
+                    ),
+                    LogLvl::Debug => debug!(
+                        bot_id = data.client.bot_id.to_string(),
+                        user_id = data.client.user_id.to_string(),
+                        channel_id = data.client.channel_id.to_string(),
+                        flow,
+                        line,
+                        message
+                    ),
+                    LogLvl::Trace => trace!(
+                        bot_id = data.client.bot_id.to_string(),
+                        user_id = data.client.user_id.to_string(),
+                        channel_id = data.client.channel_id.to_string(),
+                        flow,
+                        line,
+                        message
+                    ),
+                };
             }
             MSG::Hold(Hold {
                 index,
@@ -138,24 +158,14 @@ pub async fn step(
                     "previous": previous,
                     "secure": secure
                 });
-
-                csml_logger(
-                    CsmlLog::new(
-                        None,
-                        Some(data.context.flow.to_string()),
-                        None,
-                        format!("hold bot"),
-                    ),
-                    LogLvl::Info,
-                );
-                csml_logger(
-                    CsmlLog::new(
-                        Some(&data.client),
-                        Some(data.context.flow.to_string()),
-                        None,
-                        format!("hold bot, state_hold {:?}", state_hold),
-                    ),
-                    LogLvl::Debug,
+                info!(flow = data.context.flow.to_string(), "hold bot");
+                debug!(
+                    bot_id = data.client.bot_id.to_string(),
+                    user_id = data.client.user_id.to_string(),
+                    channel_id = data.client.channel_id.to_string(),
+                    flow = data.context.flow.to_string(),
+                    "hold bot, state_hold {:?}",
+                    state_hold
                 );
 
                 db::state::set(
@@ -221,14 +231,13 @@ pub async fn step(
 
             MSG::Error(err_msg) => {
                 conversation_end = true;
-                csml_logger(
-                    CsmlLog::new(
-                        Some(&data.client),
-                        Some(data.context.flow.to_string()),
-                        None,
-                        format!("interpreter error: {:?}", err_msg),
-                    ),
-                    LogLvl::Error,
+                error!(
+                    bot_id = data.client.bot_id.to_string(),
+                    user_id = data.client.user_id.to_string(),
+                    channel_id = data.client.channel_id.to_string(),
+                    flow = data.context.flow.to_string(),
+                    "interpreter error: {:?}",
+                    err_msg
                 );
 
                 send_msg_to_callback_url(data, vec![err_msg.clone()], interaction_order, true);
@@ -305,14 +314,9 @@ async fn manage_switch_bot<'a>(
                 true,
             );
 
-            csml_logger(
-                CsmlLog::new(
-                    None,
-                    Some(data.context.flow.to_string()),
-                    None,
-                    error_message,
-                ),
-                LogLvl::Error,
+            error!(
+                flow = data.context.flow.to_string(),
+                message = error_message
             );
             return Ok(InterpreterReturn::End);
         }
@@ -320,69 +324,49 @@ async fn manage_switch_bot<'a>(
 
     let (flow, step) = match (flow, step) {
         (Some(flow), Some(step)) => {
-            let step_name = step.get_step_ref();
-
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    None,
-                    None,
-                    format!(
-                        "goto flow: {flow}, step: {step_name} in bot: {target_bot} from: flow: {} step: {} in bot: {}",
-                        data.context.flow, data.context.step.get_step(), bot.id
-                    ),
-                ),
-                LogLvl::Info,
+            info!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto step: {:?}",
+                data.context.step.get_step()
             );
 
             (Some(flow), step)
         }
         (Some(flow), None) => {
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    None,
-                    None,
-                    format!(
-                        "goto flow: {flow}, step: start in bot: {target_bot} from: flow: {} step: {} in bot: {}",
-                        data.context.flow, data.context.step.get_step(), bot.id
-                    ),
-                ),
-                LogLvl::Info,
+            info!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto step: {:?}",
+                data.context.step.get_step()
             );
 
             (Some(flow), ContextStepInfo::Normal("start".to_owned()))
         }
         (None, Some(step)) => {
-            let step_name = step.get_step_ref();
-
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    None,
-                    None,
-                    format!(
-                        "goto flow: default_flow, step: {step_name} in bot: {target_bot} from: flow: {} step: {} in bot: {}",
-                        data.context.flow, data.context.step.get_step(), bot.id
-                    ),
-                ),
-                LogLvl::Info,
+            info!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto step: {:?}",
+                data.context.step.get_step()
             );
 
             (None, step)
         }
         (None, None) => {
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    Some(data.context.flow.to_string()),
-                    None,
-                    format!(
-                        "goto flow: default_flow step: start in bot: {target_bot} from: flow: {} step: {} in bot: {}",
-                        data.context.flow, data.context.step.get_step(), bot.id
-                     ),
-                ),
-                LogLvl::Info,
+            info!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto step: {:?}",
+                data.context.step.get_step()
             );
 
             (None, ContextStepInfo::Normal("start".to_owned()))
@@ -395,15 +379,7 @@ async fn manage_switch_bot<'a>(
     // send message switch bot
     send_msg_to_callback_url(data, vec![message], *interaction_order, true);
 
-    csml_logger(
-        CsmlLog::new(
-            None,
-            Some(data.context.flow.to_string()),
-            None,
-            format!("switch bot"),
-        ),
-        LogLvl::Info,
-    );
+    info!(flow = data.context.flow.to_string(), "switch bot");
 
     db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", db).await?;
 
@@ -448,77 +424,55 @@ async fn manage_internal_goto<'a>(
 ) -> Result<InterpreterReturn, BitpartError> {
     match (flow, step) {
         (Some(flow), Some(step)) => {
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    None,
-                    None,
-                    format!(
-                        "goto flow: {}, step: {} from: flow: {} step: {}",
-                        flow,
-                        step.get_step(),
-                        data.context.flow,
-                        data.context.step.get_step()
-                    ),
-                ),
-                LogLvl::Debug,
+            debug!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto step: {:?}",
+                data.context.step.get_step()
             );
+
             update_current_context(data, &memories);
             goto_flow(data, interaction_order, current_flow, &bot, flow, step, db).await?
         }
         (Some(flow), None) => {
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    None,
-                    None,
-                    format!(
-                        "goto flow: {}, step: start from: flow: {} step: {}",
-                        flow,
-                        data.context.flow,
-                        data.context.step.get_step()
-                    ),
-                ),
-                LogLvl::Debug,
+            debug!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto step: {:?}",
+                data.context.step.get_step()
             );
+
             update_current_context(data, &memories);
             let step = ContextStepInfo::Normal("start".to_owned());
 
             goto_flow(data, interaction_order, current_flow, &bot, flow, step, db).await?
         }
         (None, Some(step)) => {
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    None,
-                    None,
-                    format!(
-                        "goto flow: {}, step: {} from: flow: {} step: {}",
-                        data.context.flow,
-                        step.get_step(),
-                        data.context.flow,
-                        data.context.step.get_step()
-                    ),
-                ),
-                LogLvl::Debug,
+            debug!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto step: {:?}",
+                data.context.step.get_step()
             );
+
             if goto_step(data, conversation_end, interaction_order, step, db).await? {
                 return Ok(InterpreterReturn::End);
             }
         }
         (None, None) => {
-            csml_logger(
-                CsmlLog::new(
-                    Some(&data.client),
-                    Some(data.context.flow.to_string()),
-                    None,
-                    format!(
-                        "goto end from: flow: {} step: {}",
-                        data.context.flow,
-                        data.context.step.get_step()
-                    ),
-                ),
-                LogLvl::Debug,
+            debug!(
+                bot_id = data.client.bot_id.to_string(),
+                user_id = data.client.user_id.to_string(),
+                channel_id = data.client.channel_id.to_string(),
+                flow = data.context.flow.to_string(),
+                "goto end: {:?}",
+                data.context.step.get_step()
             );
 
             let step = ContextStepInfo::Normal("end".to_owned());

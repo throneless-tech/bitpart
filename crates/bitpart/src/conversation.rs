@@ -1,12 +1,8 @@
-mod actions;
-pub mod api;
-mod data;
-pub mod db;
-pub mod error;
-mod event;
-pub mod utils;
-use sea_orm::*;
-
+use crate::actions;
+use crate::data::{BotOpt, ConversationData, SerializedEvent, SwitchBot};
+use crate::db;
+use crate::error::BitpartError;
+use crate::utils;
 use async_recursion::async_recursion;
 use base64::prelude::*;
 use chrono::Utc;
@@ -16,8 +12,7 @@ use csml_interpreter::data::{
     ApiInfo, Client, Context, CsmlBot, CsmlFlow, CsmlResult, Event, Message, PreviousBot,
 };
 use csml_interpreter::{load_components, search_for_modules, validate_bot};
-use data::{BotOpt, ConversationData, Request, SwitchBot};
-use error::BitpartError;
+use sea_orm::*;
 use std::collections::HashMap;
 
 async fn create_new_conversation<'a>(
@@ -123,10 +118,10 @@ pub async fn init_context(
     }
 }
 
-pub async fn init_conversation_info<'a>(
+pub async fn init_conversation_data<'a>(
     default_flow: String,
     event: &Event,
-    request: &'a Request,
+    request: &'a SerializedEvent,
     bot: &'a CsmlBot,
     db: &DatabaseConnection,
 ) -> Result<ConversationData, BitpartError> {
@@ -393,7 +388,7 @@ async fn check_switch_bot(
 }
 
 pub async fn start_conversation(
-    request: Request,
+    request: SerializedEvent,
     mut bot_opt: BotOpt,
     db: &DatabaseConnection,
 ) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
@@ -405,7 +400,7 @@ pub async fn start_conversation(
     let mut bot = bot_opt.search_bot(db).await?;
     init_bot(&mut bot)?;
 
-    let mut data = init_conversation_info(
+    let mut data = init_conversation_data(
         utils::get_default_flow(&bot)?.name.to_owned(),
         &formatted_event,
         &request,

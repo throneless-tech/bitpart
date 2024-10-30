@@ -11,7 +11,6 @@ use sea_orm_migration::MigratorTrait;
 
 use base64::prelude::*;
 use chrono::{SecondsFormat, Utc};
-use csml_interpreter::csml_logs::{csml_logger, CsmlLog, LogLvl};
 use csml_interpreter::data::{
     ast::{Flow, InsertStep, InstructionScope},
     context::ContextStepInfo,
@@ -26,6 +25,7 @@ use sea_orm::DatabaseConnection;
 use serde_json::{json, map::Map, Value};
 use std::collections::HashMap;
 use std::env;
+use tracing::debug;
 // use std::ffi::OsStr;
 // use std::{fs, io, path::PathBuf};
 
@@ -142,14 +142,13 @@ pub fn send_msg_to_callback_url(
 ) {
     let messages = messages_formatter(data, msg, interaction_order, end);
 
-    csml_logger(
-        CsmlLog::new(
-            Some(&data.client),
-            Some(data.context.flow.to_string()),
-            None,
-            format!("conversation_end: {:?}", messages["conversation_end"]),
-        ),
-        LogLvl::Debug,
+    debug!(
+        bot_id = data.client.bot_id.to_string(),
+        user_id = data.client.user_id.to_string(),
+        channel_id = data.client.channel_id.to_string(),
+        flow = data.context.flow.to_string(),
+        "conversation_end: {:?}",
+        messages["conversation_end"]
     );
 
     send_to_callback_url(data, serde_json::json!(messages))

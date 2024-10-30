@@ -1,3 +1,13 @@
+mod actions;
+pub mod api;
+mod conversation;
+mod data;
+pub mod db;
+pub mod error;
+mod event;
+mod services;
+pub mod utils;
+
 use axum::{
     extract::{Request, State},
     http::{header, StatusCode},
@@ -9,18 +19,22 @@ use axum::{
 use clap::Parser;
 use sea_orm::{ConnectionTrait, Database};
 //use sea_orm_migration::prelude::*;
+use clap_verbosity_flag::Verbosity;
 use std::net::SocketAddr;
+use tracing_log::AsTrace;
 
-use bitpart_server::{
-    api::{self, ApiState},
-    db::migration::migrate,
-    error::BitpartError,
-};
+use api::ApiState;
+use db::migration::migrate;
+use error::BitpartError;
 
 /// The Bitpart server
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 struct Args {
+    /// Verbosity
+    #[command(flatten)]
+    verbose: Verbosity,
+
     /// API authentication token
     #[arg(short, long)]
     auth: String,
@@ -38,7 +52,7 @@ struct Args {
     key: String,
 }
 
-async fn auth(
+async fn authenticate(
     State(state): State<ApiState>,
     req: Request,
     next: Next,
@@ -61,6 +75,9 @@ async fn auth(
 #[tokio::main]
 async fn main() -> Result<(), BitpartError> {
     let args = Args::parse();
+    tracing_subscriber::fmt()
+        .with_max_level(args.verbose.log_level_filter().as_trace())
+        .init();
 
     println!("Server is running!");
 
@@ -104,7 +121,7 @@ async fn main() -> Result<(), BitpartError> {
         .route("/api/v1/messages", get(api::get_messages))
         .route("/api/v1/state", get(api::get_state))
         .route("/api/v1/requests", post(api::post_request))
-        .route_layer(middleware::from_fn_with_state(state.clone(), auth))
+        .route_layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .with_state(state);
 
     let addr: SocketAddr = args.bind.parse().expect("Unable to parse bind address");
@@ -113,6 +130,5 @@ async fn main() -> Result<(), BitpartError> {
         .serve(app.into_make_service())
         .await
         .unwrap();
-
     Ok(())
 }
