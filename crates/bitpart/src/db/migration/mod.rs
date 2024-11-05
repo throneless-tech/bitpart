@@ -25,6 +25,6 @@ impl MigratorTrait for Migrator {
 
 pub async fn migrate(uri: &str) -> Result<(), BitpartError> {
     let db = sea_orm::Database::connect(uri).await?;
-    Migrator::refresh(&db).await?;
+    Migrator::up(&db, None).await?;
     Ok(())
 }

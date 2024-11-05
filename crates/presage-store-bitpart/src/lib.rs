@@ -19,7 +19,7 @@ use presage::{
     model::identity::OnNewIdentity,
     store::{ContentsStore, StateStore, Store},
 };
-use protocol::{AciSledStore, PniSledStore, SledProtocolStore, SledTrees};
+use protocol::{AciBitpartStore, PniBitpartStore, BitpartProtocolStore, BitpartTrees};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::{debug, error};
@@ -29,7 +29,7 @@ mod error;
 mod protobuf;
 mod protocol;
 
-pub use error::SledStoreError;
+pub use error::BitpartStoreError;
 use sled::IVec;
 
 const SLED_TREE_STATE: &str = "state";
@@ -40,7 +40,7 @@ const SLED_KEY_SCHEMA_VERSION: &str = "schema_version";
 const SLED_KEY_STORE_CIPHER: &str = "store_cipher";
 
 #[derive(Clone)]
-pub struct SledStore {
+pub struct BitpartStore {
     db: Arc<RwLock<sled::Db>>,
     #[cfg(feature = "encryption")]
     cipher: Option<Arc<presage_store_cipher::StoreCipher>>,
@@ -102,13 +102,13 @@ impl SchemaVersion {
     }
 }
 
-impl SledStore {
+impl BitpartStore {
     #[allow(unused_variables)]
     fn new(
         db_path: impl AsRef<Path>,
         passphrase: Option<impl AsRef<str>>,
         trust_new_identities: OnNewIdentity,
-    ) -> Result<Self, SledStoreError> {
+    ) -> Result<Self, BitpartStoreError> {
         let database = sled::open(db_path)?;
 
         #[cfg(feature = "encryption")]
@@ -121,7 +121,7 @@ impl SledStore {
             panic!("A passphrase was supplied but the encryption feature flag is not enabled")
         }
 
-        Ok(SledStore {
+        Ok(BitpartStore {
             db: Arc::new(RwLock::new(database)),
             #[cfg(feature = "encryption")]
             cipher: cipher.map(Arc::new),
@@ -133,7 +133,7 @@ impl SledStore {
         db_path: impl AsRef<Path>,
         migration_conflict_strategy: MigrationConflictStrategy,
         trust_new_identities: OnNewIdentity,
-    ) -> Result<Self, SledStoreError> {
+    ) -> Result<Self, BitpartStoreError> {
         Self::open_with_passphrase(
             db_path,
             None::<&str>,
@@ -148,7 +148,7 @@ impl SledStore {
         passphrase: Option<impl AsRef<str>>,
         migration_conflict_strategy: MigrationConflictStrategy,
         trust_new_identities: OnNewIdentity,
-    ) -> Result<Self, SledStoreError> {
+    ) -> Result<Self, BitpartStoreError> {
         let passphrase = passphrase.as_ref();
 
         migrate(&db_path, passphrase, migration_conflict_strategy).await?;
@@ -159,7 +159,7 @@ impl SledStore {
     fn get_or_create_store_cipher(
         database: &sled::Db,
         passphrase: &str,
-    ) -> Result<presage_store_cipher::StoreCipher, SledStoreError> {
+    ) -> Result<presage_store_cipher::StoreCipher, BitpartStoreError> {
         let cipher = if let Some(key) = database.get(SLED_KEY_STORE_CIPHER)? {
             presage_store_cipher::StoreCipher::import(passphrase, &key)?
         } else {
@@ -176,7 +176,7 @@ impl SledStore {
     }
 
     #[cfg(test)]
-    fn temporary() -> Result<Self, SledStoreError> {
+    fn temporary() -> Result<Self, BitpartStoreError> {
         let db = sled::Config::new().temporary(true).open()?;
         Ok(Self {
             db: Arc::new(RwLock::new(db)),
@@ -203,7 +203,7 @@ impl SledStore {
     }
 
     #[cfg(feature = "encryption")]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: IVec) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: IVec) -> Result<T, BitpartStoreError> {
         if let Some(cipher) = self.cipher.as_ref() {
             Ok(cipher.decrypt_value(&value)?)
         } else {
@@ -212,12 +212,12 @@ impl SledStore {
     }
 
     #[cfg(not(feature = "encryption"))]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: IVec) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: IVec) -> Result<T, BitpartStoreError> {
         Ok(serde_json::from_slice(value)?)
     }
 
     #[cfg(feature = "encryption")]
-    fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
+    fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, BitpartStoreError> {
         if let Some(cipher) = self.cipher.as_ref() {
             Ok(cipher.encrypt_value(value)?)
         } else {
@@ -226,11 +226,11 @@ impl SledStore {
     }
 
     #[cfg(not(feature = "encryption"))]
-    fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, SledStoreError> {
+    fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, BitpartStoreError> {
         Ok(serde_json::to_vec(value)?)
     }
 
-    pub fn get<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, SledStoreError>
+    pub fn get<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
     where
         K: AsRef<[u8]>,
         V: DeserializeOwned,
@@ -240,13 +240,13 @@ impl SledStore {
             .get(key)?
             .map(|p| self.decrypt_value(p))
             .transpose()
-            .map_err(SledStoreError::from)
+            .map_err(BitpartStoreError::from)
     }
 
     pub fn iter<'a, V: DeserializeOwned + 'a>(
         &'a self,
         tree: &str,
-    ) -> Result<impl Iterator<Item = Result<V, SledStoreError>> + 'a, SledStoreError> {
+    ) -> Result<impl Iterator<Item = Result<V, BitpartStoreError>> + 'a, BitpartStoreError> {
         Ok(self
             .read()
             .open_tree(tree)?
@@ -254,7 +254,7 @@ impl SledStore {
             .flat_map(|res| res.map(|(_, value)| self.decrypt_value::<V>(value))))
     }
 
-    fn insert<K, V>(&self, tree: &str, key: K, value: V) -> Result<bool, SledStoreError>
+    fn insert<K, V>(&self, tree: &str, key: K, value: V) -> Result<bool, BitpartStoreError>
     where
         K: AsRef<[u8]>,
         V: Serialize,
@@ -266,7 +266,7 @@ impl SledStore {
         Ok(replaced.is_some())
     }
 
-    fn remove<K>(&self, tree: &str, key: K) -> Result<bool, SledStoreError>
+    fn remove<K>(&self, tree: &str, key: K) -> Result<bool, BitpartStoreError>
     where
         K: AsRef<[u8]>,
     {
@@ -284,9 +284,9 @@ impl SledStore {
         format!("{:x}", hasher.finalize())
     }
 
-    fn get_identity_key_pair<T: SledTrees>(
+    fn get_identity_key_pair<T: BitpartTrees>(
         &self,
-    ) -> Result<Option<IdentityKeyPair>, SledStoreError> {
+    ) -> Result<Option<IdentityKeyPair>, BitpartStoreError> {
         let key_base64: Option<String> = self.get(SLED_TREE_STATE, T::identity_keypair())?;
         let Some(key_base64) = key_base64 else {
             return Ok(None);
@@ -294,13 +294,13 @@ impl SledStore {
         let key_bytes = BASE64_STANDARD.decode(key_base64)?;
         IdentityKeyPair::try_from(&*key_bytes)
             .map(Some)
-            .map_err(|e| SledStoreError::ProtobufDecode(prost::DecodeError::new(e.to_string())))
+            .map_err(|e| BitpartStoreError::ProtobufDecode(prost::DecodeError::new(e.to_string())))
     }
 
-    fn set_identity_key_pair<T: SledTrees>(
+    fn set_identity_key_pair<T: BitpartTrees>(
         &self,
         key_pair: IdentityKeyPair,
-    ) -> Result<(), SledStoreError> {
+    ) -> Result<(), BitpartStoreError> {
         let key_bytes = key_pair.serialize();
         let key_base64 = BASE64_STANDARD.encode(key_bytes);
         self.insert(SLED_TREE_STATE, T::identity_keypair(), key_base64)?;
@@ -312,12 +312,12 @@ async fn migrate(
     db_path: impl AsRef<Path>,
     passphrase: Option<impl AsRef<str>>,
     migration_conflict_strategy: MigrationConflictStrategy,
-) -> Result<(), SledStoreError> {
+) -> Result<(), BitpartStoreError> {
     let db_path = db_path.as_ref();
     let passphrase = passphrase.as_ref();
 
     let run_migrations = {
-        let mut store = SledStore::new(db_path, passphrase, OnNewIdentity::Reject)?;
+        let mut store = BitpartStore::new(db_path, passphrase, OnNewIdentity::Reject)?;
         let schema_version = store.schema_version();
         for step in schema_version.steps() {
             match &step {
@@ -330,7 +330,7 @@ async fn migrate(
                     // load registration data the old school way
                     let registration = store.read().get(SLED_KEY_REGISTRATION)?;
                     if let Some(data) = registration {
-                        let state = serde_json::from_slice(&data).map_err(SledStoreError::from)?;
+                        let state = serde_json::from_slice(&data).map_err(BitpartStoreError::from)?;
 
                         // save it the new school way
                         store.save_registration_data(&state).await?;
@@ -364,7 +364,7 @@ async fn migrate(
                         pub(crate) pni_public_key: Option<IdentityKey>,
                     }
 
-                    let run_step: Result<(), SledStoreError> = {
+                    let run_step: Result<(), BitpartStoreError> = {
                         let registration_data: Option<RegistrationDataV4Keys> =
                             store.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION)?;
                         if let Some(data) = registration_data {
@@ -397,14 +397,14 @@ async fn migrate(
                     let db = store.db.read().expect("poisoned");
 
                     let trees = [
-                        AciSledStore::signed_pre_keys(),
-                        AciSledStore::pre_keys(),
-                        AciSledStore::kyber_pre_keys(),
-                        AciSledStore::kyber_pre_keys_last_resort(),
-                        PniSledStore::signed_pre_keys(),
-                        PniSledStore::pre_keys(),
-                        PniSledStore::kyber_pre_keys(),
-                        PniSledStore::kyber_pre_keys_last_resort(),
+                        AciBitpartStore::signed_pre_keys(),
+                        AciBitpartStore::pre_keys(),
+                        AciBitpartStore::kyber_pre_keys(),
+                        AciBitpartStore::kyber_pre_keys_last_resort(),
+                        PniBitpartStore::signed_pre_keys(),
+                        PniBitpartStore::pre_keys(),
+                        PniBitpartStore::kyber_pre_keys(),
+                        PniBitpartStore::kyber_pre_keys_last_resort(),
                     ];
 
                     for tree_name in trees {
@@ -427,7 +427,7 @@ async fn migrate(
                         debug!(tree_name, num_keys_before, num_keys_after, "migrated keys");
                     }
                 }
-                _ => return Err(SledStoreError::MigrationConflict),
+                _ => return Err(BitpartStoreError::MigrationConflict),
             }
 
             store.insert(SLED_TREE_STATE, SLED_KEY_SCHEMA_VERSION, step)?;
@@ -436,7 +436,7 @@ async fn migrate(
         Ok(())
     };
 
-    if let Err(SledStoreError::MigrationConflict) = run_migrations {
+    if let Err(BitpartStoreError::MigrationConflict) = run_migrations {
         match migration_conflict_strategy {
             MigrationConflictStrategy::BackupAndDrop => {
                 let mut new_db_path = db_path.to_path_buf();
@@ -454,17 +454,17 @@ async fn migrate(
             MigrationConflictStrategy::Drop => {
                 fs_extra::dir::remove(db_path)?;
             }
-            MigrationConflictStrategy::Raise => return Err(SledStoreError::MigrationConflict),
+            MigrationConflictStrategy::Raise => return Err(BitpartStoreError::MigrationConflict),
         }
     }
 
     Ok(())
 }
 
-impl StateStore for SledStore {
-    type StateStoreError = SledStoreError;
+impl StateStore for BitpartStore {
+    type StateStoreError = BitpartStoreError;
 
-    async fn load_registration_data(&self) -> Result<Option<RegistrationData>, SledStoreError> {
+    async fn load_registration_data(&self) -> Result<Option<RegistrationData>, BitpartStoreError> {
         self.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION)
     }
 
@@ -472,20 +472,20 @@ impl StateStore for SledStore {
         &self,
         key_pair: IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
-        self.set_identity_key_pair::<AciSledStore>(key_pair)
+        self.set_identity_key_pair::<AciBitpartStore>(key_pair)
     }
 
     async fn set_pni_identity_key_pair(
         &self,
         key_pair: IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
-        self.set_identity_key_pair::<PniSledStore>(key_pair)
+        self.set_identity_key_pair::<PniBitpartStore>(key_pair)
     }
 
     async fn save_registration_data(
         &mut self,
         state: &RegistrationData,
-    ) -> Result<(), SledStoreError> {
+    ) -> Result<(), BitpartStoreError> {
         self.insert(SLED_TREE_STATE, SLED_KEY_REGISTRATION, state)?;
         Ok(())
     }
@@ -497,7 +497,7 @@ impl StateStore for SledStore {
             .is_some()
     }
 
-    async fn clear_registration(&mut self) -> Result<(), SledStoreError> {
+    async fn clear_registration(&mut self) -> Result<(), BitpartStoreError> {
         // drop registration data (includes identity keys)
         {
             let db = self.write();
@@ -517,12 +517,12 @@ impl StateStore for SledStore {
     }
 }
 
-impl Store for SledStore {
-    type Error = SledStoreError;
-    type AciStore = SledProtocolStore<AciSledStore>;
-    type PniStore = SledProtocolStore<PniSledStore>;
+impl Store for BitpartStore {
+    type Error = BitpartStoreError;
+    type AciStore = BitpartProtocolStore<AciBitpartStore>;
+    type PniStore = BitpartProtocolStore<PniBitpartStore>;
 
-    async fn clear(&mut self) -> Result<(), SledStoreError> {
+    async fn clear(&mut self) -> Result<(), BitpartStoreError> {
         self.clear_registration().await?;
         self.clear_contents().await?;
 
@@ -530,11 +530,11 @@ impl Store for SledStore {
     }
 
     fn aci_protocol_store(&self) -> Self::AciStore {
-        SledProtocolStore::aci_protocol_store(self.clone())
+        BitpartProtocolStore::aci_protocol_store(self.clone())
     }
 
     fn pni_protocol_store(&self) -> Self::PniStore {
-        SledProtocolStore::pni_protocol_store(self.clone())
+        BitpartProtocolStore::pni_protocol_store(self.clone())
     }
 }
 
@@ -548,7 +548,7 @@ mod tests {
         ServiceAddress, ServiceIdType,
     };
     use presage::store::ContentsStore;
-    use protocol::SledPreKeyId;
+    use protocol::BitpartPreKeyId;
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
 
@@ -643,7 +643,7 @@ mod tests {
 
     #[quickcheck_async::tokio]
     async fn test_store_messages(thread: Thread, content: Content) -> anyhow::Result<()> {
-        let db = SledStore::temporary()?;
+        let db = BitpartStore::temporary()?;
         let thread = thread.0;
         db.save_message(&thread, content_with_timestamp(&content, 1678295210))
             .await?;

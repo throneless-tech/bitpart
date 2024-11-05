@@ -27,6 +27,23 @@ pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion,
     })
 }
 
+pub async fn list(
+    limit: Option<u64>,
+    offset: Option<u64>,
+    db: &DatabaseConnection,
+) -> Result<Vec<String>, BitpartError> {
+    let entries = Bot::find()
+        .column(bot::Column::BotId)
+        .group_by(bot::Column::BotId)
+        .order_by(bot::Column::CreatedAt, Order::Desc)
+        .limit(limit)
+        .offset(offset)
+        .all(db)
+        .await?;
+
+    Ok(entries.into_iter().map(|e| e.bot_id.to_string()).collect())
+}
+
 pub async fn get(
     bot_id: &str,
     limit: Option<u64>,

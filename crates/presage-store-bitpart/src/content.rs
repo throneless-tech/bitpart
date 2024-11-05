@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 use sled::IVec;
 use tracing::{debug, trace};
 
-use crate::{protobuf::ContentProto, SledStore, SledStoreError};
+use crate::{protobuf::ContentProto, BitpartStore, BitpartStoreError};
 
 const SLED_TREE_PROFILE_AVATARS: &str = "profile_avatars";
 const SLED_TREE_PROFILE_KEYS: &str = "profile_keys";
@@ -31,13 +31,13 @@ const SLED_TREE_GROUPS: &str = "groups";
 const SLED_TREE_PROFILES: &str = "profiles";
 const SLED_TREE_THREADS_PREFIX: &str = "threads";
 
-impl ContentsStore for SledStore {
-    type ContentsStoreError = SledStoreError;
+impl ContentsStore for BitpartStore {
+    type ContentsStoreError = BitpartStoreError;
 
-    type ContactsIter = SledContactsIter;
-    type GroupsIter = SledGroupsIter;
-    type MessagesIter = SledMessagesIter;
-    type StickerPacksIter = SledStickerPacksIter;
+    type ContactsIter = BitpartContactsIter;
+    type GroupsIter = BitpartGroupsIter;
+    type MessagesIter = BitpartMessagesIter;
+    type StickerPacksIter = BitpartStickerPacksIter;
 
     async fn clear_profiles(&mut self) -> Result<(), Self::ContentsStoreError> {
         let db = self.write();
@@ -65,40 +65,40 @@ impl ContentsStore for SledStore {
         Ok(())
     }
 
-    async fn clear_contacts(&mut self) -> Result<(), SledStoreError> {
+    async fn clear_contacts(&mut self) -> Result<(), BitpartStoreError> {
         self.write().drop_tree(SLED_TREE_CONTACTS)?;
         Ok(())
     }
 
-    async fn save_contact(&mut self, contact: &Contact) -> Result<(), SledStoreError> {
+    async fn save_contact(&mut self, contact: &Contact) -> Result<(), BitpartStoreError> {
         self.insert(SLED_TREE_CONTACTS, contact.uuid, contact)?;
         debug!("saved contact");
         Ok(())
     }
 
-    async fn contacts(&self) -> Result<Self::ContactsIter, SledStoreError> {
-        Ok(SledContactsIter {
+    async fn contacts(&self) -> Result<Self::ContactsIter, BitpartStoreError> {
+        Ok(BitpartContactsIter {
             iter: self.read().open_tree(SLED_TREE_CONTACTS)?.iter(),
             #[cfg(feature = "encryption")]
             cipher: self.cipher.clone(),
         })
     }
 
-    async fn contact_by_id(&self, id: &Uuid) -> Result<Option<Contact>, SledStoreError> {
+    async fn contact_by_id(&self, id: &Uuid) -> Result<Option<Contact>, BitpartStoreError> {
         self.get(SLED_TREE_CONTACTS, id)
     }
 
     /// Groups
 
-    async fn clear_groups(&mut self) -> Result<(), SledStoreError> {
+    async fn clear_groups(&mut self) -> Result<(), BitpartStoreError> {
         let db = self.write();
         db.drop_tree(SLED_TREE_GROUPS)?;
         db.flush()?;
         Ok(())
     }
 
-    async fn groups(&self) -> Result<Self::GroupsIter, SledStoreError> {
-        Ok(SledGroupsIter {
+    async fn groups(&self) -> Result<Self::GroupsIter, BitpartStoreError> {
+        Ok(BitpartGroupsIter {
             iter: self.read().open_tree(SLED_TREE_GROUPS)?.iter(),
             #[cfg(feature = "encryption")]
             cipher: self.cipher.clone(),
@@ -108,7 +108,7 @@ impl ContentsStore for SledStore {
     async fn group(
         &self,
         master_key_bytes: GroupMasterKeyBytes,
-    ) -> Result<Option<Group>, SledStoreError> {
+    ) -> Result<Option<Group>, BitpartStoreError> {
         self.get(SLED_TREE_GROUPS, master_key_bytes)
     }
 
@@ -116,7 +116,7 @@ impl ContentsStore for SledStore {
         &self,
         master_key: GroupMasterKeyBytes,
         group: impl Into<Group>,
-    ) -> Result<(), SledStoreError> {
+    ) -> Result<(), BitpartStoreError> {
         self.insert(SLED_TREE_GROUPS, master_key, group.into())?;
         Ok(())
     }
@@ -124,7 +124,7 @@ impl ContentsStore for SledStore {
     async fn group_avatar(
         &self,
         master_key_bytes: GroupMasterKeyBytes,
-    ) -> Result<Option<AvatarBytes>, SledStoreError> {
+    ) -> Result<Option<AvatarBytes>, BitpartStoreError> {
         self.get(SLED_TREE_GROUP_AVATARS, master_key_bytes)
     }
 
@@ -132,14 +132,14 @@ impl ContentsStore for SledStore {
         &self,
         master_key: GroupMasterKeyBytes,
         avatar: &AvatarBytes,
-    ) -> Result<(), SledStoreError> {
+    ) -> Result<(), BitpartStoreError> {
         self.insert(SLED_TREE_GROUP_AVATARS, master_key, avatar)?;
         Ok(())
     }
 
     /// Messages
 
-    async fn clear_messages(&mut self) -> Result<(), SledStoreError> {
+    async fn clear_messages(&mut self) -> Result<(), BitpartStoreError> {
         let db = self.write();
         for name in db.tree_names() {
             if name
@@ -153,7 +153,7 @@ impl ContentsStore for SledStore {
         Ok(())
     }
 
-    async fn clear_thread(&mut self, thread: &Thread) -> Result<(), SledStoreError> {
+    async fn clear_thread(&mut self, thread: &Thread) -> Result<(), BitpartStoreError> {
         trace!(%thread, "clearing thread");
 
         let db = self.write();
@@ -163,7 +163,7 @@ impl ContentsStore for SledStore {
         Ok(())
     }
 
-    async fn save_message(&self, thread: &Thread, message: Content) -> Result<(), SledStoreError> {
+    async fn save_message(&self, thread: &Thread, message: Content) -> Result<(), BitpartStoreError> {
         let ts = message.timestamp();
         trace!(%thread, ts, "storing a message with thread");
 
@@ -182,7 +182,7 @@ impl ContentsStore for SledStore {
         &mut self,
         thread: &Thread,
         timestamp: u64,
-    ) -> Result<bool, SledStoreError> {
+    ) -> Result<bool, BitpartStoreError> {
         let tree = messages_thread_tree_name(thread);
         self.remove(&tree, timestamp.to_be_bytes())
     }
@@ -191,7 +191,7 @@ impl ContentsStore for SledStore {
         &self,
         thread: &Thread,
         timestamp: u64,
-    ) -> Result<Option<Content>, SledStoreError> {
+    ) -> Result<Option<Content>, BitpartStoreError> {
         // Big-Endian needed, otherwise wrong ordering in sled.
         let val: Option<Vec<u8>> =
             self.get(&messages_thread_tree_name(thread), timestamp.to_be_bytes())?;
@@ -209,7 +209,7 @@ impl ContentsStore for SledStore {
         &self,
         thread: &Thread,
         range: impl RangeBounds<u64>,
-    ) -> Result<Self::MessagesIter, SledStoreError> {
+    ) -> Result<Self::MessagesIter, BitpartStoreError> {
         let tree_thread = self.read().open_tree(messages_thread_tree_name(thread))?;
         debug!(%thread, count = tree_thread.len(), "loading message tree");
 
@@ -229,7 +229,7 @@ impl ContentsStore for SledStore {
             }
         };
 
-        Ok(SledMessagesIter {
+        Ok(BitpartMessagesIter {
             #[cfg(feature = "encryption")]
             cipher: self.cipher.clone(),
             iter,
@@ -240,11 +240,11 @@ impl ContentsStore for SledStore {
         &mut self,
         uuid: &Uuid,
         key: ProfileKey,
-    ) -> Result<bool, SledStoreError> {
+    ) -> Result<bool, BitpartStoreError> {
         self.insert(SLED_TREE_PROFILE_KEYS, uuid.as_bytes(), key)
     }
 
-    async fn profile_key(&self, uuid: &Uuid) -> Result<Option<ProfileKey>, SledStoreError> {
+    async fn profile_key(&self, uuid: &Uuid) -> Result<Option<ProfileKey>, BitpartStoreError> {
         self.get(SLED_TREE_PROFILE_KEYS, uuid.as_bytes())
     }
 
@@ -253,7 +253,7 @@ impl ContentsStore for SledStore {
         uuid: Uuid,
         key: ProfileKey,
         profile: Profile,
-    ) -> Result<(), SledStoreError> {
+    ) -> Result<(), BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
         self.insert(SLED_TREE_PROFILES, key, profile)?;
         Ok(())
@@ -263,7 +263,7 @@ impl ContentsStore for SledStore {
         &self,
         uuid: Uuid,
         key: ProfileKey,
-    ) -> Result<Option<Profile>, SledStoreError> {
+    ) -> Result<Option<Profile>, BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
         self.get(SLED_TREE_PROFILES, key)
     }
@@ -273,7 +273,7 @@ impl ContentsStore for SledStore {
         uuid: Uuid,
         key: ProfileKey,
         avatar: &AvatarBytes,
-    ) -> Result<(), SledStoreError> {
+    ) -> Result<(), BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
         self.insert(SLED_TREE_PROFILE_AVATARS, key, avatar)?;
         Ok(())
@@ -283,41 +283,41 @@ impl ContentsStore for SledStore {
         &self,
         uuid: Uuid,
         key: ProfileKey,
-    ) -> Result<Option<AvatarBytes>, SledStoreError> {
+    ) -> Result<Option<AvatarBytes>, BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
         self.get(SLED_TREE_PROFILE_AVATARS, key)
     }
 
-    async fn add_sticker_pack(&mut self, pack: &StickerPack) -> Result<(), SledStoreError> {
+    async fn add_sticker_pack(&mut self, pack: &StickerPack) -> Result<(), BitpartStoreError> {
         self.insert(SLED_TREE_STICKER_PACKS, pack.id.clone(), pack)?;
         Ok(())
     }
 
-    async fn remove_sticker_pack(&mut self, id: &[u8]) -> Result<bool, SledStoreError> {
+    async fn remove_sticker_pack(&mut self, id: &[u8]) -> Result<bool, BitpartStoreError> {
         self.remove(SLED_TREE_STICKER_PACKS, id)
     }
 
-    async fn sticker_pack(&self, id: &[u8]) -> Result<Option<StickerPack>, SledStoreError> {
+    async fn sticker_pack(&self, id: &[u8]) -> Result<Option<StickerPack>, BitpartStoreError> {
         self.get(SLED_TREE_STICKER_PACKS, id)
     }
 
-    async fn sticker_packs(&self) -> Result<Self::StickerPacksIter, SledStoreError> {
-        Ok(SledStickerPacksIter {
+    async fn sticker_packs(&self) -> Result<Self::StickerPacksIter, BitpartStoreError> {
+        Ok(BitpartStickerPacksIter {
             cipher: self.cipher.clone(),
             iter: self.read().open_tree(SLED_TREE_STICKER_PACKS)?.iter(),
         })
     }
 }
 
-pub struct SledContactsIter {
+pub struct BitpartContactsIter {
     #[cfg(feature = "encryption")]
     cipher: Option<Arc<presage_store_cipher::StoreCipher>>,
     iter: sled::Iter,
 }
 
-impl SledContactsIter {
+impl BitpartContactsIter {
     #[cfg(feature = "encryption")]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, BitpartStoreError> {
         if let Some(cipher) = self.cipher.as_ref() {
             Ok(cipher.decrypt_value(value)?)
         } else {
@@ -326,32 +326,32 @@ impl SledContactsIter {
     }
 
     #[cfg(not(feature = "encryption"))]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, BitpartStoreError> {
         Ok(serde_json::from_slice(value)?)
     }
 }
 
-impl Iterator for SledContactsIter {
-    type Item = Result<Contact, SledStoreError>;
+impl Iterator for BitpartContactsIter {
+    type Item = Result<Contact, BitpartStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()?
-            .map_err(SledStoreError::from)
+            .map_err(BitpartStoreError::from)
             .and_then(|(_key, value)| self.decrypt_value(&value))
             .into()
     }
 }
 
-pub struct SledGroupsIter {
+pub struct BitpartGroupsIter {
     #[cfg(feature = "encryption")]
     cipher: Option<Arc<presage_store_cipher::StoreCipher>>,
     iter: sled::Iter,
 }
 
-impl SledGroupsIter {
+impl BitpartGroupsIter {
     #[cfg(feature = "encryption")]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, BitpartStoreError> {
         if let Some(cipher) = self.cipher.as_ref() {
             Ok(cipher.decrypt_value(value)?)
         } else {
@@ -360,23 +360,23 @@ impl SledGroupsIter {
     }
 
     #[cfg(not(feature = "encryption"))]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, BitpartStoreError> {
         Ok(serde_json::from_slice(value)?)
     }
 }
 
-impl Iterator for SledGroupsIter {
-    type Item = Result<(GroupMasterKeyBytes, Group), SledStoreError>;
+impl Iterator for BitpartGroupsIter {
+    type Item = Result<(GroupMasterKeyBytes, Group), BitpartStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        Some(self.iter.next()?.map_err(SledStoreError::from).and_then(
+        Some(self.iter.next()?.map_err(BitpartStoreError::from).and_then(
             |(group_master_key_bytes, value)| {
                 let group = self.decrypt_value(&value)?;
                 Ok((
                     group_master_key_bytes
                         .as_ref()
                         .try_into()
-                        .map_err(|_| SledStoreError::GroupDecryption)?,
+                        .map_err(|_| BitpartStoreError::GroupDecryption)?,
                     group,
                 ))
             },
@@ -384,25 +384,25 @@ impl Iterator for SledGroupsIter {
     }
 }
 
-pub struct SledStickerPacksIter {
+pub struct BitpartStickerPacksIter {
     #[cfg(feature = "encryption")]
     cipher: Option<Arc<presage_store_cipher::StoreCipher>>,
     iter: sled::Iter,
 }
 
-impl Iterator for SledStickerPacksIter {
-    type Item = Result<StickerPack, SledStoreError>;
+impl Iterator for BitpartStickerPacksIter {
+    type Item = Result<StickerPack, BitpartStoreError>;
 
     #[cfg(feature = "encryption")]
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()?
-            .map_err(SledStoreError::from)
+            .map_err(BitpartStoreError::from)
             .and_then(|(_key, value)| {
                 if let Some(cipher) = self.cipher.as_ref() {
-                    cipher.decrypt_value(&value).map_err(SledStoreError::from)
+                    cipher.decrypt_value(&value).map_err(BitpartStoreError::from)
                 } else {
-                    serde_json::from_slice(&value).map_err(SledStoreError::from)
+                    serde_json::from_slice(&value).map_err(BitpartStoreError::from)
                 }
             })
             .into()
@@ -412,21 +412,21 @@ impl Iterator for SledStickerPacksIter {
     fn next(&mut self) -> Option<Self::Item> {
         self.iter
             .next()?
-            .map_err(SledStoreError::from)
-            .and_then(|(_key, value)| serde_json::from_slice(&value).map_err(SledStoreError::from))
+            .map_err(BitpartStoreError::from)
+            .and_then(|(_key, value)| serde_json::from_slice(&value).map_err(BitpartStoreError::from))
             .into()
     }
 }
 
-pub struct SledMessagesIter {
+pub struct BitpartMessagesIter {
     #[cfg(feature = "encryption")]
     cipher: Option<Arc<presage_store_cipher::StoreCipher>>,
     iter: sled::Iter,
 }
 
-impl SledMessagesIter {
+impl BitpartMessagesIter {
     #[cfg(feature = "encryption")]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, BitpartStoreError> {
         if let Some(cipher) = self.cipher.as_ref() {
             Ok(cipher.decrypt_value(value)?)
         } else {
@@ -435,25 +435,25 @@ impl SledMessagesIter {
     }
 
     #[cfg(not(feature = "encryption"))]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, SledStoreError> {
+    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, BitpartStoreError> {
         Ok(serde_json::from_slice(value)?)
     }
 }
 
-impl SledMessagesIter {
+impl BitpartMessagesIter {
     fn decode(
         &self,
         elem: Result<(IVec, IVec), sled::Error>,
-    ) -> Option<Result<Content, SledStoreError>> {
-        elem.map_err(SledStoreError::from)
-            .and_then(|(_, value)| self.decrypt_value(&value).map_err(SledStoreError::from))
-            .and_then(|data: Vec<u8>| ContentProto::decode(&data[..]).map_err(SledStoreError::from))
+    ) -> Option<Result<Content, BitpartStoreError>> {
+        elem.map_err(BitpartStoreError::from)
+            .and_then(|(_, value)| self.decrypt_value(&value).map_err(BitpartStoreError::from))
+            .and_then(|data: Vec<u8>| ContentProto::decode(&data[..]).map_err(BitpartStoreError::from))
             .map_or_else(|e| Some(Err(e)), |p| Some(p.try_into()))
     }
 }
 
-impl Iterator for SledMessagesIter {
-    type Item = Result<Content, SledStoreError>;
+impl Iterator for BitpartMessagesIter {
+    type Item = Result<Content, BitpartStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let elem = self.iter.next()?;
@@ -461,7 +461,7 @@ impl Iterator for SledMessagesIter {
     }
 }
 
-impl DoubleEndedIterator for SledMessagesIter {
+impl DoubleEndedIterator for BitpartMessagesIter {
     fn next_back(&mut self) -> Option<Self::Item> {
         let elem = self.iter.next_back()?;
         self.decode(elem)

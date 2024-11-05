@@ -22,16 +22,16 @@ use presage::{
 use sled::Batch;
 use tracing::{error, trace, warn};
 
-use crate::{OnNewIdentity, SledStore, SledStoreError};
+use crate::{OnNewIdentity, BitpartStore, BitpartStoreError};
 
 #[derive(Clone)]
-pub struct SledProtocolStore<T: SledTrees> {
-    pub(crate) store: SledStore,
+pub struct BitpartProtocolStore<T: BitpartTrees> {
+    pub(crate) store: BitpartStore,
     _trees: PhantomData<T>,
 }
 
-impl SledProtocolStore<AciSledStore> {
-    pub(crate) fn aci_protocol_store(store: SledStore) -> Self {
+impl BitpartProtocolStore<AciBitpartStore> {
+    pub(crate) fn aci_protocol_store(store: BitpartStore) -> Self {
         Self {
             store,
             _trees: Default::default(),
@@ -39,8 +39,8 @@ impl SledProtocolStore<AciSledStore> {
     }
 }
 
-impl SledProtocolStore<PniSledStore> {
-    pub(crate) fn pni_protocol_store(store: SledStore) -> Self {
+impl BitpartProtocolStore<PniBitpartStore> {
+    pub(crate) fn pni_protocol_store(store: BitpartStore) -> Self {
         Self {
             store,
             _trees: Default::default(),
@@ -48,7 +48,7 @@ impl SledProtocolStore<PniSledStore> {
     }
 }
 
-impl<T: SledTrees> SledProtocolStore<T> {
+impl<T: BitpartTrees> BitpartProtocolStore<T> {
     fn next_key_id(&self, tree: &str) -> Result<u32, SignalProtocolError> {
         Ok(self
             .store
@@ -69,7 +69,7 @@ impl<T: SledTrees> SledProtocolStore<T> {
     }
 }
 
-pub trait SledTrees: Clone {
+pub trait BitpartTrees: Clone {
     fn identities() -> &'static str;
     fn state() -> &'static str;
     fn pre_keys() -> &'static str;
@@ -82,9 +82,9 @@ pub trait SledTrees: Clone {
 }
 
 #[derive(Clone)]
-pub struct AciSledStore;
+pub struct AciBitpartStore;
 
-impl SledTrees for AciSledStore {
+impl BitpartTrees for AciBitpartStore {
     fn identities() -> &'static str {
         "identities"
     }
@@ -123,9 +123,9 @@ impl SledTrees for AciSledStore {
 }
 
 #[derive(Clone)]
-pub struct PniSledStore;
+pub struct PniBitpartStore;
 
-impl SledTrees for PniSledStore {
+impl BitpartTrees for PniBitpartStore {
     fn identities() -> &'static str {
         "identities"
     }
@@ -163,19 +163,19 @@ impl SledTrees for PniSledStore {
     }
 }
 
-pub(crate) trait SledPreKeyId: Into<u32> {
+pub(crate) trait BitpartPreKeyId: Into<u32> {
     fn sled_key(self) -> [u8; 4] {
         let idx: u32 = self.into();
         idx.to_be_bytes()
     }
 }
 
-impl SledPreKeyId for PreKeyId {}
-impl SledPreKeyId for SignedPreKeyId {}
-impl SledPreKeyId for KyberPreKeyId {}
+impl BitpartPreKeyId for PreKeyId {}
+impl BitpartPreKeyId for SignedPreKeyId {}
+impl BitpartPreKeyId for KyberPreKeyId {}
 
-impl<T: SledTrees> SledProtocolStore<T> {
-    pub(crate) fn clear(&self, clear_sessions: bool) -> Result<(), SledStoreError> {
+impl<T: BitpartTrees> BitpartProtocolStore<T> {
+    pub(crate) fn clear(&self, clear_sessions: bool) -> Result<(), BitpartStoreError> {
         let db = self.store.db.write().expect("poisoned mutex");
         db.drop_tree(T::pre_keys())?;
         db.drop_tree(T::sender_keys())?;
@@ -188,10 +188,10 @@ impl<T: SledTrees> SledProtocolStore<T> {
     }
 }
 
-impl<T: SledTrees> ProtocolStore for SledProtocolStore<T> {}
+impl<T: BitpartTrees> ProtocolStore for BitpartProtocolStore<T> {}
 
 #[async_trait(?Send)]
-impl<T: SledTrees> PreKeyStore for SledProtocolStore<T> {
+impl<T: BitpartTrees> PreKeyStore for BitpartProtocolStore<T> {
     async fn get_pre_key(&self, prekey_id: PreKeyId) -> Result<PreKeyRecord, SignalProtocolError> {
         let buf: Vec<u8> = self
             .store
@@ -229,7 +229,7 @@ impl<T: SledTrees> PreKeyStore for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> PreKeysStore for SledProtocolStore<T> {
+impl<T: BitpartTrees> PreKeysStore for BitpartProtocolStore<T> {
     async fn next_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
         self.next_key_id(T::pre_keys())
     }
@@ -283,7 +283,7 @@ impl<T: SledTrees> PreKeysStore for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> SignedPreKeyStore for SledProtocolStore<T> {
+impl<T: BitpartTrees> SignedPreKeyStore for BitpartProtocolStore<T> {
     async fn get_signed_pre_key(
         &self,
         signed_prekey_id: SignedPreKeyId,
@@ -317,7 +317,7 @@ impl<T: SledTrees> SignedPreKeyStore for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> KyberPreKeyStore for SledProtocolStore<T> {
+impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
     async fn get_kyber_pre_key(
         &self,
         kyber_prekey_id: KyberPreKeyId,
@@ -368,7 +368,7 @@ impl<T: SledTrees> KyberPreKeyStore for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> KyberPreKeyStoreExt for SledProtocolStore<T> {
+impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
     async fn store_last_resort_kyber_pre_key(
         &mut self,
         kyber_prekey_id: KyberPreKeyId,
@@ -397,7 +397,7 @@ impl<T: SledTrees> KyberPreKeyStoreExt for SledProtocolStore<T> {
         trace!("load_last_resort_kyber_pre_keys");
         self.store
             .iter(T::kyber_pre_keys_last_resort())?
-            .filter_map(|data: Result<Vec<u8>, SledStoreError>| data.ok())
+            .filter_map(|data: Result<Vec<u8>, BitpartStoreError>| data.ok())
             .map(|data| KyberPreKeyRecord::deserialize(&data))
             .collect()
     }
@@ -432,7 +432,7 @@ impl<T: SledTrees> KyberPreKeyStoreExt for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> SessionStore for SledProtocolStore<T> {
+impl<T: BitpartTrees> SessionStore for BitpartProtocolStore<T> {
     async fn load_session(
         &self,
         address: &ProtocolAddress,
@@ -461,7 +461,7 @@ impl<T: SledTrees> SessionStore for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> SessionStoreExt for SledProtocolStore<T> {
+impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
     async fn get_sub_device_sessions(
         &self,
         address: &ServiceAddress,
@@ -472,7 +472,7 @@ impl<T: SledTrees> SessionStoreExt for SledProtocolStore<T> {
             .store
             .read()
             .open_tree(T::sessions())
-            .map_err(SledStoreError::Db)?
+            .map_err(BitpartStoreError::Db)?
             .scan_prefix(&session_prefix)
             .filter_map(|r| {
                 let (key, _) = r.ok()?;
@@ -490,7 +490,7 @@ impl<T: SledTrees> SessionStoreExt for SledProtocolStore<T> {
         self.store
             .write()
             .open_tree(T::sessions())
-            .map_err(SledStoreError::Db)?
+            .map_err(BitpartStoreError::Db)?
             .remove(address.to_string())
             .map_err(|_e| SignalProtocolError::SessionNotFound(address.clone()))?;
         Ok(())
@@ -501,7 +501,7 @@ impl<T: SledTrees> SessionStoreExt for SledProtocolStore<T> {
         address: &ServiceAddress,
     ) -> Result<usize, SignalProtocolError> {
         let db = self.store.write();
-        let sessions_tree = db.open_tree(T::sessions()).map_err(SledStoreError::Db)?;
+        let sessions_tree = db.open_tree(T::sessions()).map_err(BitpartStoreError::Db)?;
 
         let mut batch = Batch::default();
         sessions_tree
@@ -512,7 +512,7 @@ impl<T: SledTrees> SessionStoreExt for SledProtocolStore<T> {
             })
             .for_each(|k| batch.remove(k));
 
-        db.apply_batch(batch).map_err(SledStoreError::Db)?;
+        db.apply_batch(batch).map_err(BitpartStoreError::Db)?;
 
         let len = sessions_tree.len();
         sessions_tree.clear().map_err(|_e| {
@@ -523,7 +523,7 @@ impl<T: SledTrees> SessionStoreExt for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> IdentityKeyStore for SledProtocolStore<T> {
+impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
     async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
         trace!("getting identity_key_pair");
         self.store.get_identity_key_pair::<T>()?.ok_or_else(|| {
@@ -622,7 +622,7 @@ impl<T: SledTrees> IdentityKeyStore for SledProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: SledTrees> SenderKeyStore for SledProtocolStore<T> {
+impl<T: BitpartTrees> SenderKeyStore for BitpartProtocolStore<T> {
     async fn store_sender_key(
         &mut self,
         sender: &ProtocolAddress,
@@ -676,7 +676,7 @@ mod tests {
     };
     use quickcheck::{Arbitrary, Gen, TestResult};
 
-    use super::SledStore;
+    use super::BitpartStore;
 
     #[derive(Debug, Clone)]
     struct ProtocolAddress(protocol::ProtocolAddress);
@@ -711,7 +711,7 @@ mod tests {
 
     #[quickcheck_async::tokio]
     async fn test_save_get_trust_identity(addr: ProtocolAddress, key_pair: KeyPair) -> bool {
-        let mut db = SledStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
         let identity_key = protocol::IdentityKey::new(key_pair.0.public_key);
         db.save_identity(&addr.0, &identity_key).await.unwrap();
         let id = db.get_identity(&addr.0).await.unwrap().unwrap();
@@ -727,7 +727,7 @@ mod tests {
     async fn test_store_load_session(addr: ProtocolAddress) -> bool {
         let session = SessionRecord::new_fresh();
 
-        let mut db = SledStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
         db.store_session(&addr.0, &session).await.unwrap();
         if db.load_session(&addr.0).await.unwrap().is_none() {
             return false;
@@ -739,7 +739,7 @@ mod tests {
     #[quickcheck_async::tokio]
     async fn test_prekey_store(id: u32, key_pair: KeyPair) -> bool {
         let id = id.into();
-        let mut db = SledStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
         let pre_key_record = PreKeyRecord::new(id, &key_pair.0);
         db.save_pre_key(id, &pre_key_record).await.unwrap();
         if db.get_pre_key(id).await.unwrap().serialize().unwrap()
@@ -759,7 +759,7 @@ mod tests {
         key_pair: KeyPair,
         signature: Vec<u8>,
     ) -> bool {
-        let mut db = SledStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
         let id = id.into();
         let signed_pre_key_record = SignedPreKeyRecord::new(
             id,
@@ -814,7 +814,7 @@ mod tests {
         key2: ArbPreKeyRecord,
         signed_key: ArbSignedPreKeyRecord,
     ) {
-        let db = SledStore::temporary().unwrap();
+        let db = BitpartStore::temporary().unwrap();
         let mut store = db.aci_protocol_store();
 
         assert_eq!(store.next_pre_key_id().await.unwrap(), 0);
@@ -841,7 +841,7 @@ mod tests {
 
     #[quickcheck_async::tokio]
     async fn test_next_key_id_is_max(keys: Vec<u32>, record: ArbPreKeyRecord) -> TestResult {
-        let db = SledStore::temporary().unwrap();
+        let db = BitpartStore::temporary().unwrap();
         let mut store = db.aci_protocol_store();
 
         for &key in &keys {

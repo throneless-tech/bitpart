@@ -1,11 +1,11 @@
 mod actions;
 pub mod api;
+mod channels;
 mod conversation;
 mod data;
 pub mod db;
 pub mod error;
 mod event;
-mod services;
 pub mod utils;
 
 use axum::{
@@ -86,6 +86,7 @@ async fn main() -> Result<(), BitpartError> {
     let key_query = format!("PRAGMA key = '{}';", args.key);
     db.execute_unprepared(&key_query).await?;
     migrate(&uri).await?;
+    let db = Database::connect(&uri).await?;
 
     let state = ApiState {
         db,
@@ -98,6 +99,7 @@ async fn main() -> Result<(), BitpartError> {
             "/api/v1/bots/:id",
             get(api::get_bot).delete(api::delete_bot),
         )
+        .route("/api/v1/bots", get(api::list_bots))
         .route("/api/v1/bots/:id/versions", get(api::get_bot_versions))
         .route(
             "/api/v1/bots/:id/versions/:id",

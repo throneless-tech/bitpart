@@ -13,7 +13,7 @@ use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto;
 use presage::libsignal_service::ServiceAddress;
 
-use crate::SledStoreError;
+use crate::BitpartStoreError;
 
 use self::textsecure::AddressProto;
 use self::textsecure::MetadataProto;
@@ -27,13 +27,13 @@ impl From<ServiceAddress> for AddressProto {
 }
 
 impl TryFrom<AddressProto> for ServiceAddress {
-    type Error = SledStoreError;
+    type Error = BitpartStoreError;
 
     fn try_from(address: AddressProto) -> Result<Self, Self::Error> {
         address
             .uuid
             .and_then(|bytes| Some(Uuid::from_bytes(bytes.try_into().ok()?)))
-            .ok_or_else(|| SledStoreError::NoUuid)
+            .ok_or_else(|| BitpartStoreError::NoUuid)
             .map(Self::from_aci)
     }
 }
@@ -55,13 +55,16 @@ impl From<Metadata> for MetadataProto {
 }
 
 impl TryFrom<MetadataProto> for Metadata {
-    type Error = SledStoreError;
+    type Error = BitpartStoreError;
 
     fn try_from(metadata: MetadataProto) -> Result<Self, Self::Error> {
         Ok(Metadata {
-            sender: metadata.address.ok_or(SledStoreError::NoUuid)?.try_into()?,
+            sender: metadata
+                .address
+                .ok_or(BitpartStoreError::NoUuid)?
+                .try_into()?,
             destination: ServiceAddress::from_aci(match metadata.destination_uuid.as_deref() {
-                Some(value) => value.parse().map_err(|_| SledStoreError::NoUuid),
+                Some(value) => value.parse().map_err(|_| BitpartStoreError::NoUuid),
                 None => Ok(Uuid::nil()),
             }?),
             sender_device: metadata
@@ -105,10 +108,11 @@ impl From<(Metadata, ContentBody)> for ContentProto {
 }
 
 impl TryInto<Content> for ContentProto {
-    type Error = SledStoreError;
+    type Error = BitpartStoreError;
 
     fn try_into(self) -> Result<Content, Self::Error> {
         let metadata = self.metadata.try_into()?;
-        Content::from_proto(self.content, metadata).map_err(|_| SledStoreError::UnsupportedContent)
+        Content::from_proto(self.content, metadata)
+            .map_err(|_| BitpartStoreError::UnsupportedContent)
     }
 }

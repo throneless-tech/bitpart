@@ -2,7 +2,7 @@ use presage::{libsignal_service::protocol::SignalProtocolError, store::StoreErro
 use tracing::error;
 
 #[derive(Debug, thiserror::Error)]
-pub enum SledStoreError {
+pub enum BitpartStoreError {
     #[error("database migration is not supported")]
     MigrationConflict,
     #[error("data store error: {0}")]
@@ -28,10 +28,10 @@ pub enum SledStoreError {
     UnsupportedContent,
 }
 
-impl StoreError for SledStoreError {}
+impl StoreError for BitpartStoreError {}
 
-impl From<SledStoreError> for SignalProtocolError {
-    fn from(error: SledStoreError) -> Self {
+impl BitpartStoreError> for SignalProtocolError {
+    fn from(error: BitpartStoreError) -> Self {
         error!(%error, "presage store error");
         Self::InvalidState("presage store error", error.to_string())
     }

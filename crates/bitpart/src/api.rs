@@ -70,9 +70,14 @@ pub async fn post_bot(
         CsmlResult { .. } => {
             println!("Validated!");
             let created = db::bot::create(bot, &state.db).await?;
-            Ok((StatusCode::CREATED, serde_json::to_string(&created)?))
+            Ok((StatusCode::CREATED, Json(created)))
         }
     }
+}
+
+pub async fn list_bots(State(state): State<ApiState>) -> Result<impl IntoResponse, BitpartError> {
+    let list = db::bot::list(None, None, &state.db).await?;
+    Ok((StatusCode::OK, Json(list)).into_response())
 }
 
 pub async fn get_bot(
@@ -80,7 +85,7 @@ pub async fn get_bot(
     State(state): State<ApiState>,
 ) -> Result<impl IntoResponse, BitpartError> {
     if let Some(bot) = db::bot::get_latest_by_bot_id(&id.to_string(), &state.db).await? {
-        Ok((StatusCode::OK, serde_json::to_string(&bot)?).into_response())
+        Ok((StatusCode::OK, Json(bot)).into_response())
     } else {
         let response = Ok((StatusCode::NOT_FOUND, ()).into_response());
         response
@@ -100,7 +105,10 @@ pub async fn get_bot_versions(
     State(state): State<ApiState>,
 ) -> Result<impl IntoResponse, BitpartError> {
     match db::bot::get(&id.to_string(), params.limit, params.offset, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok((StatusCode::OK, serde_json::to_string(&v)?).into_response()),
+        Ok(v) if v.len() > 0 => {
+            println!("v: {:?}", v);
+            Ok((StatusCode::OK, Json(v)).into_response())
+        }
         _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
     }
 }
@@ -110,7 +118,7 @@ pub async fn get_bot_version(
     State(state): State<ApiState>,
 ) -> Result<impl IntoResponse, BitpartError> {
     let bot = db::bot::get_by_id(&vid.to_string(), &state.db).await?;
-    Ok((StatusCode::FOUND, serde_json::to_string(&bot)?))
+    Ok((StatusCode::FOUND, Json(bot)))
 }
 
 pub async fn delete_bot_version(
@@ -282,7 +290,7 @@ pub async fn get_conversations(
     };
 
     match db::conversation::get_by_client(&client, params.limit, params.offset, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, serde_json::to_string(&v)?).into_response()),
+        Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, Json(v)).into_response()),
         _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
     }
 }
@@ -435,7 +443,7 @@ pub async fn post_request(
     };
 
     match start_conversation(request, bot_opt, &state.db).await {
-        Ok(r) => Ok((StatusCode::OK, serde_json::to_string(&r)?).into_response()),
+        Ok(r) => Ok((StatusCode::OK, Json(r)).into_response()),
         Err(err) => Err(err),
     }
 }

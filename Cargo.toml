@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-  # "crates/bitpart-cli",
+  "crates/bitpart-cli",
   "crates/bitpart",
   "crates/bitpart-plugin",
   #"crates/presage-store-bitpart",

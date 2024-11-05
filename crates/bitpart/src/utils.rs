@@ -26,8 +26,6 @@ use serde_json::{json, map::Map, Value};
 use std::collections::HashMap;
 use std::env;
 use tracing::debug;
-// use std::ffi::OsStr;
-// use std::{fs, io, path::PathBuf};
 
 use crate::data::{ConversationData, FlowTrigger};
 use crate::db;
@@ -51,17 +49,6 @@ pub async fn get_test_server(app: Router<ApiState>) -> TestServer {
         .build(app.with_state(state))
         .unwrap()
 }
-
-// fn find_csml(path: &str) -> io::Result<Vec<PathBuf>> {
-//     let entries = fs::read_dir(path)?
-//         .filter_map(|res| match res.ok()?.path() {
-//             path if path.extension() == Some(OsStr::new("csml")) => Some(path),
-//             _ => None,
-//         })
-//         .collect::<Vec<_>>();
-
-//     Ok(entries)
-// }
 
 fn add_info_to_message(data: &ConversationData, mut msg: Message, interaction_order: i32) -> Value {
     let payload = msg.message_to_json();

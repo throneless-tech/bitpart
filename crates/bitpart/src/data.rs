@@ -41,6 +41,13 @@ pub struct BotVersion {
     pub engine_version: String,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BotSummary {
+    pub bot: CsmlBot,
+    pub version_id: String,
+    pub engine_version: String,
+}
+
 // impl IntoResponse for BotVersion {
 //     fn into_response(self) -> axum::response::Response {
 //         (StatusCode::CREATED, self).into_response()
