@@ -200,7 +200,7 @@ fn main() {
                     "payload": {
                         "content_type": "text",
                         "content": {
-                            "text": "todo"
+                            "text": message
                         }
                     },
                     "metadata": serde_json::Value::Null,
