@@ -1,0 +1,124 @@
+start:
+  say "Hi. You have been invited to the distribution list [LIST NAME].
+    \nYou can agree, and receive periodic messages. You number will be stored on the secure system in order to receive messages.
+    \nYou can disagree, and your contact number will be deleted automatically from the list."
+  say "Agree - I want to be added to the distribution list and consent to receiving messages.
+    \nDisagree - please remove me from the list
+    \n Type agree or disagree"
+  hold
+
+  if (event.to_lowercase() == "agree") {
+    goto consent_agree_step
+  } else if (event.to_lowercase() == "disagree") {
+    goto consent_disagree_step
+  } else {
+    say "Sorry, I do not understand."
+    goto start
+  }
+
+consent_disagree_step:
+  say "You have asked that you be removed from the list and all your data be deleted from the system.
+    \nOnce this happens, you will no longer be able to receive messages from this number, unless you send a message to it again.
+    \nTo confirm, type 'Delete'
+    \nTo go back, type 'Go back'"
+  hold
+
+  if (event.to_lowercase() == "delete") {
+    goto confirm_delete_step
+  } else if (event.to_lowercase() == "go back") {
+    goto question_consent_step
+  } else {
+    say "Sorry, I did not get that."
+    goto consent_disagree_step
+  }
+
+confirm_delete_step:
+  say "All your data will now be deleted and you will no longer receive messages."
+  // TODO: bitpart removes user from list and deletes all their data
+  goto end
+
+consent_agree_step:
+  // TODO: bitpart adds contact to distribution list
+  say "Welcome!
+    \nThis is a way to receive messages from X, about Y, without being in a group (which can potentially compromise everyone in the group).
+    \n[LIST description / list rules]"
+  goto menu_step
+
+menu_step:    
+  say "**Menu**
+    \n1) About this channel
+    \n2) Set PIN to access this chat (for extra security)
+    \n3) Set up kill button (immediate deletion of all messages in this chat)
+    \n4) Safety tips
+    \n5) Frequently asked questions (FAQs)
+    \nYou have the right to be forgotten. At any time, send 'Delete my data' to stop receiving messages and be removed from this list."  
+  hold
+
+  if (event == "1") {
+    say "This is a way to receive messages from X, about Y, without being in a group (which can potentially compromise everyone in the group).
+    \n[List description / list rules]"
+  } else if (event == "2") {
+    // TODO explain how to set a PIN
+  } else if (event == "3") {
+    // TODO explain how to set up kill button
+  } else if (event == "4") {
+    say "**Safety tips**
+    \nFor the upcoming action, we recommend you:
+    \nleave your phone at home if you are able to, or use a burner device.
+    \nIf you must bring your phone with you, assume that it might be taken. In advance, delete photos you do not want others to see, delete messages and chats; delete apps; and set disappearing message times to 1 hour.
+    \nFor more safety tips, visit  WEbSITE LINK" // TODO insert hyperlink
+  } else if (event == "5") {
+    goto faq_step
+  } else if (event.to_lowercase() == "delete my data") {
+    goto consent_disagree_step
+  } else {
+    say "Sorry, I did not get that."
+    goto menu_step
+  }
+
+faq_step:
+  say "Here are some frequently answered questions. Does your question fall under one of these?
+    \n1) who runs this list?
+    \n2)  FAQ 2
+    \n3) FAQ3
+    \n4) Other"
+  hold
+
+  if (event == "1") {
+    // TODO FAQ answer
+    say "Does this answer your question?"
+  } else if (event == "2") {
+    // TODO FAQ answer
+    say "Does this answer your question?"
+  } else if (event == "3") {
+    // TODO FAQ answer
+    say "Does this answer your question?"
+  } else if (event == "4") {
+    goto submit_question_step
+  } else if (event.to_lowercase() == "delete my data") {
+    goto consent_disagree_step
+  } else {
+    say "Sorry, I did not get that."
+  }
+
+  say "Type FAQ to see the list of questions.
+    \nType Main menu to return home."
+  hold
+
+  if (event.to_lowercase() == "faq" ||  event.to_lowercase() == "faqs") {
+    goto faq_step
+  } else if (event.to_lowercase() == "main menu" ||  event.to_lowercase() == "menu") {
+    goto menu_step
+  } else if (event.to_lowercase() == "delete my data") {
+    goto consent_disagree_step
+  } else {
+    say "Sorry, I did not get that."
+  }
+
+  submit_question_step:
+    // TODO bitpart flags conversation to list owner
+    say "We've understood that you have a question not covered by the FAQs. Please ask your question?"
+    hold
+    // todo send question to bitpart
+    // todo bitpart updates FAQs depending on questions asked (prioritised by frequency)
+    say "Thank you. The list owner will continue this conversation. Please note that it might take some time for them to get in touch."
