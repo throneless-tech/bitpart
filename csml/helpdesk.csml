@@ -1,0 +1,149 @@
+start:
+  // TODO: accept input from user asking a question
+  // TODO: bitpart interpret incoming langauge
+  say "Thank you for contacting [HELPDESK NAME]. We help people in [LOCATION] with digital rights issues. We use a secure automated messaging system so you can get quicker answers to problems, and our team is on hand to help.
+    \nIf you are in immediate physical danger [ ADD REFERRAL]"
+  // TODO: user research needed about if we want bitpart to accept voice notes
+  say "We need to ask you some questions in order to help you.
+    \nYour answers will be stored on our system for [DURATION] and visible to our team only. We will not share you personal information with anyone else. We use anonymised data to share general trends publicly, for awareness raising and advocacy.
+    \nFor more information at any time, including how to delete your data, send 'Privacy policy'.
+    \nCan you briefly describe the problem?"
+  say "Can you please tell us what name we should call you by?
+    \n(Give a pseudonym if you prefer)."
+  hold
+
+  if (event.to_lowercase() == "privacy policy") {
+    goto privacy_policy_step
+  } else if (event.length() <= 70) {
+    // note: length of name is based on UK standards
+    remember name = event
+    goto role_collection_step
+  } else if (event.match_regex("[Human|human|person|Person|Talk|talk]")) {
+    // TODO: is there a better way to check if the user wants to talk to a real person?
+    say "Ok. A member of our helpdesk team will follow up as soon as they can."
+    goto incomplete_step
+  } else {
+    say "Sorry,  our system didn't understand what you meant. A member of our helpdesk team will be in touch with you as soon as possible."
+    goto incomplete_step
+  }
+
+privacy_policy_step:
+  // TODO: need privacy policy text and next steps
+
+incomplete_step:
+  // TODO: bitpart tags as 'incomplete' and flags for helpdesk team (human) attention (i.e. adds to a queue)
+  goto end
+
+role_collection_step:
+  say "Thank you {{name}}.
+    \nWhat do you do? For instance, are you a journalist, activist, politican, lawyer, etc."
+  hold
+
+  if (event.to_lowercase() == "privacy policy") {
+    goto privacy_policy_step
+  } else {
+    remember role = event
+  }
+  // TODO: Is there another catchall we want here if someone jumps straight to a problem?
+  
+  // TODO: Bitpart interperts information and assigns a category/tag, or does not
+
+  goto report_step
+
+report_step:
+  say "Thank you. What is the problem you would you like to report?"
+  hold
+
+  remember problem = event
+
+  // TODO: Bitpart interprets text information according to 'problem' categories defined by org
+
+  // TODO: Return some data from Bitpart summarizing/categorizing the problem
+  say "Thank you for sharing."
+  goto confirmation_step
+
+confirmation_step:
+  say "We understood that [SUMMARY OF PROBLEM]. Is that correct? Please answer yes or no."
+  hold
+
+  if (event.to_lowercase() == "yes"){
+    say "Ok, thank you."
+    goto additional_data_step
+  } else if (event.to_lowercase() == "no") {
+    say "Ok. A member of our helpdesk team will follow up as soon as they can."
+    goto incomplete_step
+  } else if (event.to_lowercase() == "privacy policy") {
+    goto privacy_policy_step
+  } else {
+    say "Sorry, I did not get that."
+    goto confirmation_step
+  }
+
+additional_data_step:
+  // TODO: Create an example based on data returned from Bitpart, if that's not too complex
+  // TODO: Do we want to be able to accept other items that aren't links or strings, such as images/video/audio?
+  // TODO: Do we want to loop this step or create a way to send multiple links/data?
+  say "Can you please share any relevent links, such as [[EXAMPLE]]. Please share the link or say I don't have any."
+  hold
+
+  if (event.match_regex("[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)")) {
+    // note: need an extra backslash to escape, as per CSML docs
+    // https://docs.csml.dev/language/standard-library/string-methods#match-string-.match_regex-string
+    remember link = event
+    say "Thank you, {{name}}."
+    goto analyze_problem_step
+  } else if (event.contains("don't")) {
+    // TODO: is there a better way to check if they don't have a link?
+    say "That's okay."
+    goto analyze_problem_step
+  } else if (event.to_lowercase() == "privacy policy") {
+    goto privacy_policy_step
+  } else {
+    say "Sorry, I did not get that."
+    goto additional_data_step
+  }
+
+analyze_problem_step:
+  // TODO: Bitpart determines if problem can be solved with an automated response, or needs human support
+  // goto either automated_step or human_support_step
+
+automated_step:
+  say "From our experience, we think [SUMMARY OF  PROBLEM] can be solved by taking the following steps."
+  say "[PROBLEM NAME]
+    \n1) Step 1
+    \n2) Step 2
+    \n3) Step 3
+    \n(If at any time you need additional support from a member of our helpdesk team, text 'Help.' Someone from the team will respond within 5 working days).
+    \nDid that solve your problem? Text yes or no."// TODO: is it always 5 days?
+
+    if (event.to_lowercase() == "yes") {
+      say "Great!"
+      // TODO: is there anything else we want to do/collect before closing out?
+      goto end
+    } else if (event.to_lowercase() == "no") {
+      say "Ok, sorry about that. We will connect you to the humans who run the helpdesk."
+      goto human_support_step
+    } else if (event.to_lowercase() == "privacy policy") {
+      goto privacy_policy_step
+    } else if (event.to_lowercase == "help") {
+      say "We understood that you want a human from our helpdesk team to contact you. Is that correct?"
+      hold
+
+      if (event.to_lowercase() == "yes") {
+        goto human_support_step
+      } else if (event.to_lowercase() == "no") {
+        goto automated_step
+      } else {
+        say "Sorry, I did not get that."
+        goto human_support_step
+      }
+    } else {
+      say "Sorry, I did not get that."
+      goto automated_step
+    }
+
+human_support_step:
+  // TODO: Bitpart determines urgency/priority based on criteria specified by org.
+  say "A member of our helpdesk team will follow up as soon as they can to offer you support. We will aim to be in touch with you within [TIME depending on urgency] 2 working days."
+  // TODO: is there anything else we want to do/collect before closing out?
+  goto end

@@ -122,3 +122,6 @@ faq_step:
     // todo send question to bitpart
     // todo bitpart updates FAQs depending on questions asked (prioritised by frequency)
     say "Thank you. The list owner will continue this conversation. Please note that it might take some time for them to get in touch."
+    // TODO: is there anything else we want to do/collect before closing out?
+    goto end
+    
