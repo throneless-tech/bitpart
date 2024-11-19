@@ -6,7 +6,7 @@ start:
   // TODO: user research needed about if we want bitpart to accept voice notes
   say "We need to ask you some questions in order to help you.
     \nYour answers will be stored on our system for [DURATION] and visible to our team only. We will not share you personal information with anyone else. We use anonymised data to share general trends publicly, for awareness raising and advocacy.
-    \nFor more information at any time, including how to delete your data, send 'Privacy policy'.
+    \nFor more information at any time, including how to delete your data, reply with 'Privacy policy'.
     \nCan you briefly describe the problem?"
   say "Can you please tell us what name we should call you by?
     \n(Give a pseudonym if you prefer)."
@@ -63,7 +63,7 @@ report_step:
   goto confirmation_step
 
 confirmation_step:
-  say "We understood that [SUMMARY OF PROBLEM]. Is that correct? Please answer yes or no."
+  say "We understood that [SUMMARY OF PROBLEM]. Is that correct? Please reply with 'yes' or 'no'."
   hold
 
   if (event.to_lowercase() == "yes"){
@@ -83,7 +83,7 @@ additional_data_step:
   // TODO: Create an example based on data returned from Bitpart, if that's not too complex
   // TODO: Do we want to be able to accept other items that aren't links or strings, such as images/video/audio?
   // TODO: Do we want to loop this step or create a way to send multiple links/data?
-  say "Can you please share any relevent links, such as [[EXAMPLE]]. Please share the link or say I don't have any."
+  say "Can you please share any relevent links, such as [[EXAMPLE]]. Please share the link or reply with 'none'"
   hold
 
   if (event.match_regex("[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)")) {
@@ -92,8 +92,7 @@ additional_data_step:
     remember link = event
     say "Thank you, {{name}}."
     goto analyze_problem_step
-  } else if (event.contains("don't")) {
-    // TODO: is there a better way to check if they don't have a link?
+  } else if (event.to_lowercase("none")) {
     say "That's okay."
     goto analyze_problem_step
   } else if (event.to_lowercase() == "privacy policy") {

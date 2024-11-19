@@ -4,7 +4,7 @@ start:
     \nYou can disagree, and your contact number will be deleted automatically from the list."
   say "Agree - I want to be added to the distribution list and consent to receiving messages.
     \nDisagree - please remove me from the list
-    \n Type agree or disagree"
+    \n Reply with 'agree' or 'disagree'"
   hold
 
   if (event.to_lowercase() == "agree") {
@@ -19,8 +19,9 @@ start:
 consent_disagree_step:
   say "You have asked that you be removed from the list and all your data be deleted from the system.
     \nOnce this happens, you will no longer be able to receive messages from this number, unless you send a message to it again.
-    \nTo confirm, type 'Delete'
-    \nTo go back, type 'Go back'"
+    \nTo confirm, reply with 'Delete'
+    \nTo go back, reply with 'Go back'"
+    // TODO consider A/B testing how to reply
   hold
 
   if (event.to_lowercase() == "delete") {
@@ -79,7 +80,7 @@ menu_step:
 faq_step:
   say "Here are some frequently answered questions. Does your question fall under one of these?
     \n1) who runs this list?
-    \n2)  FAQ 2
+    \n2) FAQ 2
     \n3) FAQ3
     \n4) Other"
   hold
@@ -101,8 +102,8 @@ faq_step:
     say "Sorry, I did not get that."
   }
 
-  say "Type FAQ to see the list of questions.
-    \nType Main menu to return home."
+  say "Reply with 'FAQ' to see the list of questions.
+    \nReply with 'Main menu' to return home."
   hold
 
   if (event.to_lowercase() == "faq" ||  event.to_lowercase() == "faqs") {
@@ -115,13 +116,13 @@ faq_step:
     say "Sorry, I did not get that."
   }
 
-  submit_question_step:
-    // TODO bitpart flags conversation to list owner
-    say "We've understood that you have a question not covered by the FAQs. Please ask your question?"
-    hold
-    // todo send question to bitpart
-    // todo bitpart updates FAQs depending on questions asked (prioritised by frequency)
-    say "Thank you. The list owner will continue this conversation. Please note that it might take some time for them to get in touch."
-    // TODO: is there anything else we want to do/collect before closing out?
-    goto end
+submit_question_step:
+  // TODO bitpart flags conversation to list owner
+  say "We've understood that you have a question not covered by the FAQs. Please ask your question?"
+  hold
+  // todo send question to bitpart
+  // todo bitpart updates FAQs depending on questions asked (prioritised by frequency)
+  say "Thank you. The list owner will continue this conversation. Please note that it might take some time for them to get in touch."
+  // TODO: is there anything else we want to do/collect before closing out?
+  goto end
     

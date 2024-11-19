@@ -1,0 +1,86 @@
+start:
+  // TODO: conversation is triggered by a message from a user who says they have a tip
+  say "Thank you for contacting [MEDIA NAME].
+    \nThis is our secure tipline. Messages are visible to our staff. Any information you share is stored on our systems.
+    \nFor more information at any time, including how to delete your data, reply with 'Privacy policy'."
+  say "Even though this is a secure tipline, please do NOT share highly sensitive information here.
+    \nPlease share your tip with us."
+  hold
+
+  if (event.to_lowercase() == "privacy policy") {
+    goto privacy_policy_step
+  } else { goto assign_tag_step }
+
+privacy_policy_step:
+  // TODO: need privacy policy text and next steps
+
+assign_tag_step:
+  // TODO bitpart interprets information and assigns a category/tag (tags have been preset by media org) or does not.
+  // TODO depending on tag, Bitpart forwards message to relevant editor
+  say "Thank you. Our team will look into your tip and assess its suitability for our outlet.
+    \nWe may want to follow up with you. Do you give permission for one of our journalists to contact you? You can reply with yes or no."
+  hold
+
+  if (event.to_lowercase() == "yes") {
+    remember permission = event
+    goto contact_method_step
+  } else if (event.to_lowercase() == "no") {
+    say "Ok, we will not contact you. Thanks again for the tip."
+    // TODO do we accept another message after this?
+  } else if (event.to_lowercase() == "privacy policy") {
+    goto privacy_policy_step
+  } else {
+    say "Sorry, our system didn't understand what you meant. Please try again."
+    goto assign_tag_step
+  }
+
+contact_method_step:
+  say "Thank you. How do you prefer we contact you? Please choose the number that corresponds with your preferred method.
+    \n1) Signal call
+    \n2) Signal text message
+    \n3) Phone call
+    \n4) Any
+    \n5) None, don't contact me"\
+  hold
+
+  remember contact_preference = event
+
+  if (event == "1") {
+    // TODO Bitpart records preferred contact method preference
+    say "Thank you. Your preference is noted."
+  } else if (event == "2") {
+    // TODO Bitpart records preferred contact method preference
+    say "Thank you. Your preference is noted."
+  } else if (event == "3") {
+    // TODO Bitpart records preferred contact method preference
+    say "Thank you. Your preference is noted."
+  } else if (event == "4") {
+    // TODO Bitpart records preferred contact method preference
+    goto confirm_contact_method_step
+  } else if (event.to_lowercase() == "5") {
+    // TODO Bitpart records preferred contact method preference
+    goto confirm_contact_method_step
+  } else if (event.to_lowercase() == "privacy policy") {
+    goto privacy_policy_step
+  } else {
+    say "Sorry, I did not get that."
+    goto contact_method_step
+  }
+
+confirm_contact_method_step:
+  say "Reply 'yes' to confirm we can use any method to contact you.
+    \nReply 'back' to go to the previous menu of options
+    \nReply 'no' if you prefer to not be contacted."
+  hold
+
+  if (event.to_lowercase() == "yes") {
+    // TODO Bitpart records preferred contact method preference
+    say "Thank you. Your preference is noted."
+  } else if (event.to_lowercase() == "no") {
+    say "Ok, we will not contact you. Thanks again for the tip."
+    // TODO do we accept another message after this?
+  } else if (event.to_lowercase() == "back") {
+    goto contact_method_step
+  }
+
+  goto end
