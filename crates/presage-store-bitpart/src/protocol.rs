@@ -19,10 +19,9 @@ use presage::{
     proto::verified,
     store::{save_trusted_identity_message, StateStore},
 };
-use sled::Batch;
 use tracing::{error, trace, warn};
 
-use crate::{OnNewIdentity, BitpartStore, BitpartStoreError};
+use crate::{BitpartStore, BitpartStoreError, OnNewIdentity};
 
 #[derive(Clone)]
 pub struct BitpartProtocolStore<T: BitpartTrees> {
@@ -52,19 +51,11 @@ impl<T: BitpartTrees> BitpartProtocolStore<T> {
     fn next_key_id(&self, tree: &str) -> Result<u32, SignalProtocolError> {
         Ok(self
             .store
-            .db
             .read()
-            .expect("poisoned mutex")
-            .open_tree(tree)
-            .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("next_key_id", "sled error".into())
-            })?
-            .into_iter()
+            .open_tree(tree)?
             .keys()
-            .filter_map(Result::ok)
             .last()
-            .and_then(|data| Some(u32::from_be_bytes(data.as_ref().try_into().ok()?)))
+            .and_then(|data| Some(u32::from_be_bytes(data[..4].try_into().ok()?)))
             .map_or(0, |id| id + 1))
     }
 }
@@ -176,7 +167,7 @@ impl BitpartPreKeyId for KyberPreKeyId {}
 
 impl<T: BitpartTrees> BitpartProtocolStore<T> {
     pub(crate) fn clear(&self, clear_sessions: bool) -> Result<(), BitpartStoreError> {
-        let db = self.store.db.write().expect("poisoned mutex");
+        let mut db = self.store.write();
         db.drop_tree(T::pre_keys())?;
         db.drop_tree(T::sender_keys())?;
         db.drop_tree(T::signed_pre_keys())?;
@@ -210,6 +201,7 @@ impl<T: BitpartTrees> PreKeyStore for BitpartProtocolStore<T> {
     ) -> Result<(), SignalProtocolError> {
         self.store
             .insert(T::pre_keys(), prekey_id.sled_key(), record.serialize()?)
+            .await
             .map_err(|error| {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState("save_pre_key", "sled error".into())
@@ -220,6 +212,7 @@ impl<T: BitpartTrees> PreKeyStore for BitpartProtocolStore<T> {
     async fn remove_pre_key(&mut self, prekey_id: PreKeyId) -> Result<(), SignalProtocolError> {
         self.store
             .remove(T::pre_keys(), prekey_id.sled_key())
+            .await
             .map_err(|error| {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState("remove_pre_key", "sled error".into())
@@ -245,17 +238,13 @@ impl<T: BitpartTrees> PreKeysStore for BitpartProtocolStore<T> {
     async fn signed_pre_keys_count(&self) -> Result<usize, SignalProtocolError> {
         Ok(self
             .store
-            .db
             .read()
-            .expect("poisoned mutex")
             .open_tree(T::signed_pre_keys())
             .map_err(|error| {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState("signed_pre_keys_count", "sled error".into())
             })?
-            .into_iter()
             .keys()
-            .filter_map(Result::ok)
             .count())
     }
 
@@ -263,9 +252,7 @@ impl<T: BitpartTrees> PreKeysStore for BitpartProtocolStore<T> {
     async fn kyber_pre_keys_count(&self, last_resort: bool) -> Result<usize, SignalProtocolError> {
         Ok(self
             .store
-            .db
             .read()
-            .expect("poisoned mutex")
             .open_tree(if last_resort {
                 T::kyber_pre_keys_last_resort()
             } else {
@@ -275,9 +262,7 @@ impl<T: BitpartTrees> PreKeysStore for BitpartProtocolStore<T> {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState("save_signed_pre_key", "sled error".into())
             })?
-            .into_iter()
             .keys()
-            .filter_map(Result::ok)
             .count())
     }
 }
@@ -308,6 +293,7 @@ impl<T: BitpartTrees> SignedPreKeyStore for BitpartProtocolStore<T> {
                 signed_prekey_id.sled_key(),
                 record.serialize()?,
             )
+            .await
             .map_err(|error| {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState("save_signed_pre_key", "sled error".into())
@@ -342,6 +328,7 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
                 kyber_prekey_id.sled_key(),
                 record.serialize()?,
             )
+            .await
             .map_err(|error| {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState("save_kyber_pre_key", "sled error".into())
@@ -356,6 +343,7 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         let removed = self
             .store
             .remove(T::kyber_pre_keys(), kyber_prekey_id.sled_key())
+            .await
             .map_err(|error| {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "sled error".into())
@@ -381,6 +369,7 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
                 kyber_prekey_id.sled_key(),
                 record.serialize()?,
             )
+            .await
             .map_err(|error| {
                 error!(%error, "sled error");
                 SignalProtocolError::InvalidState(
@@ -407,9 +396,11 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<(), SignalProtocolError> {
         self.store
-            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.sled_key())?;
+            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.sled_key())
+            .await?;
         self.store
-            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.sled_key())?;
+            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.sled_key())
+            .await?;
         Ok(())
     }
 
@@ -455,7 +446,8 @@ impl<T: BitpartTrees> SessionStore for BitpartProtocolStore<T> {
     ) -> Result<(), SignalProtocolError> {
         trace!(%address, "storing session");
         self.store
-            .insert(T::sessions(), address.to_string(), record.serialize()?)?;
+            .insert(T::sessions(), address.to_string(), record.serialize()?)
+            .await?;
         Ok(())
     }
 }
@@ -471,12 +463,13 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
         let session_ids: Vec<u32> = self
             .store
             .read()
-            .open_tree(T::sessions())
-            .map_err(BitpartStoreError::Db)?
-            .scan_prefix(&session_prefix)
-            .filter_map(|r| {
-                let (key, _) = r.ok()?;
+            .open_tree(T::sessions())?
+            .iter()
+            .filter_map(|(key, _)| {
                 let key_str = String::from_utf8_lossy(&key);
+                if !key_str.starts_with(&session_prefix) {
+                    return None;
+                };
                 let device_id = key_str.strip_prefix(&session_prefix)?;
                 device_id.parse().ok()
             })
@@ -489,10 +482,9 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
         trace!(%address, "deleting session");
         self.store
             .write()
-            .open_tree(T::sessions())
-            .map_err(BitpartStoreError::Db)?
-            .remove(address.to_string())
-            .map_err(|_e| SignalProtocolError::SessionNotFound(address.clone()))?;
+            .open_tree(T::sessions())?
+            .remove(&Vec::from(address.to_string()))
+            .ok_or_else(|| SignalProtocolError::SessionNotFound(address.clone()))?;
         Ok(())
     }
 
@@ -500,24 +492,16 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
         &self,
         address: &ServiceAddress,
     ) -> Result<usize, SignalProtocolError> {
-        let db = self.store.write();
-        let sessions_tree = db.open_tree(T::sessions()).map_err(BitpartStoreError::Db)?;
+        let mut db = self.store.write();
+        let sessions_tree = db.open_tree(T::sessions())?;
 
-        let mut batch = Batch::default();
-        sessions_tree
-            .scan_prefix(address.uuid.to_string())
-            .filter_map(|r| {
-                let (key, _) = r.ok()?;
-                Some(key)
-            })
-            .for_each(|k| batch.remove(k));
-
-        db.apply_batch(batch).map_err(BitpartStoreError::Db)?;
+        sessions_tree.retain(|key, _| {
+            let key_str = String::from_utf8_lossy(&key);
+            !key_str.starts_with(&address.uuid.to_string())
+        });
 
         let len = sessions_tree.len();
-        sessions_tree.clear().map_err(|_e| {
-            SignalProtocolError::InvalidSessionStructure("failed to delete all sessions")
-        })?;
+        sessions_tree.clear();
         Ok(len)
     }
 }
@@ -559,6 +543,7 @@ impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
                 address.to_string(),
                 identity_key.serialize(),
             )
+            .await
             .map_err(|error| {
                 error!(%error, %address, "failed to save identity");
                 error
@@ -636,7 +621,8 @@ impl<T: BitpartTrees> SenderKeyStore for BitpartProtocolStore<T> {
             distribution_id
         );
         self.store
-            .insert(T::sender_keys(), key, record.serialize()?)?;
+            .insert(T::sender_keys(), key, record.serialize()?)
+            .await?;
         Ok(())
     }
 
@@ -711,7 +697,10 @@ mod tests {
 
     #[quickcheck_async::tokio]
     async fn test_save_get_trust_identity(addr: ProtocolAddress, key_pair: KeyPair) -> bool {
-        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary()
+            .await
+            .unwrap()
+            .aci_protocol_store();
         let identity_key = protocol::IdentityKey::new(key_pair.0.public_key);
         db.save_identity(&addr.0, &identity_key).await.unwrap();
         let id = db.get_identity(&addr.0).await.unwrap().unwrap();
@@ -727,7 +716,10 @@ mod tests {
     async fn test_store_load_session(addr: ProtocolAddress) -> bool {
         let session = SessionRecord::new_fresh();
 
-        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary()
+            .await
+            .unwrap()
+            .aci_protocol_store();
         db.store_session(&addr.0, &session).await.unwrap();
         if db.load_session(&addr.0).await.unwrap().is_none() {
             return false;
@@ -739,7 +731,10 @@ mod tests {
     #[quickcheck_async::tokio]
     async fn test_prekey_store(id: u32, key_pair: KeyPair) -> bool {
         let id = id.into();
-        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary()
+            .await
+            .unwrap()
+            .aci_protocol_store();
         let pre_key_record = PreKeyRecord::new(id, &key_pair.0);
         db.save_pre_key(id, &pre_key_record).await.unwrap();
         if db.get_pre_key(id).await.unwrap().serialize().unwrap()
@@ -759,7 +754,10 @@ mod tests {
         key_pair: KeyPair,
         signature: Vec<u8>,
     ) -> bool {
-        let mut db = BitpartStore::temporary().unwrap().aci_protocol_store();
+        let mut db = BitpartStore::temporary()
+            .await
+            .unwrap()
+            .aci_protocol_store();
         let id = id.into();
         let signed_pre_key_record = SignedPreKeyRecord::new(
             id,
@@ -814,7 +812,7 @@ mod tests {
         key2: ArbPreKeyRecord,
         signed_key: ArbSignedPreKeyRecord,
     ) {
-        let db = BitpartStore::temporary().unwrap();
+        let db = BitpartStore::temporary().await.unwrap();
         let mut store = db.aci_protocol_store();
 
         assert_eq!(store.next_pre_key_id().await.unwrap(), 0);
@@ -841,7 +839,7 @@ mod tests {
 
     #[quickcheck_async::tokio]
     async fn test_next_key_id_is_max(keys: Vec<u32>, record: ArbPreKeyRecord) -> TestResult {
-        let db = BitpartStore::temporary().unwrap();
+        let db = BitpartStore::temporary().await.unwrap();
         let mut store = db.aci_protocol_store();
 
         for &key in &keys {

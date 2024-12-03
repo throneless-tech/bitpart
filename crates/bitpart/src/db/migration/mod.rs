@@ -5,6 +5,7 @@ mod m20240801_000002_create_conversation;
 mod m20240801_000003_create_memory;
 mod m20240801_000004_create_message;
 mod m20240801_000005_create_state;
+mod m20240801_000006_create_channel;
 
 use crate::error::BitpartError;
 
@@ -19,6 +20,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20240801_000003_create_memory::Migration),
             Box::new(m20240801_000004_create_message::Migration),
             Box::new(m20240801_000005_create_state::Migration),
+            Box::new(m20240801_000006_create_channel::Migration),
         ]
     }
 }

@@ -514,3 +514,40 @@ mod test_request {
         result.assert_status_ok();
     }
 }
+
+/*
+Channels
+*/
+pub async fn post_channel_signal(
+    State(state): State<ApiState>,
+    Json(body): Json<Request>,
+) -> Result<impl IntoResponse, BitpartError> {
+    db::channel::create(&body.bot_id, &state.db).await
+}
+
+pub async fn put_channel_signal(
+    Path(id): Path<String>,
+    State(state): State<ApiState>,
+    Json(body): Json<Request>,
+) -> Result<impl IntoResponse, BitpartError> {
+}
+
+pub async fn get_channel_signal(
+    Path(id): Path<String>,
+    Query(params): Query<QueryClient>,
+    State(state): State<ApiState>,
+) -> Result<impl IntoResponse, BitpartError> {
+}
+
+pub async fn get_channels_signal(
+    Query(params): Query<QueryClientPagination>,
+    State(state): State<ApiState>,
+) -> Result<impl IntoResponse, BitpartError> {
+}
+
+pub async fn delete_channel_signal(
+    Path(id): Path<String>,
+    Query(params): Query<QueryClient>,
+    State(state): State<ApiState>,
+) -> Result<impl IntoResponse, BitpartError> {
+}

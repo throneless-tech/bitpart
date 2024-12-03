@@ -1,4 +1,5 @@
 use presage::{libsignal_service::protocol::SignalProtocolError, store::StoreError};
+use sea_orm::DbErr;
 use tracing::error;
 
 #[derive(Debug, thiserror::Error)]
@@ -6,12 +7,9 @@ pub enum BitpartStoreError {
     #[error("database migration is not supported")]
     MigrationConflict,
     #[error("data store error: {0}")]
-    Db(#[from] sled::Error),
+    Db(#[from] DbErr),
     #[error("data store error: {0}")]
-    DbTransaction(#[from] sled::transaction::TransactionError),
-    #[cfg(feature = "encryption")]
-    #[error("store cipher error: {0}")]
-    StoreCipher(#[from] presage_store_cipher::StoreCipherError),
+    Store(String),
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("base64 decode error: {0}")]
@@ -30,7 +28,7 @@ pub enum BitpartStoreError {
 
 impl StoreError for BitpartStoreError {}
 
-impl BitpartStoreError> for SignalProtocolError {
+impl From<BitpartStoreError> for SignalProtocolError {
     fn from(error: BitpartStoreError) -> Self {
         error!(%error, "presage store error");
         Self::InvalidState("presage store error", error.to_string())

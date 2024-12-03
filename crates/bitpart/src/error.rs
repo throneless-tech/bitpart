@@ -1,4 +1,3 @@
-use aide::OperationIo;
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -7,7 +6,7 @@ use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
 use thiserror::Error;
 
-#[derive(Debug, Error, OperationIo)]
+#[derive(Debug, Error)]
 pub enum BitpartError {
     #[error("Interpreter error: `{0}`")]
     Interpreter(String),

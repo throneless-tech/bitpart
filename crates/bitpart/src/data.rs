@@ -28,12 +28,6 @@ pub struct SerializedEvent {
     pub callback_url: Option<String>,
 }
 
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// pub struct Client {
-//     pub user_id: String,
-//     pub channel_id: String,
-// }
-
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BotVersion {
     pub bot: CsmlBot,

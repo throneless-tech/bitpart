@@ -3,6 +3,9 @@ resolver = "2"
 members = [
   "crates/bitpart-cli",
   "crates/bitpart",
-  "crates/bitpart-plugin",
-  #"crates/presage-store-bitpart",
+  #"crates/bitpart-plugin",
+  "crates/presage-store-bitpart",
 ]
+
+[patch.crates-io]
+curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }

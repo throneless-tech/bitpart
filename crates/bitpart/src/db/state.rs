@@ -83,7 +83,7 @@ pub async fn delete(
     key: &str,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
-    let entry = Memory::find()
+    let entry = State::find()
         .filter(state::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(state::Column::ChannelId.eq(client.channel_id.to_owned()))
         .filter(state::Column::UserId.eq(client.user_id.to_owned()))

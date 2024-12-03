@@ -1,49 +1,77 @@
 use std::{
+    collections::BTreeMap,
     ops::Range,
-    path::Path,
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
-    time::{SystemTime, UNIX_EPOCH},
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use base64::prelude::*;
 use presage::{
     libsignal_service::{
         prelude::{ProfileKey, Uuid},
-        protocol::{IdentityKey, IdentityKeyPair, PrivateKey},
-        utils::{
-            serde_identity_key, serde_optional_identity_key, serde_optional_private_key,
-            serde_private_key,
-        },
+        protocol::IdentityKeyPair,
     },
     manager::RegistrationData,
     model::identity::OnNewIdentity,
     store::{ContentsStore, StateStore, Store},
 };
-use protocol::{AciBitpartStore, PniBitpartStore, BitpartProtocolStore, BitpartTrees};
+use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
+use sea_orm::DatabaseConnection;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tracing::{debug, error};
 
 mod content;
+mod db;
 mod error;
 mod protobuf;
 mod protocol;
 
 pub use error::BitpartStoreError;
-use sled::IVec;
 
 const SLED_TREE_STATE: &str = "state";
 
 const SLED_KEY_REGISTRATION: &str = "registration";
 const SLED_KEY_SCHEMA_VERSION: &str = "schema_version";
-#[cfg(feature = "encryption")]
-const SLED_KEY_STORE_CIPHER: &str = "store_cipher";
+
+// In-memory stand-in for Sled
+#[derive(Serialize, Deserialize)]
+struct DoubleMap {
+    #[serde(flatten)]
+    pub trees: BTreeMap<Vec<u8>, BTreeMap<Vec<u8>, Vec<u8>>>,
+}
+
+impl DoubleMap {
+    fn new() -> Self {
+        DoubleMap {
+            trees: BTreeMap::new(),
+        }
+    }
+
+    fn open_tree<V: AsRef<[u8]>>(
+        &mut self,
+        tree: V,
+    ) -> Result<&mut BTreeMap<Vec<u8>, Vec<u8>>, BitpartStoreError> {
+        Ok(self
+            .trees
+            .entry(tree.as_ref().to_vec())
+            .or_insert(BTreeMap::new()))
+    }
+
+    fn drop_tree<V: AsRef<[u8]>>(&mut self, tree: V) -> Result<bool, BitpartStoreError> {
+        Ok(self.trees.remove(tree.as_ref()).is_some())
+    }
+
+    fn tree_names(&self) -> Vec<Vec<u8>> {
+        self.trees.keys().map(|k| k.clone()).collect()
+    }
+}
 
 #[derive(Clone)]
 pub struct BitpartStore {
-    db: Arc<RwLock<sled::Db>>,
-    #[cfg(feature = "encryption")]
-    cipher: Option<Arc<presage_store_cipher::StoreCipher>>,
+    id: String, // database ID
+
+    db_handle: DatabaseConnection,
+    db: Arc<Mutex<DoubleMap>>,
+
     /// Whether to trust new identities automatically (for instance, when a somebody's phone has changed)
     trust_new_identities: OnNewIdentity,
 }
@@ -53,14 +81,14 @@ pub struct BitpartStore {
 #[derive(Default, PartialEq, Eq, Clone, Debug)]
 pub enum MigrationConflictStrategy {
     /// Just drop the data, we don't care that we have to register or link again
-    Drop,
+    // Drop,
     /// Raise a `Error::MigrationConflict` error with the path to the
     /// DB in question. The caller then has to take care about what they want
     /// to do and try again after.
     #[default]
     Raise,
-    /// _Default_: The _entire_ database is backed up under, before the databases are dropped.
-    BackupAndDrop,
+    // / _Default_: The _entire_ database is backed up under, before the databases are dropped.
+    // BackupAndDrop,
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Default, Serialize, Deserialize)]
@@ -104,39 +132,36 @@ impl SchemaVersion {
 
 impl BitpartStore {
     #[allow(unused_variables)]
-    fn new(
-        db_path: impl AsRef<Path>,
-        passphrase: Option<impl AsRef<str>>,
+    async fn new(
+        id: &str,
+        database: &DatabaseConnection,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
-        let database = sled::open(db_path)?;
-
-        #[cfg(feature = "encryption")]
-        let cipher = passphrase
-            .map(|p| Self::get_or_create_store_cipher(&database, p.as_ref()))
-            .transpose()?;
-
-        #[cfg(not(feature = "encryption"))]
-        if passphrase.is_some() {
-            panic!("A passphrase was supplied but the encryption feature flag is not enabled")
-        }
-
+        let store = db::channel::get_by_id(id, database).await?;
+        let state: DoubleMap = serde_json::from_str(&store.state)?;
         Ok(BitpartStore {
-            db: Arc::new(RwLock::new(database)),
-            #[cfg(feature = "encryption")]
-            cipher: cipher.map(Arc::new),
+            id: id.to_owned(),
+            db_handle: database.clone(),
+            db: Arc::new(Mutex::new(state)),
             trust_new_identities,
         })
     }
 
+    pub async fn flush(&self) -> Result<usize, BitpartStoreError> {
+        let state = serde_json::to_string(&self.read().trees)?;
+        db::channel::set_by_id(&self.id, &state, &self.db_handle).await?;
+        Ok(0)
+    }
+
     pub async fn open(
-        db_path: impl AsRef<Path>,
+        id: &str,
+        database: &DatabaseConnection,
         migration_conflict_strategy: MigrationConflictStrategy,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
         Self::open_with_passphrase(
-            db_path,
-            None::<&str>,
+            id,
+            database,
             migration_conflict_strategy,
             trust_new_identities,
         )
@@ -144,55 +169,32 @@ impl BitpartStore {
     }
 
     pub async fn open_with_passphrase(
-        db_path: impl AsRef<Path>,
-        passphrase: Option<impl AsRef<str>>,
+        id: &str,
+        database: &DatabaseConnection,
         migration_conflict_strategy: MigrationConflictStrategy,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
-        let passphrase = passphrase.as_ref();
-
-        migrate(&db_path, passphrase, migration_conflict_strategy).await?;
-        Self::new(db_path, passphrase, trust_new_identities)
-    }
-
-    #[cfg(feature = "encryption")]
-    fn get_or_create_store_cipher(
-        database: &sled::Db,
-        passphrase: &str,
-    ) -> Result<presage_store_cipher::StoreCipher, BitpartStoreError> {
-        let cipher = if let Some(key) = database.get(SLED_KEY_STORE_CIPHER)? {
-            presage_store_cipher::StoreCipher::import(passphrase, &key)?
-        } else {
-            let cipher = presage_store_cipher::StoreCipher::new();
-            #[cfg(not(test))]
-            let export = cipher.export(passphrase);
-            #[cfg(test)]
-            let export = cipher.insecure_export_fast_for_testing(passphrase);
-            database.insert(SLED_KEY_STORE_CIPHER, export?)?;
-            cipher
-        };
-
-        Ok(cipher)
+        migrate(id, database, migration_conflict_strategy).await?;
+        Self::new(id, database, trust_new_identities).await
     }
 
     #[cfg(test)]
-    fn temporary() -> Result<Self, BitpartStoreError> {
-        let db = sled::Config::new().temporary(true).open()?;
+    async fn temporary() -> Result<Self, BitpartStoreError> {
+        let db_handle = sea_orm::Database::connect("sqlite::memory:").await?;
         Ok(Self {
-            db: Arc::new(RwLock::new(db)),
-            #[cfg(feature = "encryption")]
-            // use store cipher with a random key
-            cipher: Some(Arc::new(presage_store_cipher::StoreCipher::new())),
-            trust_new_identities: OnNewIdentity::Reject
+            id: uuid::Uuid::new_v4().to_string(),
+            db_handle,
+            db: Arc::new(Mutex::new(DoubleMap::new())),
+            trust_new_identities: OnNewIdentity::Reject,
         })
     }
 
-    fn read(&self) -> RwLockReadGuard<sled::Db> {
-        self.db.read().expect("poisoned rwlock")
+    fn read(&self) -> MutexGuard<DoubleMap> {
+        self.db.lock().expect("poisoned mutex")
     }
 
-    fn write(&self) -> RwLockWriteGuard<sled::Db> {
-        self.db.write().expect("poisoned rwlock")
+    fn write(&self) -> MutexGuard<DoubleMap> {
+        self.db.lock().expect("poisoned mutex")
     }
 
     fn schema_version(&self) -> SchemaVersion {
@@ -202,30 +204,10 @@ impl BitpartStore {
             .unwrap_or_default()
     }
 
-    #[cfg(feature = "encryption")]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: IVec) -> Result<T, BitpartStoreError> {
-        if let Some(cipher) = self.cipher.as_ref() {
-            Ok(cipher.decrypt_value(&value)?)
-        } else {
-            Ok(serde_json::from_slice(&value)?)
-        }
+    fn decrypt_value<T: DeserializeOwned>(&self, value: Vec<u8>) -> Result<T, BitpartStoreError> {
+        Ok(serde_json::from_slice(&value)?)
     }
 
-    #[cfg(not(feature = "encryption"))]
-    fn decrypt_value<T: DeserializeOwned>(&self, value: IVec) -> Result<T, BitpartStoreError> {
-        Ok(serde_json::from_slice(value)?)
-    }
-
-    #[cfg(feature = "encryption")]
-    fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, BitpartStoreError> {
-        if let Some(cipher) = self.cipher.as_ref() {
-            Ok(cipher.encrypt_value(value)?)
-        } else {
-            Ok(serde_json::to_vec(value)?)
-        }
-    }
-
-    #[cfg(not(feature = "encryption"))]
     fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, BitpartStoreError> {
         Ok(serde_json::to_vec(value)?)
     }
@@ -235,12 +217,14 @@ impl BitpartStore {
         K: AsRef<[u8]>,
         V: DeserializeOwned,
     {
-        self.read()
-            .open_tree(tree)?
-            .get(key)?
-            .map(|p| self.decrypt_value(p))
-            .transpose()
-            .map_err(BitpartStoreError::from)
+        if let Some(value) = self.read().open_tree(tree)?.get(key.as_ref()) {
+            Ok(Some(serde_json::from_slice(value)?))
+        } else {
+            Ok(None)
+        }
+        // .map(|p| self.decrypt_value(p))
+        // .transpose()
+        // .map_err(BitpartStoreError::from)
     }
 
     pub fn iter<'a, V: DeserializeOwned + 'a>(
@@ -250,29 +234,31 @@ impl BitpartStore {
         Ok(self
             .read()
             .open_tree(tree)?
-            .iter()
-            .flat_map(|res| res.map(|(_, value)| self.decrypt_value::<V>(value))))
+            .clone()
+            .into_iter()
+            .map(move |(_, value)| self.decrypt_value::<V>(value.clone())))
     }
 
-    fn insert<K, V>(&self, tree: &str, key: K, value: V) -> Result<bool, BitpartStoreError>
+    async fn insert<K, V>(&self, tree: &str, key: K, value: V) -> Result<bool, BitpartStoreError>
     where
         K: AsRef<[u8]>,
         V: Serialize,
     {
-        let value = self.encrypt_value(&value)?;
-        let db = self.write();
-        let replaced = db.open_tree(tree)?.insert(key, value)?;
-        db.flush()?;
+        // let value = self.encrypt_value(&value)?;
+        let replaced = self
+            .write()
+            .open_tree(tree)?
+            .insert(key.as_ref().to_owned(), serde_json::to_vec(&value)?);
+        self.flush().await?;
         Ok(replaced.is_some())
     }
 
-    fn remove<K>(&self, tree: &str, key: K) -> Result<bool, BitpartStoreError>
+    async fn remove<K>(&self, tree: &str, key: K) -> Result<bool, BitpartStoreError>
     where
         K: AsRef<[u8]>,
     {
-        let db = self.write();
-        let removed = db.open_tree(tree)?.remove(key)?;
-        db.flush()?;
+        let removed = self.write().open_tree(tree)?.remove(key.as_ref());
+        self.flush().await?;
         Ok(removed.is_some())
     }
 
@@ -297,166 +283,176 @@ impl BitpartStore {
             .map_err(|e| BitpartStoreError::ProtobufDecode(prost::DecodeError::new(e.to_string())))
     }
 
-    fn set_identity_key_pair<T: BitpartTrees>(
+    async fn set_identity_key_pair<T: BitpartTrees>(
         &self,
         key_pair: IdentityKeyPair,
     ) -> Result<(), BitpartStoreError> {
         let key_bytes = key_pair.serialize();
         let key_base64 = BASE64_STANDARD.encode(key_bytes);
-        self.insert(SLED_TREE_STATE, T::identity_keypair(), key_base64)?;
+        self.insert(SLED_TREE_STATE, T::identity_keypair(), key_base64)
+            .await?;
         Ok(())
     }
 }
 
 async fn migrate(
-    db_path: impl AsRef<Path>,
-    passphrase: Option<impl AsRef<str>>,
+    id: &str,
+    database: &DatabaseConnection,
     migration_conflict_strategy: MigrationConflictStrategy,
 ) -> Result<(), BitpartStoreError> {
-    let db_path = db_path.as_ref();
-    let passphrase = passphrase.as_ref();
+    // let run_migrations = {
+    //     let mut store = BitpartStore::new(id, database, OnNewIdentity::Reject).await?;
+    //     let schema_version = store.schema_version();
+    //     for step in schema_version.steps() {
+    //         match &step {
+    //             SchemaVersion::V1 => {
+    //                 debug!("migrating from v0, nothing to do")
+    //             }
+    //             SchemaVersion::V2 => {
+    //                 debug!("migrating from schema v1 to v2: encrypting state if cipher is enabled");
 
-    let run_migrations = {
-        let mut store = BitpartStore::new(db_path, passphrase, OnNewIdentity::Reject)?;
-        let schema_version = store.schema_version();
-        for step in schema_version.steps() {
-            match &step {
-                SchemaVersion::V1 => {
-                    debug!("migrating from v0, nothing to do")
-                }
-                SchemaVersion::V2 => {
-                    debug!("migrating from schema v1 to v2: encrypting state if cipher is enabled");
+    //                 // load registration data the old school way
+    //                 let registration = store
+    //                     .read()
+    //                     .open_tree("default")?
+    //                     .get(SLED_KEY_REGISTRATION.as_bytes());
+    //                 if let Some(data) = registration {
+    //                     let state =
+    //                         serde_json::from_slice(&data).map_err(BitpartStoreError::from)?;
 
-                    // load registration data the old school way
-                    let registration = store.read().get(SLED_KEY_REGISTRATION)?;
-                    if let Some(data) = registration {
-                        let state = serde_json::from_slice(&data).map_err(BitpartStoreError::from)?;
+    //                     // save it the new school way
+    //                     store.save_registration_data(&state).await?;
 
-                        // save it the new school way
-                        store.save_registration_data(&state).await?;
+    //                     // remove old data
+    //                     let db = store.write();
+    //                     db.open_tree("default")?
+    //                         .remove(SLED_KEY_REGISTRATION.as_bytes());
+    //                     store.flush().await?;
+    //                 }
+    //             }
+    //             SchemaVersion::V3 => {
+    //                 debug!("migrating from schema v2 to v3: dropping encrypted group cache");
+    //                 store.clear_groups().await?;
+    //             }
+    //             SchemaVersion::V4 => {
+    //                 debug!("migrating from schema v3 to v4: dropping profile cache");
+    //                 store.clear_profiles().await?;
+    //             }
+    //             SchemaVersion::V5 => {
+    //                 debug!("migrating from schema v4 to v5: moving identity key pairs");
 
-                        // remove old data
-                        let db = store.write();
-                        db.remove(SLED_KEY_REGISTRATION)?;
-                        db.flush()?;
-                    }
-                }
-                SchemaVersion::V3 => {
-                    debug!("migrating from schema v2 to v3: dropping encrypted group cache");
-                    store.clear_groups().await?;
-                }
-                SchemaVersion::V4 => {
-                    debug!("migrating from schema v3 to v4: dropping profile cache");
-                    store.clear_profiles().await?;
-                }
-                SchemaVersion::V5 => {
-                    debug!("migrating from schema v4 to v5: moving identity key pairs");
+    //                 #[derive(Deserialize)]
+    //                 struct RegistrationDataV4Keys {
+    //                     #[serde(with = "serde_private_key", rename = "private_key")]
+    //                     pub(crate) aci_private_key: PrivateKey,
+    //                     #[serde(with = "serde_identity_key", rename = "public_key")]
+    //                     pub(crate) aci_public_key: IdentityKey,
+    //                     #[serde(with = "serde_optional_private_key", default)]
+    //                     pub(crate) pni_private_key: Option<PrivateKey>,
+    //                     #[serde(with = "serde_optional_identity_key", default)]
+    //                     pub(crate) pni_public_key: Option<IdentityKey>,
+    //                 }
 
-                    #[derive(Deserialize)]
-                    struct RegistrationDataV4Keys {
-                        #[serde(with = "serde_private_key", rename = "private_key")]
-                        pub(crate) aci_private_key: PrivateKey,
-                        #[serde(with = "serde_identity_key", rename = "public_key")]
-                        pub(crate) aci_public_key: IdentityKey,
-                        #[serde(with = "serde_optional_private_key", default)]
-                        pub(crate) pni_private_key: Option<PrivateKey>,
-                        #[serde(with = "serde_optional_identity_key", default)]
-                        pub(crate) pni_public_key: Option<IdentityKey>,
-                    }
+    //                 let run_step: Result<(), BitpartStoreError> = {
+    //                     let registration_data: Option<RegistrationDataV4Keys> =
+    //                         store.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION)?;
+    //                     if let Some(data) = registration_data {
+    //                         store
+    //                             .set_aci_identity_key_pair(IdentityKeyPair::new(
+    //                                 data.aci_public_key,
+    //                                 data.aci_private_key,
+    //                             ))
+    //                             .await?;
+    //                         if let Some((public_key, private_key)) =
+    //                             data.pni_public_key.zip(data.pni_private_key)
+    //                         {
+    //                             store
+    //                                 .set_pni_identity_key_pair(IdentityKeyPair::new(
+    //                                     public_key,
+    //                                     private_key,
+    //                                 ))
+    //                                 .await?;
+    //                         }
+    //                     }
+    //                     Ok(())
+    //                 };
 
-                    let run_step: Result<(), BitpartStoreError> = {
-                        let registration_data: Option<RegistrationDataV4Keys> =
-                            store.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION)?;
-                        if let Some(data) = registration_data {
-                            store
-                                .set_aci_identity_key_pair(IdentityKeyPair::new(
-                                    data.aci_public_key,
-                                    data.aci_private_key,
-                                ))
-                                .await?;
-                            if let Some((public_key, private_key)) =
-                                data.pni_public_key.zip(data.pni_private_key)
-                            {
-                                store
-                                    .set_pni_identity_key_pair(IdentityKeyPair::new(
-                                        public_key,
-                                        private_key,
-                                    ))
-                                    .await?;
-                            }
-                        }
-                        Ok(())
-                    };
+    //                 if let Err(error) = run_step {
+    //                     error!("failed to run v4 -> v5 migration: {error}");
+    //                 }
+    //             }
+    //             SchemaVersion::V6 => {
+    //                 debug!("migrating from schema v5 to v6: new keys encoding in ACI and PNI protocol stores");
+    //                 let db = store.read();
 
-                    if let Err(error) = run_step {
-                        error!("failed to run v4 -> v5 migration: {error}");
-                    }
-                }
-                SchemaVersion::V6 => {
-                    debug!("migrating from schema v5 to v6: new keys encoding in ACI and PNI protocol stores");
-                    let db = store.db.read().expect("poisoned");
+    //                 let trees = [
+    //                     AciBitpartStore::signed_pre_keys(),
+    //                     AciBitpartStore::pre_keys(),
+    //                     AciBitpartStore::kyber_pre_keys(),
+    //                     AciBitpartStore::kyber_pre_keys_last_resort(),
+    //                     PniBitpartStore::signed_pre_keys(),
+    //                     PniBitpartStore::pre_keys(),
+    //                     PniBitpartStore::kyber_pre_keys(),
+    //                     PniBitpartStore::kyber_pre_keys_last_resort(),
+    //                 ];
 
-                    let trees = [
-                        AciBitpartStore::signed_pre_keys(),
-                        AciBitpartStore::pre_keys(),
-                        AciBitpartStore::kyber_pre_keys(),
-                        AciBitpartStore::kyber_pre_keys_last_resort(),
-                        PniBitpartStore::signed_pre_keys(),
-                        PniBitpartStore::pre_keys(),
-                        PniBitpartStore::kyber_pre_keys(),
-                        PniBitpartStore::kyber_pre_keys_last_resort(),
-                    ];
+    //                 for tree_name in trees {
+    //                     let tree = db.open_tree(tree_name)?;
+    //                     let num_keys_before = tree.len();
+    //                     let mut data = Vec::new();
+    //                     for (k, v) in tree.iter() {
+    //                         if let Some(key) = std::str::from_utf8(&k)
+    //                             .ok()
+    //                             .and_then(|s| s.parse::<u32>().ok())
+    //                         {
+    //                             data.push((key, v));
+    //                         }
+    //                     }
+    //                     tree.clear();
+    //                     for (k, v) in data {
+    //                         let _ = tree.insert(Vec::from(k.to_be_bytes()), v.to_owned());
+    //                     }
+    //                     let num_keys_after = tree.len();
+    //                     debug!(tree_name, num_keys_before, num_keys_after, "migrated keys");
+    //                 }
+    //             }
+    //             _ => return Err(BitpartStoreError::MigrationConflict),
+    //         }
 
-                    for tree_name in trees {
-                        let tree = db.open_tree(tree_name)?;
-                        let num_keys_before = tree.len();
-                        let mut data = Vec::new();
-                        for (k, v) in tree.iter().filter_map(|kv| kv.ok()) {
-                            if let Some(key) = std::str::from_utf8(&k)
-                                .ok()
-                                .and_then(|s| s.parse::<u32>().ok())
-                            {
-                                data.push((key, v));
-                            }
-                        }
-                        tree.clear()?;
-                        for (k, v) in data {
-                            let _ = tree.insert(k.to_be_bytes(), v);
-                        }
-                        let num_keys_after = tree.len();
-                        debug!(tree_name, num_keys_before, num_keys_after, "migrated keys");
-                    }
-                }
-                _ => return Err(BitpartStoreError::MigrationConflict),
-            }
+    //         store
+    //             .insert(SLED_TREE_STATE, SLED_KEY_SCHEMA_VERSION, step)
+    //             .await?;
+    //     }
 
-            store.insert(SLED_TREE_STATE, SLED_KEY_SCHEMA_VERSION, step)?;
-        }
+    //     Ok(())
+    // };
 
-        Ok(())
-    };
+    // // let db_path = database
+    // //     .get_sqlite_connection_pool()
+    // //     .connect_options()
+    // //     .get_filename();
 
-    if let Err(BitpartStoreError::MigrationConflict) = run_migrations {
-        match migration_conflict_strategy {
-            MigrationConflictStrategy::BackupAndDrop => {
-                let mut new_db_path = db_path.to_path_buf();
-                new_db_path.set_extension(format!(
-                    "{}.backup",
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("time doesn't go backwards")
-                        .as_secs()
-                ));
-                fs_extra::dir::create_all(&new_db_path, false)?;
-                fs_extra::dir::copy(db_path, new_db_path, &fs_extra::dir::CopyOptions::new())?;
-                fs_extra::dir::remove(db_path)?;
-            }
-            MigrationConflictStrategy::Drop => {
-                fs_extra::dir::remove(db_path)?;
-            }
-            MigrationConflictStrategy::Raise => return Err(BitpartStoreError::MigrationConflict),
-        }
-    }
+    // if let Err(BitpartStoreError::MigrationConflict) = run_migrations {
+    //     match migration_conflict_strategy {
+    //         // MigrationConflictStrategy::BackupAndDrop => {
+    //         //     let mut new_db_path = db_path.clone();
+    //         //     new_db_path.set_extension(format!(
+    //         //         "{}.backup",
+    //         //         SystemTime::now()
+    //         //             .duration_since(UNIX_EPOCH)
+    //         //             .expect("time doesn't go backwards")
+    //         //             .as_secs()
+    //         //     ));
+    //         //     fs_extra::dir::create_all(&new_db_path, false)?;
+    //         //     fs_extra::dir::copy(db_path, new_db_path, &fs_extra::dir::CopyOptions::new())?;
+    //         //     fs_extra::dir::remove(db_path)?;
+    //         // }
+    //         // MigrationConflictStrategy::Drop => {
+    //         //     fs_extra::dir::remove(db_path)?;
+    //         // }
+    //         MigrationConflictStrategy::Raise => return Err(BitpartStoreError::MigrationConflict),
+    //     }
+    // }
 
     Ok(())
 }
@@ -473,6 +469,7 @@ impl StateStore for BitpartStore {
         key_pair: IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
         self.set_identity_key_pair::<AciBitpartStore>(key_pair)
+            .await
     }
 
     async fn set_pni_identity_key_pair(
@@ -480,13 +477,15 @@ impl StateStore for BitpartStore {
         key_pair: IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
         self.set_identity_key_pair::<PniBitpartStore>(key_pair)
+            .await
     }
 
     async fn save_registration_data(
         &mut self,
         state: &RegistrationData,
     ) -> Result<(), BitpartStoreError> {
-        self.insert(SLED_TREE_STATE, SLED_KEY_REGISTRATION, state)?;
+        self.insert(SLED_TREE_STATE, SLED_KEY_REGISTRATION, state)
+            .await?;
         Ok(())
     }
 
@@ -500,12 +499,13 @@ impl StateStore for BitpartStore {
     async fn clear_registration(&mut self) -> Result<(), BitpartStoreError> {
         // drop registration data (includes identity keys)
         {
-            let db = self.write();
-            db.remove(SLED_KEY_REGISTRATION)?;
+            let mut db = self.write();
+            db.open_tree("default")?
+                .remove(SLED_KEY_REGISTRATION.as_bytes());
             db.drop_tree(SLED_TREE_STATE)?;
-            db.flush()?;
         }
 
+        self.flush().await?;
         // drop all saved profile (+avatards) and profile keys
         self.clear_profiles().await?;
 
@@ -643,7 +643,7 @@ mod tests {
 
     #[quickcheck_async::tokio]
     async fn test_store_messages(thread: Thread, content: Content) -> anyhow::Result<()> {
-        let db = BitpartStore::temporary()?;
+        let db = BitpartStore::temporary().await?;
         let thread = thread.0;
         db.save_message(&thread, content_with_timestamp(&content, 1678295210))
             .await?;
