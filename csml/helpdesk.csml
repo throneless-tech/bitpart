@@ -1,23 +1,22 @@
 start:
   // TODO: accept input from user asking a question
-  // TODO: bitpart interpret incoming langauge
+  // TODO Bitpart interprets incoming language. Response is in the same language
   say "Thank you for contacting [HELPDESK NAME]. We help people in [LOCATION] with digital rights issues. We use a secure automated messaging system so you can get quicker answers to problems, and our team is on hand to help.
     \nIf you are in immediate physical danger [ ADD REFERRAL]"
   // TODO: user research needed about if we want bitpart to accept voice notes
-  say "We need to ask you some questions in order to help you.
-    \nYour answers will be stored on our system for [DURATION] and visible to our team only. We will not share you personal information with anyone else. We use anonymised data to share general trends publicly, for awareness raising and advocacy.
-    \nFor more information at any time, including how to delete your data, reply with 'Privacy policy'.
-    \nCan you briefly describe the problem?"
-  say "Can you please tell us what name we should call you by?
-    \n(Give a pseudonym if you prefer)."
+  say "Our helpdesk will ask you to select the problem you're experience.
+    \nYour answers will be stored on our system for [duration] and visible to [who]. We will not ask you for personal information.
+    \nFor more information at any time, including how to delete your data, you can reply with 'Privacy policy'.
+    \nTo continue, reply with 'Agree'.
+    \nTo disagree and end the conversation, reply with 'End'."
   hold
 
   if (event.to_lowercase() == "privacy policy") {
     goto privacy_policy_step
-  } else if (event.length() <= 70) {
-    // note: length of name is based on UK standards
-    remember name = event
-    goto role_collection_step
+  } else if (event.to_lowercase() == "agree") {
+    
+  } else if (event.to_lowercase() == "end") {
+    
   } else if (event.match_regex("[Human|human|person|Person|Talk|talk]")) {
     // TODO: is there a better way to check if the user wants to talk to a real person?
     say "Ok. A member of our helpdesk team will follow up as soon as they can."
@@ -34,33 +33,45 @@ incomplete_step:
   // TODO: bitpart tags as 'incomplete' and flags for helpdesk team (human) attention (i.e. adds to a queue)
   goto end
 
-role_collection_step:
-  say "Thank you {{name}}.
-    \nWhat do you do? For instance, are you a journalist, activist, politican, lawyer, etc."
-  hold
-
-  if (event.to_lowercase() == "privacy policy") {
-    goto privacy_policy_step
-  } else {
-    remember role = event
-  }
-  // TODO: Is there another catchall we want here if someone jumps straight to a problem?
-  
-  // TODO: Bitpart interperts information and assigns a category/tag, or does not
-
-  goto report_step
-
 report_step:
-  say "Thank you. What is the problem you would you like to report?"
+  do count = 0
+  say "What issue are you seeking help with?
+    \n1) My instagram account was hacked.
+    \n2) My instagram or Facebook account was suspended.
+    \n3) I experienced harrassment online.
+    \n4) My social media post about Palestine got removed because it
+    \n5) Other
+    \nReply with the number"
   hold
 
-  remember problem = event
+    if (event == "1") {
+      // TODO FAQ answer
+      say "Did that solve your problem?"
+    } else if (event == "2") {
+      // TODO FAQ answer
+      say "Did that solve your problem?"
+    } else if (event == "3") {
+      // TODO FAQ answer
+      say "Did that solve your problem?"
+    } else if (event == "4") {
+      // TODO FAQ answer
+      say "Did that solve your problem?"
+    } else if (event == "5") {
+      goto submit_question_step
+    } else if (event.to_lowercase() == "menu") {
+      goto menu_step
+    } else if (event.to_lowercase() == "delete my data") {
+      goto consent_disagree_step
+    } else if (count == 1) {
+      say "Sorry, our system didn't understand what you meant."
+      goto human_support_step
+    } else {
+      set count = 1
+      say "Sorry, our system didn't understand what you meant. Please select the most appropriate option:"
 
-  // TODO: Bitpart interprets text information according to 'problem' categories defined by org
+      goto report_step
+    }
 
-  // TODO: Return some data from Bitpart summarizing/categorizing the problem
-  say "Thank you for sharing."
-  goto confirmation_step
 
 confirmation_step:
   say "We understood that [SUMMARY OF PROBLEM]. Is that correct? Please reply with 'yes' or 'no'."
