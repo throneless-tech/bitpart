@@ -1,0 +1,8 @@
+start:
+  // TODO: conversation is triggered by a message from a user who says they need an e-sim
+  // TODO Bitpart interprets incoming language. Response is in the same language
+  say "Thank you for contacting [ORG NAME]. We do [info about the org]. We're use a secure automated messaging system so you can get quicker responses.
+    \nYour phone number or username will be stored (encrypted) while you interact with this number, but will be deleted after [X days].
+    \nWe offer VPN codes from [VPN provider name] which works [locations where it's applicable].
+    \nHow many codes do you need? Please enter the amount:"
+  hold
