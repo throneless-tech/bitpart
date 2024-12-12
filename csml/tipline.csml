@@ -1,5 +1,6 @@
 start:
   // TODO: conversation is triggered by a message from a user who says they have a tip
+  // TODO Bitpart interprets incoming language. Response is in the same language
   say "Thank you for contacting [MEDIA NAME].
     \nThis is our secure tipline. Messages are visible to our staff. Any information you share is stored on our systems.
     \nFor more information at any time, including how to delete your data, reply with 'Privacy policy'."
