@@ -37,7 +37,7 @@ impl ContentsStore for BitpartStore {
 
     async fn clear_profiles(&mut self) -> Result<(), Self::ContentsStoreError> {
         {
-            let mut db = self.write();
+            let mut db = self.write().await;
             db.drop_tree(SLED_TREE_PROFILES)?;
             db.drop_tree(SLED_TREE_PROFILE_KEYS)?;
             db.drop_tree(SLED_TREE_PROFILE_AVATARS)?;
@@ -48,7 +48,7 @@ impl ContentsStore for BitpartStore {
 
     async fn clear_contents(&mut self) -> Result<(), Self::ContentsStoreError> {
         {
-            let mut db = self.write();
+            let mut db = self.write().await;
             db.drop_tree(SLED_TREE_CONTACTS)?;
             db.drop_tree(SLED_TREE_GROUPS)?;
 
@@ -66,7 +66,7 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn clear_contacts(&mut self) -> Result<(), BitpartStoreError> {
-        self.write().drop_tree(SLED_TREE_CONTACTS)?;
+        self.write().await.drop_tree(SLED_TREE_CONTACTS)?;
         Ok(())
     }
 
@@ -81,6 +81,7 @@ impl ContentsStore for BitpartStore {
         Ok(BitpartContactsIter {
             data: Vec::from_iter(
                 self.read()
+                    .await
                     .open_tree(SLED_TREE_CONTACTS)?
                     .iter()
                     .map(|(k, v)| (k.clone(), v.clone())),
@@ -90,13 +91,13 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn contact_by_id(&self, id: &Uuid) -> Result<Option<Contact>, BitpartStoreError> {
-        self.get(SLED_TREE_CONTACTS, id)
+        self.get(SLED_TREE_CONTACTS, id).await
     }
 
     /// Groups
 
     async fn clear_groups(&mut self) -> Result<(), BitpartStoreError> {
-        let mut db = self.write();
+        let mut db = self.write().await;
         db.drop_tree(SLED_TREE_GROUPS)?;
         self.flush().await?;
         Ok(())
@@ -106,6 +107,7 @@ impl ContentsStore for BitpartStore {
         Ok(BitpartGroupsIter {
             data: Vec::from_iter(
                 self.read()
+                    .await
                     .open_tree(SLED_TREE_GROUPS)?
                     .iter()
                     .map(|(k, v)| (k.clone(), v.clone())),
@@ -118,7 +120,7 @@ impl ContentsStore for BitpartStore {
         &self,
         master_key_bytes: GroupMasterKeyBytes,
     ) -> Result<Option<Group>, BitpartStoreError> {
-        self.get(SLED_TREE_GROUPS, master_key_bytes)
+        self.get(SLED_TREE_GROUPS, master_key_bytes).await
     }
 
     async fn save_group(
@@ -135,7 +137,7 @@ impl ContentsStore for BitpartStore {
         &self,
         master_key_bytes: GroupMasterKeyBytes,
     ) -> Result<Option<AvatarBytes>, BitpartStoreError> {
-        self.get(SLED_TREE_GROUP_AVATARS, master_key_bytes)
+        self.get(SLED_TREE_GROUP_AVATARS, master_key_bytes).await
     }
 
     async fn save_group_avatar(
@@ -151,7 +153,7 @@ impl ContentsStore for BitpartStore {
     /// Messages
 
     async fn clear_messages(&mut self) -> Result<(), BitpartStoreError> {
-        let mut db = self.write();
+        let mut db = self.write().await;
         for name in db.tree_names() {
             if name.starts_with(SLED_TREE_THREADS_PREFIX.as_bytes()) {
                 db.drop_tree(&name)?;
@@ -164,7 +166,7 @@ impl ContentsStore for BitpartStore {
     async fn clear_thread(&mut self, thread: &Thread) -> Result<(), BitpartStoreError> {
         trace!(%thread, "clearing thread");
 
-        let mut db = self.write();
+        let mut db = self.write().await;
         db.drop_tree(&messages_thread_tree_name(thread))?;
         self.flush().await?;
 
@@ -205,8 +207,9 @@ impl ContentsStore for BitpartStore {
         timestamp: u64,
     ) -> Result<Option<Content>, BitpartStoreError> {
         // Big-Endian needed, otherwise wrong ordering in sled.
-        let val: Option<Vec<u8>> =
-            self.get(&messages_thread_tree_name(thread), timestamp.to_be_bytes())?;
+        let val: Option<Vec<u8>> = self
+            .get(&messages_thread_tree_name(thread), timestamp.to_be_bytes())
+            .await?;
         match val {
             Some(ref v) => {
                 let proto = ContentProto::decode(v.as_slice())?;
@@ -222,7 +225,7 @@ impl ContentsStore for BitpartStore {
         thread: &Thread,
         range: impl RangeBounds<u64>,
     ) -> Result<Self::MessagesIter, BitpartStoreError> {
-        let mut db = self.read();
+        let mut db = self.read().await;
         let tree_thread = db.open_tree(&messages_thread_tree_name(thread))?;
         debug!(%thread, count = tree_thread.len(), "loading message tree");
 
@@ -264,7 +267,7 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn profile_key(&self, uuid: &Uuid) -> Result<Option<ProfileKey>, BitpartStoreError> {
-        self.get(SLED_TREE_PROFILE_KEYS, uuid.as_bytes())
+        self.get(SLED_TREE_PROFILE_KEYS, uuid.as_bytes()).await
     }
 
     async fn save_profile(
@@ -284,7 +287,7 @@ impl ContentsStore for BitpartStore {
         key: ProfileKey,
     ) -> Result<Option<Profile>, BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
-        self.get(SLED_TREE_PROFILES, key)
+        self.get(SLED_TREE_PROFILES, key).await
     }
 
     async fn save_profile_avatar(
@@ -304,7 +307,7 @@ impl ContentsStore for BitpartStore {
         key: ProfileKey,
     ) -> Result<Option<AvatarBytes>, BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
-        self.get(SLED_TREE_PROFILE_AVATARS, key)
+        self.get(SLED_TREE_PROFILE_AVATARS, key).await
     }
 
     async fn add_sticker_pack(&mut self, pack: &StickerPack) -> Result<(), BitpartStoreError> {
@@ -318,13 +321,14 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn sticker_pack(&self, id: &[u8]) -> Result<Option<StickerPack>, BitpartStoreError> {
-        self.get(SLED_TREE_STICKER_PACKS, id)
+        self.get(SLED_TREE_STICKER_PACKS, id).await
     }
 
     async fn sticker_packs(&self) -> Result<Self::StickerPacksIter, BitpartStoreError> {
         Ok(BitpartStickerPacksIter {
             data: Vec::from_iter(
                 self.read()
+                    .await
                     .open_tree(SLED_TREE_STICKER_PACKS)?
                     .iter()
                     .map(|(k, v)| (k.clone(), v.clone())),

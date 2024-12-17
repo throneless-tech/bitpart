@@ -6,8 +6,6 @@ use std::time::UNIX_EPOCH;
 use anyhow::{anyhow, bail, Context as _};
 use base64::prelude::*;
 use chrono::Local;
-use directories::ProjectDirs;
-//use env_logger::Env;
 use futures::StreamExt;
 use futures::{channel::oneshot, future, pin_mut};
 use mime_guess::mime::APPLICATION_OCTET_STREAM;
@@ -20,13 +18,12 @@ use presage::libsignal_service::prelude::ProfileKey;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto::data_message::Quote;
 use presage::libsignal_service::proto::sync_message::Sent;
+use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
-use presage::libsignal_service::ServiceAddress;
 use presage::manager::ReceivingMode;
 use presage::model::contacts::Contact;
 use presage::model::groups::Group;
-use presage::model::identity::OnNewIdentity;
 use presage::proto::receipt_message;
 use presage::proto::EditMessage;
 use presage::proto::ReceiptMessage;
@@ -38,8 +35,6 @@ use presage::{
     store::{Store, Thread},
     Manager,
 };
-use presage_store_sled::MigrationConflictStrategy;
-use presage_store_sled::SledStore;
 use tempfile::Builder;
 use tokio::task;
 use tokio::{
@@ -118,7 +113,7 @@ async fn send<S: Store>(
                 Recipient::Contact(uuid) => {
                     info!(recipient =% uuid, "sending message to contact");
                     manager
-                        .send_message(ServiceAddress::from_aci(uuid), content_body, timestamp)
+                        .send_message(ServiceId::Aci(uuid.into()), content_body, timestamp)
                         .await
                         .expect("failed to send message");
                 }
@@ -146,7 +141,7 @@ async fn process_incoming_message<S: Store>(
 ) {
     print_message(manager, notifications, content).await;
 
-    let sender = content.metadata.sender.uuid;
+    let sender = content.metadata.sender.raw_uuid();
     if let ContentBody::DataMessage(DataMessage { attachments, .. }) = &content.body {
         for attachment_pointer in attachments {
             let Ok(attachment_data) = manager.get_attachment(attachment_pointer).await else {
@@ -335,7 +330,7 @@ async fn print_message<S: Store>(
                 (format!("To {contact} @ {ts}"), body)
             }
             Msg::Received(Thread::Group(key), body) => {
-                let sender = format_contact(&content.metadata.sender.uuid, manager).await;
+                let sender = format_contact(&content.metadata.sender.raw_uuid(), manager).await;
                 let group = format_group(*key, manager).await;
                 (format!("From {sender} to group {group} @ {ts}: "), body)
             }
@@ -384,7 +379,7 @@ async fn receive<S: Store>(
     Ok(())
 }
 
-async fn receive_from<S: Store>(config_store: S, notifications: bool) -> anyhow::Result<()> {
+pub async fn receive_from<S: Store>(config_store: S, notifications: bool) -> anyhow::Result<()> {
     let mut manager = Manager::load_registered(config_store).await?;
     receive(&mut manager, notifications).await
 }
@@ -465,8 +460,8 @@ pub async fn register<S: Store>(
     if let Some(confirmation_code) = reader.lines().next_line().await? {
         let registered_manager = manager.confirm_verification_code(confirmation_code).await?;
         println!(
-            "Account identifier: {}",
-            registered_manager.registration_data().aci()
+            "Account identifiers: {}",
+            registered_manager.registration_data().service_ids
         );
     }
     Ok(())
@@ -476,42 +471,24 @@ pub async fn link_device<S: Store>(
     config_store: S,
     servers: SignalServers,
     device_name: String,
-) -> Result<(), anyhow::Error> {
+) -> Result<Url, anyhow::Error> {
     let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
-    let manager = future::join(
-        Manager::link_secondary_device(
-            config_store,
-            servers,
-            device_name.clone(),
-            provisioning_link_tx,
-        ),
-        async move {
-            match provisioning_link_rx.await {
-                Ok(url) => {
-                    println!("Please scan in the QR code:");
-                    qr2term::print_qr(url.to_string()).expect("failed to render qrcode");
-                    println!("Alternatively, use the URL: {}", url);
-                }
-                Err(error) => error!(%error, "linking device was cancelled"),
-            }
-        },
-    )
-    .await;
 
-    match manager {
-        (Ok(manager), _) => {
-            let uuid = manager.whoami().await.unwrap().uuid;
-            println!("{uuid:?}");
-        }
-        (Err(err), _) => {
-            println!("{err:?}");
-        }
-    }
-    Ok(())
+    Manager::link_secondary_device(
+        config_store,
+        servers,
+        device_name.clone(),
+        provisioning_link_tx,
+    )
+    .await?;
+
+    provisioning_link_rx
+        .await
+        .map_err(|_e| anyhow!("Linking error"))
 }
 
 pub async fn add_device<S: Store>(config_store: S, url: Url) -> Result<(), anyhow::Error> {
-    let manager = Manager::load_registered(config_store).await?;
+    let mut manager = Manager::load_registered(config_store).await?;
     manager.link_secondary(url).await?;
     println!("Added new secondary device");
     Ok(())

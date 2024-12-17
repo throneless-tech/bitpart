@@ -9,12 +9,11 @@ use presage::{
             Direction, GenericSignedPreKey, IdentityKey, IdentityKeyPair, IdentityKeyStore,
             KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyId, PreKeyRecord,
             PreKeyStore, ProtocolAddress, ProtocolStore, SenderKeyRecord, SenderKeyStore,
-            SessionRecord, SessionStore, SignalProtocolError, SignedPreKeyId, SignedPreKeyRecord,
-            SignedPreKeyStore,
+            ServiceId, SessionRecord, SessionStore, SignalProtocolError, SignedPreKeyId,
+            SignedPreKeyRecord, SignedPreKeyStore,
         },
         push_service::DEFAULT_DEVICE_ID,
         session_store::SessionStoreExt,
-        ServiceAddress,
     },
     proto::verified,
     store::{save_trusted_identity_message, StateStore},
@@ -48,10 +47,11 @@ impl BitpartProtocolStore<PniBitpartStore> {
 }
 
 impl<T: BitpartTrees> BitpartProtocolStore<T> {
-    fn next_key_id(&self, tree: &str) -> Result<u32, SignalProtocolError> {
+    async fn next_key_id(&self, tree: &str) -> Result<u32, SignalProtocolError> {
         Ok(self
             .store
             .read()
+            .await
             .open_tree(tree)?
             .keys()
             .last()
@@ -60,7 +60,7 @@ impl<T: BitpartTrees> BitpartProtocolStore<T> {
     }
 }
 
-pub trait BitpartTrees: Clone {
+pub trait BitpartTrees: Clone + Send + Sync {
     fn identities() -> &'static str;
     fn state() -> &'static str;
     fn pre_keys() -> &'static str;
@@ -166,8 +166,8 @@ impl BitpartPreKeyId for SignedPreKeyId {}
 impl BitpartPreKeyId for KyberPreKeyId {}
 
 impl<T: BitpartTrees> BitpartProtocolStore<T> {
-    pub(crate) fn clear(&self, clear_sessions: bool) -> Result<(), BitpartStoreError> {
-        let mut db = self.store.write();
+    pub(crate) async fn clear(&self, clear_sessions: bool) -> Result<(), BitpartStoreError> {
+        let mut db = self.store.write().await;
         db.drop_tree(T::pre_keys())?;
         db.drop_tree(T::sender_keys())?;
         db.drop_tree(T::signed_pre_keys())?;
@@ -182,11 +182,12 @@ impl<T: BitpartTrees> BitpartProtocolStore<T> {
 impl<T: BitpartTrees> ProtocolStore for BitpartProtocolStore<T> {}
 
 #[async_trait(?Send)]
-impl<T: BitpartTrees> PreKeyStore for BitpartProtocolStore<T> {
+impl<T: BitpartTrees + Send + Sync> PreKeyStore for BitpartProtocolStore<T> {
     async fn get_pre_key(&self, prekey_id: PreKeyId) -> Result<PreKeyRecord, SignalProtocolError> {
         let buf: Vec<u8> = self
             .store
             .get(T::pre_keys(), prekey_id.sled_key())
+            .await
             .ok()
             .flatten()
             .ok_or(SignalProtocolError::InvalidPreKeyId)?;
@@ -222,23 +223,24 @@ impl<T: BitpartTrees> PreKeyStore for BitpartProtocolStore<T> {
 }
 
 #[async_trait(?Send)]
-impl<T: BitpartTrees> PreKeysStore for BitpartProtocolStore<T> {
+impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
     async fn next_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
-        self.next_key_id(T::pre_keys())
+        self.next_key_id(T::pre_keys()).await
     }
 
     async fn next_signed_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
-        self.next_key_id(T::signed_pre_keys())
+        self.next_key_id(T::signed_pre_keys()).await
     }
 
     async fn next_pq_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
-        self.next_key_id(T::kyber_pre_keys())
+        self.next_key_id(T::kyber_pre_keys()).await
     }
 
     async fn signed_pre_keys_count(&self) -> Result<usize, SignalProtocolError> {
         Ok(self
             .store
             .read()
+            .await
             .open_tree(T::signed_pre_keys())
             .map_err(|error| {
                 error!(%error, "sled error");
@@ -253,6 +255,7 @@ impl<T: BitpartTrees> PreKeysStore for BitpartProtocolStore<T> {
         Ok(self
             .store
             .read()
+            .await
             .open_tree(if last_resort {
                 T::kyber_pre_keys_last_resort()
             } else {
@@ -276,6 +279,7 @@ impl<T: BitpartTrees> SignedPreKeyStore for BitpartProtocolStore<T> {
         let buf: Vec<u8> = self
             .store
             .get(T::signed_pre_keys(), signed_prekey_id.sled_key())
+            .await
             .ok()
             .flatten()
             .ok_or(SignalProtocolError::InvalidSignedPreKeyId)?;
@@ -311,6 +315,7 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         let buf: Vec<u8> = self
             .store
             .get(T::kyber_pre_keys(), kyber_prekey_id.sled_key())
+            .await
             .ok()
             .flatten()
             .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
@@ -385,7 +390,8 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
     ) -> Result<Vec<KyberPreKeyRecord>, SignalProtocolError> {
         trace!("load_last_resort_kyber_pre_keys");
         self.store
-            .iter(T::kyber_pre_keys_last_resort())?
+            .iter(T::kyber_pre_keys_last_resort())
+            .await?
             .filter_map(|data: Result<Vec<u8>, BitpartStoreError>| data.ok())
             .map(|data| KyberPreKeyRecord::deserialize(&data))
             .collect()
@@ -428,7 +434,7 @@ impl<T: BitpartTrees> SessionStore for BitpartProtocolStore<T> {
         &self,
         address: &ProtocolAddress,
     ) -> Result<Option<SessionRecord>, SignalProtocolError> {
-        let session = self.store.get(T::sessions(), address.to_string())?;
+        let session = self.store.get(T::sessions(), address.to_string()).await?;
         trace!(
             %address,
             session_exists = session.is_some(),
@@ -456,13 +462,14 @@ impl<T: BitpartTrees> SessionStore for BitpartProtocolStore<T> {
 impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
     async fn get_sub_device_sessions(
         &self,
-        address: &ServiceAddress,
+        address: &ServiceId,
     ) -> Result<Vec<u32>, SignalProtocolError> {
-        let session_prefix = format!("{}.", address.uuid);
+        let session_prefix = format!("{}.", address.raw_uuid());
         trace!(session_prefix, "get_sub_device_sessions");
         let session_ids: Vec<u32> = self
             .store
             .read()
+            .await
             .open_tree(T::sessions())?
             .iter()
             .filter_map(|(key, _)| {
@@ -482,22 +489,20 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
         trace!(%address, "deleting session");
         self.store
             .write()
+            .await
             .open_tree(T::sessions())?
             .remove(&Vec::from(address.to_string()))
             .ok_or_else(|| SignalProtocolError::SessionNotFound(address.clone()))?;
         Ok(())
     }
 
-    async fn delete_all_sessions(
-        &self,
-        address: &ServiceAddress,
-    ) -> Result<usize, SignalProtocolError> {
-        let mut db = self.store.write();
+    async fn delete_all_sessions(&self, address: &ServiceId) -> Result<usize, SignalProtocolError> {
+        let mut db = self.store.write().await;
         let sessions_tree = db.open_tree(T::sessions())?;
 
         sessions_tree.retain(|key, _| {
             let key_str = String::from_utf8_lossy(&key);
-            !key_str.starts_with(&address.uuid.to_string())
+            !key_str.starts_with(&address.raw_uuid().to_string())
         });
 
         let len = sessions_tree.len();
@@ -510,12 +515,15 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
 impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
     async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
         trace!("getting identity_key_pair");
-        self.store.get_identity_key_pair::<T>()?.ok_or_else(|| {
-            SignalProtocolError::InvalidState(
-                "get_identity_key_pair",
-                "no identity key pair found".to_owned(),
-            )
-        })
+        self.store
+            .get_identity_key_pair::<T>()
+            .await?
+            .ok_or_else(|| {
+                SignalProtocolError::InvalidState(
+                    "get_identity_key_pair",
+                    "no identity key pair found".to_owned(),
+                )
+            })
     }
 
     async fn get_local_registration_id(&self) -> Result<u32, SignalProtocolError> {
@@ -572,7 +580,8 @@ impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
     ) -> Result<bool, SignalProtocolError> {
         match self
             .store
-            .get(T::identities(), address.to_string())?
+            .get(T::identities(), address.to_string())
+            .await?
             .map(|b: Vec<u8>| IdentityKey::decode(&b))
             .transpose()?
         {
@@ -600,7 +609,8 @@ impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
         address: &ProtocolAddress,
     ) -> Result<Option<IdentityKey>, SignalProtocolError> {
         self.store
-            .get(T::identities(), address.to_string())?
+            .get(T::identities(), address.to_string())
+            .await?
             .map(|b: Vec<u8>| IdentityKey::decode(&b))
             .transpose()
     }
@@ -638,7 +648,8 @@ impl<T: BitpartTrees> SenderKeyStore for BitpartProtocolStore<T> {
             distribution_id
         );
         self.store
-            .get(T::sender_keys(), key)?
+            .get(T::sender_keys(), key)
+            .await?
             .map(|b: Vec<u8>| SenderKeyRecord::deserialize(&b))
             .transpose()
     }

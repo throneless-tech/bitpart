@@ -1,11 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/bitpart-cli",
   "crates/bitpart",
-  #"crates/bitpart-plugin",
+  "crates/bitpart-cli",
   "crates/presage-store-bitpart",
 ]
 
 [patch.crates-io]
+reqwest-websocket = { git = 'https://github.com/throneless-tech/reqwest-websocket' }
 curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }

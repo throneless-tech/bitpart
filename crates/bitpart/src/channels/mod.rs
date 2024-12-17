@@ -1,1 +1,1 @@
-mod signal;
+pub mod signal;

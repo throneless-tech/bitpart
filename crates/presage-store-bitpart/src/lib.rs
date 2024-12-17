@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    ops::Range,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
 use base64::prelude::*;
 use presage::{
@@ -18,6 +14,7 @@ use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartSt
 use sea_orm::DatabaseConnection;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio::sync::{Mutex, MutexGuard};
 
 mod content;
 mod db;
@@ -148,7 +145,7 @@ impl BitpartStore {
     }
 
     pub async fn flush(&self) -> Result<usize, BitpartStoreError> {
-        let state = serde_json::to_string(&self.read().trees)?;
+        let state = serde_json::to_string(&self.read().await.trees)?;
         db::channel::set_by_id(&self.id, &state, &self.db_handle).await?;
         Ok(0)
     }
@@ -189,16 +186,17 @@ impl BitpartStore {
         })
     }
 
-    fn read(&self) -> MutexGuard<DoubleMap> {
-        self.db.lock().expect("poisoned mutex")
+    async fn read(&self) -> MutexGuard<DoubleMap> {
+        self.db.lock().await
     }
 
-    fn write(&self) -> MutexGuard<DoubleMap> {
-        self.db.lock().expect("poisoned mutex")
+    async fn write(&self) -> MutexGuard<DoubleMap> {
+        self.db.lock().await
     }
 
-    fn schema_version(&self) -> SchemaVersion {
+    async fn schema_version(&self) -> SchemaVersion {
         self.get(SLED_TREE_STATE, SLED_KEY_SCHEMA_VERSION)
+            .await
             .ok()
             .flatten()
             .unwrap_or_default()
@@ -212,12 +210,12 @@ impl BitpartStore {
         Ok(serde_json::to_vec(value)?)
     }
 
-    pub fn get<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
+    pub async fn get<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
     where
         K: AsRef<[u8]>,
         V: DeserializeOwned,
     {
-        if let Some(value) = self.read().open_tree(tree)?.get(key.as_ref()) {
+        if let Some(value) = self.read().await.open_tree(tree)?.get(key.as_ref()) {
             Ok(Some(serde_json::from_slice(value)?))
         } else {
             Ok(None)
@@ -227,12 +225,13 @@ impl BitpartStore {
         // .map_err(BitpartStoreError::from)
     }
 
-    pub fn iter<'a, V: DeserializeOwned + 'a>(
+    pub async fn iter<'a, V: DeserializeOwned + 'a>(
         &'a self,
         tree: &str,
     ) -> Result<impl Iterator<Item = Result<V, BitpartStoreError>> + 'a, BitpartStoreError> {
         Ok(self
             .read()
+            .await
             .open_tree(tree)?
             .clone()
             .into_iter()
@@ -247,6 +246,7 @@ impl BitpartStore {
         // let value = self.encrypt_value(&value)?;
         let replaced = self
             .write()
+            .await
             .open_tree(tree)?
             .insert(key.as_ref().to_owned(), serde_json::to_vec(&value)?);
         self.flush().await?;
@@ -257,7 +257,7 @@ impl BitpartStore {
     where
         K: AsRef<[u8]>,
     {
-        let removed = self.write().open_tree(tree)?.remove(key.as_ref());
+        let removed = self.write().await.open_tree(tree)?.remove(key.as_ref());
         self.flush().await?;
         Ok(removed.is_some())
     }
@@ -270,10 +270,10 @@ impl BitpartStore {
         format!("{:x}", hasher.finalize())
     }
 
-    fn get_identity_key_pair<T: BitpartTrees>(
+    async fn get_identity_key_pair<T: BitpartTrees>(
         &self,
     ) -> Result<Option<IdentityKeyPair>, BitpartStoreError> {
-        let key_base64: Option<String> = self.get(SLED_TREE_STATE, T::identity_keypair())?;
+        let key_base64: Option<String> = self.get(SLED_TREE_STATE, T::identity_keypair()).await?;
         let Some(key_base64) = key_base64 else {
             return Ok(None);
         };
@@ -461,7 +461,7 @@ impl StateStore for BitpartStore {
     type StateStoreError = BitpartStoreError;
 
     async fn load_registration_data(&self) -> Result<Option<RegistrationData>, BitpartStoreError> {
-        self.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION)
+        self.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION).await
     }
 
     async fn set_aci_identity_key_pair(
@@ -499,7 +499,7 @@ impl StateStore for BitpartStore {
     async fn clear_registration(&mut self) -> Result<(), BitpartStoreError> {
         // drop registration data (includes identity keys)
         {
-            let mut db = self.write();
+            let mut db = self.write().await;
             db.open_tree("default")?
                 .remove(SLED_KEY_REGISTRATION.as_bytes());
             db.drop_tree(SLED_TREE_STATE)?;
@@ -510,8 +510,8 @@ impl StateStore for BitpartStore {
         self.clear_profiles().await?;
 
         // drop all keys
-        self.aci_protocol_store().clear(true)?;
-        self.pni_protocol_store().clear(true)?;
+        self.aci_protocol_store().clear(true).await?;
+        self.pni_protocol_store().clear(true).await?;
 
         Ok(())
     }
@@ -544,8 +544,7 @@ mod tests {
         content::{ContentBody, Metadata},
         prelude::Uuid,
         proto::DataMessage,
-        protocol::PreKeyId,
-        ServiceAddress, ServiceIdType,
+        protocol::{PreKeyId, ServiceId},
     };
     use presage::store::ContentsStore;
     use protocol::BitpartPreKeyId;
@@ -585,15 +584,11 @@ mod tests {
                 Uuid::from_u128(Arbitrary::arbitrary(g)),
                 Uuid::from_u128(Arbitrary::arbitrary(g)),
             ];
+            let sender_uuid: Uuid = *g.choose(&contacts).unwrap();
+            let destination_uuid: Uuid = *g.choose(&contacts).unwrap();
             let metadata = Metadata {
-                sender: ServiceAddress {
-                    uuid: *g.choose(&contacts).unwrap(),
-                    identity: ServiceIdType::AccountIdentity,
-                },
-                destination: ServiceAddress {
-                    uuid: *g.choose(&contacts).unwrap(),
-                    identity: ServiceIdType::AccountIdentity,
-                },
+                sender: ServiceId::Aci(sender_uuid.into()),
+                destination: ServiceId::Aci(destination_uuid.into()),
                 sender_device: Arbitrary::arbitrary(g),
                 server_guid: None,
                 timestamp,

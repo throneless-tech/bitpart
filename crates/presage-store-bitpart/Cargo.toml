@@ -1,5 +1,5 @@
 [package]
-name = "presage-store-sled"
+name = "presage-store-bitpart"
 version = "0.6.0-dev"
 edition = "2021"
 authors = ["Gabriel Féron <g@leirbag.net>"]
@@ -20,6 +20,7 @@ serde_json = "1.0"
 sha2 = "0.10"
 sled = { version = "0.34" }
 thiserror = "1.0"
+tokio = "1.35"
 tracing = "0.1"
 uuid = "1.11.0"
 

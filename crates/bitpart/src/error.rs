@@ -2,6 +2,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use presage_store_bitpart::BitpartStoreError;
 use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
 use thiserror::Error;
@@ -16,6 +17,10 @@ pub enum BitpartError {
     Db(#[from] DbErr),
     #[error("Serialization/deserialization error")]
     Serde(#[from] SerdeError),
+    #[error("Signal error: `{0}`")]
+    Signal(#[from] anyhow::Error), //TODO actually swap out the errors in the signal channel file
+    #[error("Signal storage error: `{0}`")]
+    SignalStore(#[from] BitpartStoreError),
 }
 
 impl IntoResponse for BitpartError {
