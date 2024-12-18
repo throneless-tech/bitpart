@@ -1,5 +1,5 @@
 #[cfg(test)]
-use crate::api::ApiState;
+use crate::server::api::ApiState;
 #[cfg(test)]
 use axum::Router;
 #[cfg(test)]
@@ -27,9 +27,9 @@ use std::collections::HashMap;
 use std::env;
 use tracing::debug;
 
-use crate::data::{ConversationData, FlowTrigger};
-use crate::db;
 use crate::error::BitpartError;
+use crate::server::data::{ConversationData, FlowTrigger};
+use crate::server::db;
 
 #[cfg(test)]
 pub async fn get_test_server(app: Router<ApiState>) -> TestServer {

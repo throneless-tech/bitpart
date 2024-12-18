@@ -1,4 +1,4 @@
-use crate::data::{FlowTrigger, SerializedEvent};
+use super::data::{FlowTrigger, SerializedEvent};
 use crate::error::BitpartError;
 use csml_interpreter::data::Event;
 use serde_json::{json, Value};

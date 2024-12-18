@@ -5,8 +5,8 @@ use serde_json::Value;
 use uuid;
 
 use super::entities::{prelude::*, *};
-use crate::data::ConversationData;
 use crate::error::BitpartError;
+use crate::server::data::ConversationData;
 
 pub async fn create(
     data: &ConversationData,

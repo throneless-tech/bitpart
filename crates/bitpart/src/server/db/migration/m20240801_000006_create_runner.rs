@@ -9,20 +9,20 @@ impl MigrationTrait for Migration {
         manager
             .create_table(
                 Table::create()
-                    .table(Channel::Table)
+                    .table(Runner::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(Channel::Id).uuid().not_null().primary_key())
-                    .col(ColumnDef::new(Channel::BotId).string().not_null())
-                    .col(ColumnDef::new(Channel::ChannelId).string().not_null())
-                    .col(ColumnDef::new(Channel::State).string().not_null())
+                    .col(ColumnDef::new(Runner::Id).uuid().not_null().primary_key())
+                    .col(ColumnDef::new(Runner::BotId).string().not_null())
+                    .col(ColumnDef::new(Runner::RunnerId).string().not_null())
+                    .col(ColumnDef::new(Runner::State).string().not_null())
                     .col(
-                        ColumnDef::new(Channel::CreatedAt)
+                        ColumnDef::new(Runner::CreatedAt)
                             .date_time()
                             .default(Expr::current_timestamp())
                             .not_null(),
                     )
                     .col(
-                        ColumnDef::new(Channel::UpdatedAt)
+                        ColumnDef::new(Runner::UpdatedAt)
                             .date_time()
                             .default(Expr::current_timestamp())
                             .not_null(),
@@ -34,11 +34,11 @@ impl MigrationTrait for Migration {
         let db = manager.get_connection();
 
         db.execute_unprepared(
-            "CREATE TRIGGER channel_updated_at
-            AFTER UPDATE ON channel
+            "CREATE TRIGGER runner_updated_at
+            AFTER UPDATE ON runner
             FOR EACH ROW
             BEGIN
-                UPDATE channel
+                UPDATE runner
                 SET updated_at = (datetime('now','localtime'))
                 WHERE id = NEW.id;
             END;",
@@ -50,17 +50,17 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(Channel::Table).to_owned())
+            .drop_table(Table::drop().table(Runner::Table).to_owned())
             .await
     }
 }
 
 #[derive(DeriveIden)]
-enum Channel {
+enum Runner {
     Table,
     Id,
     BotId,
-    ChannelId,
+    RunnerId,
     State,
     CreatedAt,
     UpdatedAt,

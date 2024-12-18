@@ -10,7 +10,7 @@ pub async fn create(
     bot_id: &str,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
-    let model = channel::ActiveModel {
+    let model = runner::ActiveModel {
         id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
         bot_id: ActiveValue::Set(bot_id.to_owned()),
         channel_id: ActiveValue::Set(channel_id.to_owned()),
@@ -27,10 +27,10 @@ pub async fn list(
     offset: Option<u64>,
     db: &DatabaseConnection,
 ) -> Result<Vec<String>, BitpartError> {
-    let entries = Channel::find()
-        .column(channel::Column::Id)
-        .group_by(channel::Column::BotId)
-        .order_by(channel::Column::CreatedAt, Order::Desc)
+    let entries = Runner::find()
+        .column(runner::Column::Id)
+        .group_by(runner::Column::BotId)
+        .order_by(runner::Column::CreatedAt, Order::Desc)
         .limit(limit)
         .offset(offset)
         .all(db)
@@ -43,10 +43,10 @@ pub async fn get(
     channel_id: &str,
     bot_id: &str,
     db: &DatabaseConnection,
-) -> Result<Option<channel::Model>, BitpartError> {
-    let entries = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id))
-        .filter(channel::Column::ChannelId.eq(channel_id))
+) -> Result<Option<runner::Model>, BitpartError> {
+    let entries = Runner::find()
+        .filter(runner::Column::BotId.eq(bot_id))
+        .filter(runner::Column::ChannelId.eq(channel_id))
         .one(db)
         .await?;
 
@@ -56,8 +56,8 @@ pub async fn get(
 pub async fn get_by_id(
     id: &str,
     db: &DatabaseConnection,
-) -> Result<Option<channel::Model>, BitpartError> {
-    let entries = Channel::find_by_id(id).one(db).await?;
+) -> Result<Option<runner::Model>, BitpartError> {
+    let entries = Runner::find_by_id(id).one(db).await?;
 
     Ok(entries)
 }
@@ -68,13 +68,13 @@ pub async fn set(
     state: &Value,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
-    let Some(existing) = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id))
-        .filter(channel::Column::ChannelId.eq(channel_id))
+    let Some(existing) = Runner::find()
+        .filter(runner::Column::BotId.eq(bot_id))
+        .filter(runner::Column::ChannelId.eq(channel_id))
         .one(db)
         .await?
     else {
-        let entry = channel::ActiveModel {
+        let entry = runner::ActiveModel {
             id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
             bot_id: ActiveValue::Set(bot_id.to_owned()),
             channel_id: ActiveValue::Set(channel_id.to_owned()),
@@ -85,7 +85,7 @@ pub async fn set(
         return Ok(());
     };
 
-    let mut existing: channel::ActiveModel = existing.into();
+    let mut existing: runner::ActiveModel = existing.into();
     existing.state = ActiveValue::Set(state.to_string());
     existing.update(db).await?;
     Ok(())
@@ -96,9 +96,9 @@ pub async fn delete(
     channel_id: &str,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
-    let entry = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id.to_owned()))
-        .filter(channel::Column::ChannelId.eq(channel_id.to_owned()))
+    let entry = Runner::find()
+        .filter(runner::Column::BotId.eq(bot_id.to_owned()))
+        .filter(runner::Column::ChannelId.eq(channel_id.to_owned()))
         .one(db)
         .await?;
 
@@ -113,6 +113,6 @@ pub async fn delete(
 }
 
 pub async fn delete_by_id(id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
-    Channel::delete_by_id(id).exec(db).await?;
+    Runner::delete_by_id(id).exec(db).await?;
     Ok(())
 }

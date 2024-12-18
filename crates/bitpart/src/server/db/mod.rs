@@ -1,8 +1,8 @@
 pub mod bot;
-pub mod channel;
 pub mod conversation;
 pub mod entities;
 pub mod memory;
 pub mod message;
 pub mod migration;
+pub mod runner;
 pub mod state;

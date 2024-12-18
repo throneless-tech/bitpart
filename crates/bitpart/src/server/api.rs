@@ -4,13 +4,13 @@ use axum::{
     response::IntoResponse,
 };
 use csml_interpreter::{
-    data::{Client, CsmlBot, CsmlResult},
+    data::{CsmlBot, CsmlResult},
     search_for_modules, validate_bot,
 };
 use presage::libsignal_service::configuration::SignalServers;
-use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
-use presage::model::identity::OnNewIdentity;
-use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
+// use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
+// use presage::model::identity::OnNewIdentity;
+// use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -19,9 +19,10 @@ use uuid::Uuid;
 
 //use std::env;
 
-use crate::{
-    channels::signal, conversation::start_conversation, data::Request, db, error::BitpartError,
-};
+use super::conversation::start_conversation;
+use super::data::Request;
+use super::db;
+use crate::error::BitpartError;
 
 #[derive(Deserialize)]
 pub struct QueryPagination {
@@ -154,11 +155,13 @@ pub async fn delete_bot_version(
 
 #[cfg(test)]
 mod test_bot {
-    use crate::{data::BotVersion, utils::get_test_server};
     use axum::{
         routing::{delete, get, post},
         Router,
     };
+
+    use crate::server::data::BotVersion;
+    use crate::utils::get_test_server;
 
     use super::*;
 
@@ -300,152 +303,6 @@ mod test_bot {
 }
 
 /*
-Conversations
-*/
-
-pub async fn get_conversations(
-    Query(params): Query<QueryClientPagination>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-
-    match db::conversation::get_by_client(&client, params.limit, params.offset, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, Json(v)).into_response()),
-        _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
-    }
-}
-
-// pub async fn patch_conversation(
-//     Query(params): Query<QueryClient>,
-//     State(state): State<ApiState>,
-//     Json(body): Json<conversation::Model>,
-// ) -> Result<impl IntoResponse, BitpartError> {
-//     let client = Client {
-//         bot_id: params.bot_id.to_string(),
-//         channel_id: params.channel_id,
-//         user_id: params.user_id,
-//     };
-//     db::conversation::set_status_by_client(&client, &body.status, &db).await
-// }
-
-/*
-Memories
-*/
-
-pub async fn post_memory(
-    Query(params): Query<QueryClient>,
-    State(state): State<ApiState>,
-    Json(body): Json<MemoryData>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-    db::memory::create(&client, &body.key, &body.value, None, &state.db).await
-}
-
-pub async fn get_memories(
-    Query(params): Query<QueryClientPagination>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-    match db::memory::get_by_client(&client, params.limit, params.offset, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, serde_json::to_string(&v)?).into_response()),
-        _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
-    }
-}
-
-pub async fn get_memory(
-    Path(id): Path<String>,
-    Query(params): Query<QueryClient>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-    match db::memory::get(&client, &id, &state.db).await? {
-        Some(mem) => Ok((StatusCode::FOUND, serde_json::to_string(&mem)?).into_response()),
-        None => Ok((StatusCode::NOT_FOUND, ()).into_response()),
-    }
-}
-
-pub async fn delete_memory(
-    Path(id): Path<String>,
-    Query(params): Query<QueryClient>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-    db::memory::delete(&client, &id, &state.db).await
-}
-
-pub async fn delete_memories(
-    Query(params): Query<QueryClient>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-    db::memory::delete_by_client(&client, &state.db).await
-}
-
-/*
-Messages
-*/
-
-pub async fn get_messages(
-    Query(params): Query<QueryClientPagination>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-
-    match db::memory::get_by_client(&client, params.limit, params.offset, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, serde_json::to_string(&v)?).into_response()),
-        _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
-    }
-}
-
-/*
-State
-*/
-
-pub async fn get_state(
-    Query(params): Query<QueryClient>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let client = Client {
-        bot_id: params.bot_id.to_string(),
-        channel_id: params.channel_id,
-        user_id: params.user_id,
-    };
-
-    match db::state::get_by_client(&client, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, serde_json::to_string(&v)?).into_response()),
-        _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
-    }
-}
-
-/*
 Request
 */
 
@@ -540,71 +397,71 @@ mod test_request {
 }
 
 /*
-Channels
+Runners
 */
-pub async fn post_channel(
+pub async fn post_runner(
     State(state): State<ApiState>,
     Json(body): Json<ChannelRequest>,
 ) -> Result<impl IntoResponse, BitpartError> {
-    db::channel::create(&body.id, &body.bot_id, &state.db).await
+    db::runner::create(&body.id, &body.bot_id, &state.db).await
 }
 
-pub async fn get_channel(
+pub async fn get_runner(
     Path(id): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<impl IntoResponse, BitpartError> {
-    let channel = db::channel::get_by_id(&id, &state.db).await?;
-    Ok((StatusCode::FOUND, Json(channel)))
+    let runner = db::runner::get_by_id(&id, &state.db).await?;
+    Ok((StatusCode::FOUND, Json(runner)))
 }
 
-pub async fn get_channels(
+pub async fn get_runners(
     Query(params): Query<QueryClientPagination>,
     State(state): State<ApiState>,
 ) -> Result<impl IntoResponse, BitpartError> {
-    match db::channel::list(params.limit, params.offset, &state.db).await {
+    match db::runner::list(params.limit, params.offset, &state.db).await {
         Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, serde_json::to_string(&v)?).into_response()),
         _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
     }
 }
 
-pub async fn delete_channel(
+pub async fn delete_runner(
     Path(id): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<impl IntoResponse, BitpartError> {
-    db::channel::delete_by_id(&id, &state.db).await
+    db::runner::delete_by_id(&id, &state.db).await
 }
 
-pub async fn link_device_channel(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-    Json(body): Json<ChannelLinkRequest>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let config_store = BitpartStore::open(
-        &id,
-        &state.db,
-        MigrationConflictStrategy::Raise,
-        OnNewIdentity::Trust,
-    )
-    .await?;
-    signal::link_device(config_store, body.servers, body.device_name)
-        .await
-        .map(|url| url.to_string())
-        .map_err(|e| BitpartError::Signal(e))
-}
+// pub async fn link_device_channel(
+//     Path(id): Path<String>,
+//     State(state): State<ApiState>,
+//     Json(body): Json<ChannelLinkRequest>,
+// ) -> Result<impl IntoResponse, BitpartError> {
+//     let config_store = BitpartStore::open(
+//         &id,
+//         &state.db,
+//         MigrationConflictStrategy::Raise,
+//         OnNewIdentity::Trust,
+//     )
+//     .await?;
+//     signal::link_device(config_store, body.servers, body.device_name)
+//         .await
+//         .map(|url| url.to_string())
+//         .map_err(|e| BitpartError::Signal(e))
+// }
 
-pub async fn add_device_channel(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-    Json(body): Json<ChannelAddRequest>,
-) -> Result<impl IntoResponse, BitpartError> {
-    let config_store = BitpartStore::open(
-        &id,
-        &state.db,
-        MigrationConflictStrategy::Raise,
-        OnNewIdentity::Trust,
-    )
-    .await?;
-    signal::add_device(config_store, body.url)
-        .await
-        .map_err(|e| BitpartError::Signal(e))
-}
+// pub async fn add_device_channel(
+//     Path(id): Path<String>,
+//     State(state): State<ApiState>,
+//     Json(body): Json<ChannelAddRequest>,
+// ) -> Result<impl IntoResponse, BitpartError> {
+//     let config_store = BitpartStore::open(
+//         &id,
+//         &state.db,
+//         MigrationConflictStrategy::Raise,
+//         OnNewIdentity::Trust,
+//     )
+//     .await?;
+//     signal::add_device(config_store, body.url)
+//         .await
+//         .map_err(|e| BitpartError::Signal(e))
+// }

@@ -3,8 +3,8 @@
 pub mod prelude;
 
 pub mod bot;
-pub mod channel;
 pub mod conversation;
 pub mod memory;
 pub mod message;
+pub mod runner;
 pub mod state;

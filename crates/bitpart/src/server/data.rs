@@ -2,7 +2,8 @@ use csml_interpreter::data::{Client, Context, CsmlBot, CsmlFlow, Message, Module
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
-use crate::{db, error::BitpartError};
+use super::db;
+use crate::error::BitpartError;
 
 #[derive(Debug, Clone)]
 pub struct SwitchBot {

@@ -4,8 +4,8 @@ use std::env;
 use uuid;
 
 use super::entities::{prelude::*, *};
-use crate::data::{BotVersion, SerializedCsmlBot};
 use crate::error::BitpartError;
+use crate::server::data::{BotVersion, SerializedCsmlBot};
 
 pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion, BitpartError> {
     let model = bot::ActiveModel {
