@@ -46,21 +46,26 @@ contact_method_step:
 
   remember contact_preference = event
 
-  if (event == "1") {
-    // TODO Bitpart records preferred contact method preference
-    say "Thank you. Your preference is noted."
-  } else if (event == "2") {
-    // TODO Bitpart records preferred contact method preference
-    say "Thank you. Your preference is noted."
-  } else if (event == "3") {
-    // TODO Bitpart records preferred contact method preference
-    say "Thank you. Your preference is noted."
-  } else if (event == "4") {
-    // TODO Bitpart records preferred contact method preference
-    goto confirm_contact_method_step
-  } else if (event.to_lowercase() == "5") {
-    // TODO Bitpart records preferred contact method preference
-    goto confirm_contact_method_step
+  if (event.is_number()) {
+    if (event.to_int() == 1) {
+      // TODO Bitpart records preferred contact method preference
+      say "Thank you. Your preference is noted."
+    } else if (event.to_int() == 2) {
+      // TODO Bitpart records preferred contact method preference
+      say "Thank you. Your preference is noted."
+    } else if (event.to_int() == 3) {
+      // TODO Bitpart records preferred contact method preference
+      say "Thank you. Your preference is noted."
+    } else if (event.to_int() == 4) {
+      // TODO Bitpart records preferred contact method preference
+      goto confirm_contact_method_step
+    } else if (event.to_int() == 5) {
+      // TODO Bitpart records preferred contact method preference
+      goto confirm_contact_method_step
+    } else {
+      say "Sorry, I did not get that. Please choose a number from the list."
+      goto contact_method_step
+    }
   } else if (event.to_lowercase() == "privacy policy") {
     goto privacy_policy_step
   } else {

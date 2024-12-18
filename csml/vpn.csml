@@ -3,6 +3,128 @@ start:
   // TODO Bitpart interprets incoming language. Response is in the same language
   say "Thank you for contacting [ORG NAME]. We do [info about the org]. We're use a secure automated messaging system so you can get quicker responses.
     \nYour phone number or username will be stored (encrypted) while you interact with this number, but will be deleted after [X days].
-    \nWe offer VPN codes from [VPN provider name] which works [locations where it's applicable].
-    \nHow many codes do you need? Please enter the amount:"
+    \nWe offer VPN codes from [VPN provider name] which works [locations where it's applicable]."
+  
+  say "How many codes do you need? Please enter the amount:"
   hold
+
+  goto request_step
+
+request_step:
+    if (event.is_number()) {
+      // TODO: pull data from bitpart as to what the limit for codes is
+      if (event.to_int() <= 20) {
+        goto share_codes_step
+      } else {
+        goto over_limit_step
+      }
+    } else {
+      // TODO is there a menu option here?
+      // Or should we offer help from a human earlier?
+      say "Sorry, I did not get that. Please enter a number."
+      goto request_step
+    }
+
+share_codes_step:
+  // TODO get the codes from bitpart
+  say "Here is the list of VPN codes:"
+  // TODO parse the bitpart data to list the codes
+  say "Here are instructions on how to activate the VPN codes."
+  // TODO need instructions for VPN code activation
+  say "If you need further support please type 'FAQ'
+    \nOtherwise, please send us a message next time you need VPN codes."
+  hold
+
+  // TODO figure out how to timeout wait for reply
+
+  if (event.to_lowercase() == 'faq') {
+    goto faq_step
+  } else {
+    goto i_dont_understand_step
+  }
+
+over_limit_step:
+  say "I'm sorry, your request is higher than the available limit of codes.
+    \nYou can either:
+    \nSend a lower number
+    \nor
+    \nType 'Help' for a team member to meet your request manually."
+  hold
+
+  if (event.is_number()) {
+    goto request_step
+  } else if (event.to_lowercase() == "help") {
+    // TODO save request to send to help step
+    goto help_step
+  }
+
+help_step:
+  // TODO send request to admin
+  say "Your request has been flagged with the team, who will be in touch as soon as possible (this may take up [X] working days)."
+
+  goto end
+
+i_dont_understand_step:
+  say "Sorry, this is an automated system, your request wasn't understood.
+    \nIf you want to see commonly asked questions, reply with 'FAQ'
+    \nIf you want to contact the team directly, reply with 'help'"
+  hold
+
+  if (event.to_lowercase() == 'faq') {
+    goto faq_step
+  } else if (event.to_lowercase() == 'help' ) {
+    goto help_step
+  } else {
+    goto i_dont_understand_step
+  }
+
+faq_step:
+  say "FAQs
+    \nHere are some frequently asked questions:
+    \n1) What is a VPN and how does it work?
+    \n2) Why is my VPN not working?
+    \n3) Other
+    \nEnter the number of the question you have."
+  hold
+
+  if (event.is_number()) {
+    if (event.to_int() == 1) {
+      // TODO fill in FAQ answer
+    } else if (event.to_int() == 2) {
+      // TODO fill in FAQ answer
+    } else if (event.to_int() == 3) {
+      goto 
+    } else {
+      say "Sorry, I did not get that. Please choose a number from the list."
+      goto faq_step
+    }
+  } else if (event.to_lowercase() == 'help' ) {
+    goto help_step
+  } else {
+    say "Sorry, I did not get that."
+    goto faq_step
+  }
+
+  say "We hope this answers your question.
+    \nReply with 'Other' if your question was not answered.
+    \nReply with 'FAQ' to go back to the list of questions."
+  hold
+
+  if (event.to_lowercase() == "other") {
+    other_faq_step
+  } else if (event.to_lowercase() == "faq") {
+    goto faq_step
+  } else {
+    say "Sorry, I did not get that."
+    goto faq_step
+  }
+
+other_faq_step:
+  say "We've understood that you have a question not covered by the FAQs. Please type your question:"
+  hold
+
+  remember question = event
+
+  // TODO send question to bitpart, who can later update FAQ depending on questions asked (prioritized by frequency)
+
+  goto help_step
