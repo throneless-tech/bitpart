@@ -135,20 +135,19 @@ async fn main() -> Result<(), BitpartError> {
             let key_query = format!("PRAGMA key = '{}';", server.key);
             db.execute_unprepared(&key_query).await?;
             migrate(&uri).await?;
-            let database = Database::connect(&uri).await?;
 
-            let channels = db::channel::list(None, None, &db).await?;
+            // let channels = db::channel::list(None, None, &db).await?;
 
-            for id in channels.iter() {
-                let db = database.clone();
-                let id = id.clone();
-                // tokio::spawn(async move {
-                //     start_channel(&id, &db).await;
-                // });
-            }
+            // for id in channels.iter() {
+            //     let db = db.clone();
+            //     let id = id.clone();
+            //     // tokio::spawn(async move {
+            //     //     start_channel(&id, &db).await;
+            //     // });
+            // }
 
             let state = ApiState {
-                db: database,
+                db,
                 auth: server.auth,
             };
 
