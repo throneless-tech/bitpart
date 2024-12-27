@@ -148,25 +148,26 @@ check_if_solved_step:
   if (count >= 3) {
     goto submit_question_step
   } else if (event.to_lowercase() == "yes") {
-      say "Reply with 'FAQ' to see the list of questions.
-        \nReply with 'Menu' to return home."
-      hold
+    say "Reply with 'FAQ' to see the list of questions.
+      \nReply with 'Menu' to return home."
+    hold
 
-        if (event.to_lowercase() == "faq" ||  event.to_lowercase() == "faqs") {
-          goto faq_step
-        } else if (event.to_lowercase() == "main menu" ||  event.to_lowercase() == "menu") {
-          goto menu_step
-        } else if (event.to_lowercase() == "delete my data") {
-          goto consent_disagree_step
-        } else {
-          say "Sorry, I did not get that."
-          count += 1
-        }
+    if (event.to_lowercase() == "faq" ||  event.to_lowercase() == "faqs") {
+      goto faq_step
+    } else if (event.to_lowercase() == "main menu" ||  event.to_lowercase() == "menu") {
+      goto menu_step
+    } else if (event.to_lowercase() == "delete my data") {
+      goto consent_disagree_step
+    } else {
+      say "Sorry, I did not get that."
+      set count += 1
+      goto check_if_solved_step
+    }
   } else if (event.to_lowercase() == "no") {
     goto submit_question_step
   } else {
     say "Sorry, I did not get that."
-    count += 1
+    set count += 1
     goto check_if_solved_step
   }
 

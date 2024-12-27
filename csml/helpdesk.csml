@@ -34,7 +34,7 @@ incomplete_step:
   goto end
 
 report_step:
-  do count = 0
+  remember count = 0
   say "What issue are you seeking help with?
     \n1) My instagram account was hacked.
     \n2) My instagram or Facebook account was suspended.
@@ -97,7 +97,10 @@ additional_data_step:
   say "Can you please share any relevent links, such as [[EXAMPLE]]. Please share the link or reply with 'none'"
   hold
 
-  if (event.match_regex("[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)")) {
+  if (count >= 3) {
+    say "Sorry, I did not get that."
+    goto human_support_step
+  } else if (event.match_regex("[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)")) {
     // note: need an extra backslash to escape, as per CSML docs
     // https://docs.csml.dev/language/standard-library/string-methods#match-string-.match_regex-string
     remember link = event
@@ -110,6 +113,7 @@ additional_data_step:
     goto privacy_policy_step
   } else {
     say "Sorry, I did not get that."
+    set count += 1
     goto additional_data_step
   }
 
@@ -126,7 +130,10 @@ automated_step:
     \n(If at any time you need additional support from a member of our helpdesk team, text 'Help.' Someone from the team will respond within 5 working days).
     \nDid that solve your problem? Text yes or no."// TODO: is it always 5 days?
 
-    if (event.to_lowercase() == "yes") {
+    if (count >= 3) {
+      say "Sorry, I did not get that."
+      goto human_support_step
+    } else if (event.to_lowercase() == "yes") {
       say "Great!"
       // TODO: is there anything else we want to do/collect before closing out?
       goto end
@@ -149,6 +156,7 @@ automated_step:
       }
     } else {
       say "Sorry, I did not get that."
+      set count += 1
       goto automated_step
     }
 
