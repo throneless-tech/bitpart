@@ -1,4 +1,6 @@
 start:
+  remember count = 0
+
   // TODO: accept input from user asking a question
   // TODO Bitpart interprets incoming language. Response is in the same language
   say "Thank you for contacting [HELPDESK NAME]. We help people in [LOCATION] with digital rights issues. We use a secure automated messaging system so you can get quicker answers to problems, and our team is on hand to help.
@@ -34,7 +36,11 @@ incomplete_step:
   goto end
 
 report_step:
-  remember count = 0
+  if (count >= 3) {
+    say "Sorry, I did not get that."
+    goto human_support_step
+  }
+  
   say "What issue are you seeking help with?
     \n1) My instagram account was hacked.
     \n2) My instagram or Facebook account was suspended.
@@ -66,14 +72,18 @@ report_step:
       say "Sorry, our system didn't understand what you meant."
       goto human_support_step
     } else {
-      set count = 1
+      set count += 1
       say "Sorry, our system didn't understand what you meant. Please select the most appropriate option:"
-
       goto report_step
     }
 
 
 confirmation_step:
+  if (count >= 3) {
+    say "Sorry, I did not get that."
+    goto human_support_step
+  }
+
   say "We understood that [SUMMARY OF PROBLEM]. Is that correct? Please reply with 'yes' or 'no'."
   hold
 
@@ -87,20 +97,23 @@ confirmation_step:
     goto privacy_policy_step
   } else {
     say "Sorry, I did not get that."
+    set count += 1
     goto confirmation_step
   }
 
 additional_data_step:
+  if (count >= 3) {
+    say "Sorry, I did not get that."
+    goto human_support_step
+  }
+
   // TODO: Create an example based on data returned from Bitpart, if that's not too complex
   // TODO: Do we want to be able to accept other items that aren't links or strings, such as images/video/audio?
   // TODO: Do we want to loop this step or create a way to send multiple links/data?
   say "Can you please share any relevent links, such as [[EXAMPLE]]. Please share the link or reply with 'none'"
   hold
 
-  if (count >= 3) {
-    say "Sorry, I did not get that."
-    goto human_support_step
-  } else if (event.match_regex("[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)")) {
+  if (event.match_regex("[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b([-a-zA-Z0-9()@:%_\\+.~#?&//=]*)")) {
     // note: need an extra backslash to escape, as per CSML docs
     // https://docs.csml.dev/language/standard-library/string-methods#match-string-.match_regex-string
     remember link = event
@@ -122,6 +135,11 @@ analyze_problem_step:
   // goto either automated_step or human_support_step
 
 automated_step:
+  if (count >= 3) {
+    say "Sorry, I did not get that."
+    goto human_support_step
+  }
+
   say "From our experience, we think [SUMMARY OF  PROBLEM] can be solved by taking the following steps."
   say "[PROBLEM NAME]
     \n1) Step 1
@@ -130,10 +148,7 @@ automated_step:
     \n(If at any time you need additional support from a member of our helpdesk team, text 'Help.' Someone from the team will respond within 5 working days).
     \nDid that solve your problem? Text yes or no."// TODO: is it always 5 days?
 
-    if (count >= 3) {
-      say "Sorry, I did not get that."
-      goto human_support_step
-    } else if (event.to_lowercase() == "yes") {
+    if (event.to_lowercase() == "yes") {
       say "Great!"
       // TODO: is there anything else we want to do/collect before closing out?
       goto end

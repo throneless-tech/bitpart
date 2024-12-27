@@ -1,4 +1,6 @@
 start:
+  remember count = 0
+
   // TODO: conversation is triggered by a message from a user who says they need a vpn code
   // TODO Bitpart interprets incoming language. Response is in the same language
   say "Thank you for contacting [ORG NAME]. We do [info about the org]. We're use a secure automated messaging system so you can get quicker responses.
@@ -11,19 +13,24 @@ start:
   goto request_step
 
 request_step:
-    if (event.is_number()) {
-      // TODO: pull data from bitpart as to what the limit for codes is
-      if (event.to_int() <= 20) {
-        goto share_codes_step
-      } else {
-        goto over_limit_step
-      }
+  if (count >= 3) {
+    goto help_step
+  }
+
+  if (event.is_number()) {
+    // TODO: pull data from bitpart as to what the limit for codes is
+    if (event <= 20) {
+      goto share_codes_step
     } else {
-      // TODO is there a menu option here?
-      // Or should we offer help from a human earlier?
-      say "Sorry, I did not get that. Please enter a number."
-      goto request_step
+      goto over_limit_step
     }
+  } else {
+    // TODO is there a menu option here?
+    // Or should we offer help from a human earlier?
+    say "Sorry, I did not get that. Please enter a number."
+    set count += 1
+    goto request_step
+  }
 
 share_codes_step:
   // TODO get the codes from bitpart
@@ -79,6 +86,10 @@ i_dont_understand_step:
   }
 
 faq_step:
+  if (count >= 3) {
+    goto help_step
+  }
+
   say "FAQs
     \nHere are some frequently asked questions:
     \n1) What is a VPN and how does it work?
@@ -92,7 +103,7 @@ faq_step:
   } else if (event == 2) {
     // TODO fill in FAQ answer
   } else if (event == 3) {
-    goto 
+    // TODO what does other do?
   } else {
     say "Sorry, I did not get that. Please choose a number from the list."
     goto faq_step
@@ -100,6 +111,7 @@ faq_step:
     goto help_step
   } else {
     say "Sorry, I did not get that."
+    set count += 1
     goto faq_step
   }
 

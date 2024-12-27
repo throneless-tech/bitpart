@@ -63,7 +63,13 @@ menu_step:
     \n6) About us"
   hold
 
-  
+  if (event == 1) {
+    goto refill_step
+  } else if (event == 2) {
+    // TODO fill in FAQ answer
+  } else if (event == 3) {
+    goto 
+  } 
 
 new_esim_step:
   say "In order to find a VPN or e-sim that works where you are, we need to first ask where you are.
@@ -83,7 +89,25 @@ new_esim_step:
     goto end
   }
 
+refill_step:
+  if (count >= 3) {
+    goto human_support_step
+  }
+  
+  say "Can you please confirm that this is your e-sim number? Reply with yes or no.
+    \n[e-sim number]
+    \n[Instructions on how ﻿to find it]"
+  hold
 
+  if (event.to_lowercase() == "yes") {
+
+  } else if (event.to_lowercase() == "no") {
+
+  } else {
+    set count += 1
+    goto refill_step
+  }
+  
 
 human_support_step:
   say "We've understood that you need further support and have asked the team to continue this conversation with you.

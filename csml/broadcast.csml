@@ -1,4 +1,6 @@
 start:
+  remember count = 0
+
   say "Hi. You have been invited to the distribution list [LIST NAME].
     \nYou can agree, and receive periodic messages. You number will be stored on the secure system in order to receive messages.
     \nYou can disagree, and your contact number will be deleted automatically from the list."
@@ -19,6 +21,10 @@ start:
   }
 
 consent_disagree_step:
+  if (count >= 3) {
+    goto submit_question_step
+  }
+
   say "You have asked that you be removed from the list and all your data be deleted from the system.
     \nOnce this happens, you will no longer be able to receive messages from this number, unless you send a message to it again.
     \nReply with 'Delete' to confirm.
@@ -33,6 +39,7 @@ consent_disagree_step:
     goto menu_step
   } else {
     say "Sorry, I did not get that."
+    set count += 1
     goto consent_disagree_step
   }
 
@@ -48,7 +55,11 @@ consent_agree_step:
     \n[LIST description / list rules]"
   goto menu_step
 
-menu_step:    
+menu_step:
+  if (count >= 3) {
+    goto submit_question_step
+  }
+
   say "**Menu**
     \n1) About this channel
     \n2) Set PIN to access this chat (for extra security)
@@ -74,19 +85,21 @@ menu_step:
     \nFor more safety tips, visit  WEBSITE LINK" // TODO insert hyperlink
   } else if (event == 5) {
     goto faq_step
-  } else {
-    say "Sorry, I did not get that. Please choose a number from the list."
-    goto menu_step
   } else if (event.to_lowercase() == "menu") {
     goto menu_step
   } else if (event.to_lowercase() == "delete my data") {
     goto consent_disagree_step
   } else {
     say "Sorry, I did not get that."
+    set count += 1
     goto menu_step
   }
 
 faq_step:
+  if (count >= 3) {
+    goto submit_question_step
+  }
+
   say "Here are some frequently answered questions. Does your question fall under one of these?
     \n1) who runs this list?
     \n2) FAQ 2
@@ -127,7 +140,7 @@ faq_step:
     goto consent_disagree_step
   } else {
     say "Sorry, I did not get that."
-    count += 1
+    set count += 1
     if (count >= 3) {
       goto submit_question_step
     } else {
@@ -136,14 +149,15 @@ faq_step:
   }
 
 check_if_solved_step:
-  remember count = 0
+  if (count >= 3) {
+    goto submit_question_step
+  }
+
   say "Did that solve your problem?
     \nReply Yes or No."
   hold
 
-  if (count >= 3) {
-    goto submit_question_step
-  } else if (event.to_lowercase() == "yes") {
+  if (event.to_lowercase() == "yes") {
     say "Reply with 'FAQ' to see the list of questions.
       \nReply with 'Menu' to return home."
     hold
