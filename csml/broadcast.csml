@@ -99,13 +99,13 @@ faq_step:
   if (event.is_number()) {
     if (event.to_int() == 1) {
       // TODO FAQ answer
-      say "Does this answer your question?"
+      goto check_if_solved_step
     } else if (event.to_int() == 2) {
       // TODO FAQ answer
-      say "Does this answer your question?"
+      goto check_if_solved_step
     } else if (event.to_int() == 3) {
       // TODO FAQ answer
-      say "Does this answer your question?"
+      goto check_if_solved_step
     } else if (event.to_int() == 4) {
       goto submit_question_step
     } else {
@@ -131,6 +131,43 @@ faq_step:
     goto consent_disagree_step
   } else {
     say "Sorry, I did not get that."
+    count += 1
+    if (count >= 3) {
+      goto submit_question_step
+    } else {
+      goto faq_step
+    }
+  }
+
+check_if_solved_step:
+  remember count = 0
+  say "Did that solve your problem?
+    \nReply Yes or No."
+  hold
+
+  if (count >= 3) {
+    goto submit_question_step
+  } else if (event.to_lowercase() == "yes") {
+      say "Reply with 'FAQ' to see the list of questions.
+        \nReply with 'Menu' to return home."
+      hold
+
+        if (event.to_lowercase() == "faq" ||  event.to_lowercase() == "faqs") {
+          goto faq_step
+        } else if (event.to_lowercase() == "main menu" ||  event.to_lowercase() == "menu") {
+          goto menu_step
+        } else if (event.to_lowercase() == "delete my data") {
+          goto consent_disagree_step
+        } else {
+          say "Sorry, I did not get that."
+          count += 1
+        }
+  } else if (event.to_lowercase() == "no") {
+    goto submit_question_step
+  } else {
+    say "Sorry, I did not get that."
+    count += 1
+    goto check_if_solved_step
   }
 
 submit_question_step:
@@ -142,4 +179,3 @@ submit_question_step:
   say "Thank you. The list owner will continue this conversation. Please note that it might take some time for them to get in touch."
   // TODO: is there anything else we want to do/collect before closing out?
   goto end
-    
