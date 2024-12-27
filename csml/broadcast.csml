@@ -59,26 +59,24 @@ menu_step:
     \nSend 'menu' at any time to come back to this menu."  
   hold
 
-  if (event.is_number()) {
-    if (event.to_int() == 1) {
-      say "This is a way to receive messages from X, about Y, without being in a group (which can potentially compromise everyone in the group).
-      \n[List description / list rules]"
-    } else if (event.to_int() == 2) {
-      // TODO explain how to set a PIN
-    } else if (event.to_int() == 3) {
-      // TODO explain how to set up kill button
-    } else if (event.to_int() == 4) {
-      say "**Safety tips**
-      \nFor the upcoming action, we recommend you:
-      \nleave your phone at home if you are able to, or use a burner device.
-      \nIf you must bring your phone with you, assume that it might be taken. In advance, delete photos you do not want others to see, delete messages and chats; delete apps; and set disappearing message times to 1 hour.
-      \nFor more safety tips, visit  WEBSITE LINK" // TODO insert hyperlink
-    } else if (event.to_int() == 5) {
-      goto faq_step
-    } else {
-      say "Sorry, I did not get that. Please choose a number from the list."
-      goto menu_step
-    }
+  if (event == 1) {
+    say "This is a way to receive messages from X, about Y, without being in a group (which can potentially compromise everyone in the group).
+    \n[List description / list rules]"
+  } else if (event == 2) {
+    // TODO explain how to set a PIN
+  } else if (event == 3) {
+    // TODO explain how to set up kill button
+  } else if (event == 4) {
+    say "**Safety tips**
+    \nFor the upcoming action, we recommend you:
+    \nleave your phone at home if you are able to, or use a burner device.
+    \nIf you must bring your phone with you, assume that it might be taken. In advance, delete photos you do not want others to see, delete messages and chats; delete apps; and set disappearing message times to 1 hour.
+    \nFor more safety tips, visit  WEBSITE LINK" // TODO insert hyperlink
+  } else if (event == 5) {
+    goto faq_step
+  } else {
+    say "Sorry, I did not get that. Please choose a number from the list."
+    goto menu_step
   } else if (event.to_lowercase() == "menu") {
     goto menu_step
   } else if (event.to_lowercase() == "delete my data") {
@@ -96,21 +94,19 @@ faq_step:
     \n4) Other"
   hold
 
-  if (event.is_number()) {
-    if (event.to_int() == 1) {
-      // TODO FAQ answer
-      goto check_if_solved_step
-    } else if (event.to_int() == 2) {
-      // TODO FAQ answer
-      goto check_if_solved_step
-    } else if (event.to_int() == 3) {
-      // TODO FAQ answer
-      goto check_if_solved_step
-    } else if (event.to_int() == 4) {
-      goto submit_question_step
-    } else {
-      say "Sorry, I did not get that. Please choose a number from the list."
-    }
+  if (event == 1) {
+    // TODO FAQ answer
+    goto check_if_solved_step
+  } else if (event == 2) {
+    // TODO FAQ answer
+    goto check_if_solved_step
+  } else if (event == 3) {
+    // TODO FAQ answer
+    goto check_if_solved_step
+  } else if (event == 4) {
+    goto submit_question_step
+  } else {
+    say "Sorry, I did not get that. Please choose a number from the list."
   } else if (event.to_lowercase() == "menu") {
     goto menu_step
   } else if (event.to_lowercase() == "delete my data") {

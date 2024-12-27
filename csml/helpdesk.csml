@@ -44,19 +44,19 @@ report_step:
     \nReply with the number"
   hold
 
-    if (event == "1") {
+    if (event == 1) {
       // TODO FAQ answer
       say "Did that solve your problem?"
-    } else if (event == "2") {
+    } else if (event == 2) {
       // TODO FAQ answer
       say "Did that solve your problem?"
-    } else if (event == "3") {
+    } else if (event == 3) {
       // TODO FAQ answer
       say "Did that solve your problem?"
-    } else if (event == "4") {
+    } else if (event == 4) {
       // TODO FAQ answer
       say "Did that solve your problem?"
-    } else if (event == "5") {
+    } else if (event == 5) {
       goto submit_question_step
     } else if (event.to_lowercase() == "menu") {
       goto menu_step

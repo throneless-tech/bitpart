@@ -1,0 +1,94 @@
+start:
+  // TODO: conversation is triggered by a message from a user who says they need an esim
+  // TODO Bitpart interprets incoming language. Response is in the same language
+  // TODO check if the user has contacted this line before
+  do user = true // FIXME based on above todo
+
+  say "Thank you for contacting [NAME]. We help people get e-sims/VPNs for free. We use a secure automated messaging system so you can get quicker responses.
+    \nWe store your e-sim number."
+
+  if ( user === true ) {
+    goto menu_step
+  } else {
+    goto first_time_user_step
+  }
+
+first_time_user_step:
+  remember count = 0
+  say "Do you currently have an e-sim? Reply with yes or no."
+  hold
+
+  if (count >= 3) {
+    goto human_support_step
+  } else if (event.to_lowercase() == "yes") {
+    goto esim_number_step
+  } else if (event.to_lowercase() == "no") {
+
+  } else {
+    say "Sorry, I did not get that."
+    set count += 1
+    goto first_time_user_step
+  }
+
+esim_number_step:
+  say "What's your e-sim number?
+    \n[Instructions on how to find it]
+    \nWe'll save this number in our system, so you can top up now and send reminders to top up in the future. You can delete this at any time from your profile.
+    \nEnter your e-sim number or reply with 'none' if you do not know it."
+  hold
+
+  //TODO what is the regex for an e-sim number?
+
+  if (count >= 3) {
+    goto human_support_step
+  } else if (event.to_lowercase() == "FIXME esim number") {
+    say "Thank you!"
+    goto menu_step
+  } else if (event.to_lowercase() == "none") {
+    goto new_esim_step
+  } else {
+    say "Sorry, I did not get that."
+    set count += 1
+    goto esim_number_step
+  }
+
+menu_step:
+  say "Main menu
+    \nEnter a number to select your option:
+    \n1) Top up my e-sim
+    \n2) Get an e-sim
+    \n3) Help
+    \n4) Edit profile
+    \n5) Privacy Policy
+    \n6) About us"
+  hold
+
+  
+
+new_esim_step:
+  say "In order to find a VPN or e-sim that works where you are, we need to first ask where you are.
+    \nWe'll store this information on our system. We will not ask you for your name or any personal information. You can edit your profile at any time to update or delete this information.
+    \nType 'Yes' to proceed, or 'end' to finish the conversation."
+  hold
+
+  if (event.to_lowercase() == "yes") {
+    say "Where will you be using your e-sim?
+      \n1) (e.g. LOCATION EXMPLES)
+      \n2) (e.g. LOCATION EXMPLES)
+      \n3) Other"
+    hold
+
+    // TODO what happens next?
+  } else if (event.to_lowercase() == "end") {
+    goto end
+  }
+
+
+
+human_support_step:
+  say "We've understood that you need further support and have asked the team to continue this conversation with you.
+    \nAutomated messaging will now transfer you to a human. Please note that it might take [x time] for them to respond."
+  
+  // TODO flag relevant data to bitpart
+
+  goto end
