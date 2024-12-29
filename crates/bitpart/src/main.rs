@@ -29,10 +29,7 @@ enum Commands {
 async fn main() -> Result<(), BitpartError> {
     let args = Cli::parse();
     match args.command {
-        Commands::Runner(_runner) => {
-            todo!("Implement runner");
-        }
-
+        Commands::Runner(runner) => runner::init_runner(runner).await,
         Commands::Server(server) => server::init_server(server).await,
     }
 }

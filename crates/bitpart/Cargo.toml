@@ -7,13 +7,12 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 async-recursion = "1.1.1"
-axum = { version = "0.7.5", features = ["http2", "macros"] }
+axum = { git = "https://github.com/tokio-rs/axum.git", rev = "f8f3a030b32d9a0fa52be6834fb142ea1c14f2d2", features = ["http2", "macros", "ws"] }
+axum-extra = { git = "https://github.com/tokio-rs/axum.git", rev = "f8f3a030b32d9a0fa52be6834fb142ea1c14f2d2", features = ["typed-header"] }
 axum-server = "0.7.1"
-axum-test = "16.0.0"
-axum-typed-routing = { version = "0.2.1", features = ["aide"] }
-axum-typed-routing-macros = "0.2.1"
 base64 = "0.22.1"
 bincode = "1.3.3"
+bytes = "1.9.0"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = "2.2.2"
@@ -21,7 +20,9 @@ config = { version = "0.14", features = ["toml"] }
 csml_interpreter = { git = "https://github.com/throneless-tech/csml-engine", branch = "bitpart" }
 directories = "5.0"
 futures = "0.3.31"
+headers = "0.4.0"
 hex = "0.4.3"
+http = "1.2.0"
 libsqlite3-sys = { version = "0.26.0", features = ["bundled-sqlcipher"] }
 log = "0.4"
 md-5 = "0.10.6"
@@ -41,6 +42,7 @@ serde_json = "1.0.117"
 tempfile = "3.13.0"
 thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["full"] }
+tokio-tungstenite = "0.26.1"
 tower-http = { version = "0.5.2", features = ["auth"] }
 tracing = "0.1.40"
 tracing-log = "0.2.0"
