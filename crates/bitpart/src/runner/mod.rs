@@ -6,6 +6,7 @@ use futures::{
     sink::SinkExt,
     stream::{FuturesUnordered, StreamExt},
 };
+use http::header::HeaderValue;
 use presage::model::identity::OnNewIdentity;
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
@@ -57,12 +58,9 @@ async fn start_channel(id: &str, db: &DatabaseConnection) -> Result<(), BitpartE
 async fn spawn_client(server: String, auth: String, who: usize) {
     let url = url::Url::parse(&format!("ws://{}/api/v1/ws", server)).unwrap();
     let mut request = url.into_client_request().unwrap();
-    let request = Request::builder()
-        .method("GET")
-        .uri(format!("ws://{}/api/v1/ws", server))
-        .header("Authorization", auth)
-        .body(())
-        .unwrap();
+    let headers = request.headers_mut();
+    let auth_value = HeaderValue::from_str(&auth).unwrap();
+    headers.insert("Authorization", auth_value);
     let ws_stream = match connect_async(request).await {
         Ok((stream, response)) => {
             println!("Handshake for client {who} has been completed");

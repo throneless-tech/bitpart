@@ -23,7 +23,6 @@ use clap::Args;
 use clap_verbosity_flag::Verbosity;
 use futures::{sink::SinkExt, stream::StreamExt};
 use sea_orm::{ConnectionTrait, Database};
-use std::borrow::Cow;
 use std::net::SocketAddr;
 use std::ops::ControlFlow;
 use tracing_log::AsTrace;
@@ -294,7 +293,7 @@ pub async fn init_server(server: ServerArgs) -> Result<(), BitpartError> {
     let addr: SocketAddr = server.bind.parse().expect("Unable to parse bind address");
 
     axum_server::bind(addr)
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<SocketAddr>())
         .await
         .unwrap();
     Ok(())
