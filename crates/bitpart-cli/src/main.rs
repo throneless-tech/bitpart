@@ -2,9 +2,15 @@ use std::ffi::OsStr;
 use std::{fs, io, path::PathBuf};
 
 use anyhow::Result;
+use bytes::Bytes;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use futures_util::{SinkExt, StreamExt};
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
+use tokio_tungstenite::{
+    connect_async,
+    tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message},
+};
 
 /// The Bitpart CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -97,6 +103,10 @@ enum Commands {
 
         message: String,
     },
+
+    /// Websocket test
+    #[command()]
+    Test {},
 }
 
 fn find_csml(path: &str) -> Result<Vec<PathBuf>> {
@@ -110,7 +120,8 @@ fn find_csml(path: &str) -> Result<Vec<PathBuf>> {
     Ok(entries)
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args = Cli::parse();
 
     let connect = args.connect;
@@ -217,6 +228,29 @@ fn main() {
                 .json()
                 .unwrap();
             println!("{res}");
+        }
+        Commands::Test {} => {
+            let ws_stream = match connect_async(format!("ws://{connect}/ws")).await {
+                Ok((stream, response)) => {
+                    println!("Handshake for client has been completed");
+                    // This will be the HTTP response, same as with server this is the last moment we
+                    // can still access HTTP stuff.
+                    println!("Server response was {response:?}");
+                    stream
+                }
+                Err(e) => {
+                    println!("WebSocket handshake for client failed with {e}!");
+                    return;
+                }
+            };
+
+            let (mut sender, mut receiver) = ws_stream.split();
+
+            //we can ping the server for start
+            sender
+                .send(Message::Ping(Bytes::from_static(b"Hello, Server!")))
+                .await
+                .expect("Can not send!");
         }
     }
 }

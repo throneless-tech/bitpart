@@ -21,6 +21,8 @@ pub enum BitpartError {
     Signal(#[from] anyhow::Error), //TODO actually swap out the errors in the signal channel file
     #[error("Signal storage error: `{0}`")]
     SignalStore(#[from] BitpartStoreError),
+    #[error("Websocket close")]
+    WebsocketClose,
 }
 
 impl IntoResponse for BitpartError {
