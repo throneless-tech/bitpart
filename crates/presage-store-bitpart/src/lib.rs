@@ -12,7 +12,11 @@ use presage::{
 };
 use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
 use sea_orm::DatabaseConnection;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{
+    de::{DeserializeOwned, Visitor},
+    ser::{SerializeMap, Serializer},
+    Deserialize, Serialize,
+};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, MutexGuard};
 
@@ -29,11 +33,30 @@ const SLED_TREE_STATE: &str = "state";
 const SLED_KEY_REGISTRATION: &str = "registration";
 const SLED_KEY_SCHEMA_VERSION: &str = "schema_version";
 
+type InnerMap = BTreeMap<Vec<u8>, Vec<u8>>;
+
 // In-memory stand-in for Sled
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct DoubleMap {
-    #[serde(flatten)]
-    pub trees: BTreeMap<Vec<u8>, BTreeMap<Vec<u8>, Vec<u8>>>,
+    pub trees: BTreeMap<Vec<u8>, InnerMap>,
+}
+
+impl Serialize for DoubleMap {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut map = serializer.serialize_map(Some(self.trees.len()))?;
+        for (k, v) in self.trees.iter() {
+            let outer_key = String::from_utf8(k.clone()).unwrap();
+            for (k, v) in v.iter() {
+                let inner_key = String::from_utf8(k.clone()).unwrap();
+                let key = format!("{outer_key}:{inner_key}");
+                map.serialize_entry(&key, &v)?;
+            }
+        }
+        map.end()
+    }
 }
 
 impl DoubleMap {
@@ -135,7 +158,10 @@ impl BitpartStore {
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
         let store = db::channel::get_by_id(id, database).await?;
-        let state: DoubleMap = serde_json::from_str(&store.state)?;
+        let state: DoubleMap = match serde_json::from_str(&store.state) {
+            Ok(state) => state,
+            Err(_) => DoubleMap::new(),
+        };
         Ok(BitpartStore {
             id: id.to_owned(),
             db_handle: database.clone(),
@@ -145,6 +171,7 @@ impl BitpartStore {
     }
 
     pub async fn flush(&self) -> Result<usize, BitpartStoreError> {
+        println!("FLUSH: {:?}", &self.read().await.trees);
         let state = serde_json::to_string(&self.read().await.trees)?;
         db::channel::set_by_id(&self.id, &state, &self.db_handle).await?;
         Ok(0)

@@ -1,8 +1,3 @@
-use crate::actions;
-use crate::data::{BotOpt, ConversationData, SerializedEvent, SwitchBot};
-use crate::db;
-use crate::error::BitpartError;
-use crate::utils;
 use async_recursion::async_recursion;
 use base64::prelude::*;
 use chrono::Utc;
@@ -14,6 +9,13 @@ use csml_interpreter::data::{
 use csml_interpreter::{load_components, search_for_modules, validate_bot};
 use sea_orm::*;
 use std::collections::HashMap;
+
+use crate::actions;
+use crate::data::{BotOpt, ConversationData, SwitchBot};
+use crate::db;
+use crate::error::BitpartError;
+use crate::event::SerializedEvent;
+use crate::utils;
 
 async fn create_new_conversation<'a>(
     context: &mut Context,

@@ -2,7 +2,9 @@ use csml_interpreter::data::{Client, Context, CsmlBot, CsmlFlow, Message, Module
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
-use crate::{db, error::BitpartError};
+use crate::db;
+use crate::error::BitpartError;
+use crate::event::SerializedEvent;
 
 #[derive(Debug, Clone)]
 pub struct SwitchBot {
@@ -16,16 +18,6 @@ pub struct SwitchBot {
 pub struct FlowTrigger {
     pub flow_id: String,
     pub step_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializedEvent {
-    pub id: String,
-    pub client: Client,
-    pub metadata: serde_json::Value,
-    pub payload: serde_json::Value,
-    pub step_limit: Option<usize>,
-    pub callback_url: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -226,6 +218,103 @@ impl Request {
                 multibot,
             }),
 
+            _ => Err(BitpartError::Interpreter(
+                "Invalid bot_opt format".to_owned(),
+            )),
+        }
+    }
+}
+
+impl TryInto<BotOpt> for Request {
+    type Error = BitpartError;
+
+    fn try_into(self) -> Result<BotOpt, Self::Error> {
+        match self {
+            // Bot
+            Request {
+                bot: Some(mut csml_bot),
+                multibot,
+                ..
+            } => {
+                csml_bot.multibot = multibot;
+
+                Ok(BotOpt::CsmlBot(csml_bot))
+            }
+
+            // version id
+            Request {
+                version_id: Some(version_id),
+                bot_id: Some(bot_id),
+                apps_endpoint,
+                multibot,
+                ..
+            } => Ok(BotOpt::Id {
+                version_id,
+                bot_id,
+                apps_endpoint,
+                multibot,
+            }),
+
+            // get bot by id will search for the last version id
+            Request {
+                bot_id: Some(bot_id),
+                apps_endpoint,
+                multibot,
+                ..
+            } => Ok(BotOpt::BotId {
+                bot_id,
+                apps_endpoint,
+                multibot,
+            }),
+            _ => Err(BitpartError::Interpreter(
+                "Invalid bot_opt format".to_owned(),
+            )),
+        }
+    }
+}
+
+impl TryInto<BotOpt> for &Request {
+    type Error = BitpartError;
+
+    fn try_into(self) -> Result<BotOpt, Self::Error> {
+        match self.clone() {
+            // Bot
+            Request {
+                bot: Some(csml_bot),
+                multibot,
+                ..
+            } => {
+                let mut csml_bot = csml_bot.to_owned();
+                csml_bot.multibot = multibot.to_owned();
+
+                Ok(BotOpt::CsmlBot(csml_bot))
+            }
+
+            // version id
+            Request {
+                version_id: Some(version_id),
+                bot_id: Some(bot_id),
+                apps_endpoint,
+                multibot,
+                ..
+            } => Ok(BotOpt::Id {
+                version_id: version_id.to_owned(),
+                bot_id: bot_id.to_owned(),
+                apps_endpoint: apps_endpoint.to_owned(),
+                multibot: multibot.to_owned(),
+            }),
+
+            // get bot by id will search for the last version id
+            Request {
+                bot_id: Some(bot_id),
+                apps_endpoint,
+                multibot,
+                ..
+            } => Ok(BotOpt::BotId {
+                bot_id: bot_id.to_owned(),
+                apps_endpoint: apps_endpoint.to_owned(),
+                multibot: multibot.to_owned(),
+            }),
             _ => Err(BitpartError::Interpreter(
                 "Invalid bot_opt format".to_owned(),
             )),

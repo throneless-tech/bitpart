@@ -17,10 +17,13 @@ use serde_json::{json, Value};
 use url::Url;
 use uuid::Uuid;
 
-//use std::env;
+use crate::error::BitpartError;
 
 use crate::{
-    channels::signal, conversation::start_conversation, data::Request, db, error::BitpartError,
+    channels::signal,
+    conversation::start_conversation,
+    data::{BotVersion, Request},
+    db::{self, entities::channel::Model},
 };
 
 #[derive(Deserialize)]
@@ -72,16 +75,14 @@ pub struct ChannelAddRequest {
 pub struct ApiState {
     pub db: DatabaseConnection,
     pub auth: String,
+    pub manager: signal::SignalManager,
 }
 
 /*
 Bot
 */
 
-pub async fn post_bot(
-    State(state): State<ApiState>,
-    Json(mut bot): Json<CsmlBot>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion, BitpartError> {
     if let Err(err) = search_for_modules(&mut bot) {
         return Err(BitpartError::Interpreter(format!("{:?}", err)));
     }
@@ -94,32 +95,25 @@ pub async fn post_bot(
         CsmlResult { .. } => {
             println!("Validated!");
             let created = db::bot::create(bot, &state.db).await?;
-            Ok((StatusCode::CREATED, Json(created)))
+            Ok(created)
         }
     }
 }
 
-pub async fn list_bots(State(state): State<ApiState>) -> Result<impl IntoResponse, BitpartError> {
+pub async fn list_bots(state: &ApiState) -> Result<Vec<String>, BitpartError> {
     let list = db::bot::list(None, None, &state.db).await?;
-    Ok((StatusCode::OK, Json(list)).into_response())
+    Ok(list)
 }
 
-pub async fn get_bot(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn read_bot(id: String, state: &ApiState) -> Result<Option<BotVersion>, BitpartError> {
     if let Some(bot) = db::bot::get_latest_by_bot_id(&id.to_string(), &state.db).await? {
-        Ok((StatusCode::OK, Json(bot)).into_response())
+        Ok(Some(bot))
     } else {
-        let response = Ok((StatusCode::NOT_FOUND, ()).into_response());
-        response
+        Ok(None)
     }
 }
 
-pub async fn delete_bot(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn delete_bot(id: String, state: &ApiState) -> Result<(), BitpartError> {
     db::bot::delete_by_bot_id(&id.to_string(), &state.db).await
 }
 
@@ -449,15 +443,15 @@ pub async fn get_state(
 Request
 */
 
-pub async fn post_request(
-    State(state): State<ApiState>,
-    Json(body): Json<Request>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn process_request(
+    body: &Request,
+    state: &ApiState,
+) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
     let mut request = body.event.to_owned();
 
-    let bot_opt = match body.get_bot_opt() {
+    let bot_opt = match body.try_into() {
         Ok(bot_opt) => bot_opt,
-        _ => return Ok((StatusCode::BAD_REQUEST, ()).into_response()),
+        _ => return Err(BitpartError::Interpreter("Bad Request".to_owned())),
     };
 
     // request metadata should be an empty object by default
@@ -467,7 +461,7 @@ pub async fn post_request(
     };
 
     match start_conversation(request, bot_opt, &state.db).await {
-        Ok(r) => Ok((StatusCode::OK, Json(r)).into_response()),
+        Ok(res) => Ok(res),
         Err(err) => Err(err),
     }
 }
@@ -542,61 +536,49 @@ mod test_request {
 /*
 Channels
 */
-pub async fn post_channel(
-    State(state): State<ApiState>,
-    Json(body): Json<ChannelRequest>,
-) -> Result<impl IntoResponse, BitpartError> {
-    db::channel::create(&body.id, &body.bot_id, &state.db).await
+pub async fn create_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<(), BitpartError> {
+    db::channel::create(id, bot_id, &state.db).await
 }
 
-pub async fn get_channel(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn read_channel(id: &str, state: &ApiState) -> Result<Option<Model>, BitpartError> {
     let channel = db::channel::get_by_id(&id, &state.db).await?;
-    Ok((StatusCode::FOUND, Json(channel)))
+    Ok(channel)
 }
 
-pub async fn get_channels(
-    Query(params): Query<QueryClientPagination>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
-    match db::channel::list(params.limit, params.offset, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok((StatusCode::FOUND, serde_json::to_string(&v)?).into_response()),
-        _ => Ok((StatusCode::NOT_FOUND, ()).into_response()),
+pub async fn list_channels(
+    limit: Option<u64>,
+    offset: Option<u64>,
+    state: &ApiState,
+) -> Result<Option<Vec<String>>, BitpartError> {
+    match db::channel::list(limit, offset, &state.db).await {
+        Ok(v) if v.len() > 0 => Ok(Some(v)),
+        _ => Ok(None),
     }
 }
 
-pub async fn delete_channel(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn delete_channel(id: &str, state: &ApiState) -> Result<(), BitpartError> {
     db::channel::delete_by_id(&id, &state.db).await
 }
 
-pub async fn link_device_channel(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-    Json(body): Json<ChannelLinkRequest>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn link_channel(
+    id: &str,
+    device_name: &str,
+    state: &ApiState,
+) -> Result<String, BitpartError> {
     let config_store = BitpartStore::open(
-        &id,
+        id,
         &state.db,
         MigrationConflictStrategy::Raise,
         OnNewIdentity::Trust,
     )
     .await?;
-    signal::link_device(config_store, body.servers, body.device_name)
+    signal::link_device(config_store, SignalServers::Staging, device_name.to_owned())
         .await
         .map(|url| url.to_string())
         .map_err(|e| BitpartError::Signal(e))
 }
 
-pub async fn add_device_channel(
-    Path(id): Path<String>,
-    State(state): State<ApiState>,
-    Json(body): Json<ChannelAddRequest>,
-) -> Result<impl IntoResponse, BitpartError> {
+pub async fn add_device_channel(id: &str, url: &Url, state: &ApiState) -> Result<(), BitpartError> {
     let config_store = BitpartStore::open(
         &id,
         &state.db,
@@ -604,7 +586,7 @@ pub async fn add_device_channel(
         OnNewIdentity::Trust,
     )
     .await?;
-    signal::add_device(config_store, body.url)
+    signal::add_device(config_store, url.to_owned())
         .await
         .map_err(|e| BitpartError::Signal(e))
 }

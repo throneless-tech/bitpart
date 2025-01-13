@@ -14,6 +14,7 @@ pub async fn create(
         id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
         bot_id: ActiveValue::Set(bot_id.to_owned()),
         channel_id: ActiveValue::Set(channel_id.to_owned()),
+        state: ActiveValue::Set("".to_owned()),
         ..Default::default()
     };
 

@@ -6,27 +6,28 @@ mod data;
 pub mod db;
 pub mod error;
 mod event;
+mod messages;
 pub mod utils;
 
 use axum::extract::connect_info::ConnectInfo;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::{Json, Request, State},
+    extract::{Request, State},
     http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{any, get, post},
     Router,
 };
+use channels::signal;
 use clap::Parser;
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
 //use sea_orm_migration::prelude::*;
 use clap_verbosity_flag::Verbosity;
 use presage::model::identity::OnNewIdentity;
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::ops::ControlFlow;
+use tokio::sync::oneshot;
 use tokio::task::LocalSet;
 use tracing::{debug, error};
 use tracing_log::AsTrace;
@@ -34,6 +35,7 @@ use tracing_log::AsTrace;
 use api::ApiState;
 use db::migration::migrate;
 use error::BitpartError;
+use messages::SocketMessage;
 
 /// The Bitpart server
 #[derive(Debug, Parser)]
@@ -81,6 +83,7 @@ async fn authenticate(
 ////////////////////////////////////////////////////////////////////////////////
 
 async fn start_channel(id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+    println!("START CHANNEL");
     let store = BitpartStore::open(
         id,
         db,
@@ -88,6 +91,7 @@ async fn start_channel(id: &str, db: &DatabaseConnection) -> Result<(), BitpartE
         OnNewIdentity::Trust,
     )
     .await?;
+    println!("START CHANNEL STORE");
 
     channels::signal::receive_from(store, true)
         .await
@@ -103,9 +107,10 @@ async fn ws_handler(
 }
 
 async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: ApiState) {
+    println!("handle_socket");
     while let Some(msg) = socket.recv().await {
         let msg = if let Ok(msg) = msg {
-            match process_message(msg, who, &state) {
+            match process_message(msg, who, &state).await {
                 Ok(msg) => msg,
                 Err(err) => {
                     error!("Error parsing message from {who}: {}", err);
@@ -124,32 +129,94 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: ApiState) 
     }
 }
 
-#[derive(Serialize, Deserialize)]
-enum SocketMessage {
-    Register,
-    Error(String),
-}
-
-fn process_message(
+async fn process_message(
     msg: Message,
     who: SocketAddr,
     state: &ApiState,
 ) -> Result<Message, BitpartError> {
+    println!("process_message");
     match msg {
         Message::Text(t) => {
             println!(">>> {who} sent str: {t:?}");
             let contents: SocketMessage = serde_json::from_slice(t.as_bytes())?;
             match contents {
-                SocketMessage::Register => {
-                    debug!("Register message received!");
+                SocketMessage::CreateBot(bot) => {
+                    let bot = api::create_bot(bot, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&bot)?.into()))
                 }
-                SocketMessage::Error(err) => {
-                    error!(err);
+                SocketMessage::ReadBot(id) => {
+                    let bot = api::read_bot(id, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&bot)?.into()))
                 }
+                SocketMessage::DeleteBot(id) => {
+                    let bot = api::delete_bot(id, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&bot)?.into()))
+                }
+                SocketMessage::ListBots => {
+                    let list = api::list_bots(state).await?;
+                    Ok(Message::Text(serde_json::to_string(&list)?.into()))
+                }
+                SocketMessage::CreateChannel(msg) => {
+                    let channel = api::create_channel(&msg.id, &msg.bot_id, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&channel)?.into()))
+                }
+                SocketMessage::ReadChannel(id) => {
+                    let channel = api::read_channel(&id, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&channel)?.into()))
+                }
+                SocketMessage::ListChannels(paginate) => {
+                    let channels =
+                        api::list_channels(paginate.limit, paginate.offset, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&channels)?.into()))
+                }
+                SocketMessage::DeleteChannel(id) => {
+                    let bot = api::delete_channel(&id, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&bot)?.into()))
+                }
+                SocketMessage::ChatRequest(req) => {
+                    let res = api::process_request(&req, state).await?;
+                    Ok(Message::Text(serde_json::to_string(&res)?.into()))
+                }
+                SocketMessage::LinkChannel(link) => {
+                    let (send, recv) = oneshot::channel();
+                    let contents = signal::ChannelMessageContents::LinkChannel {
+                        id: link.id,
+                        device_name: link.device_name,
+                    };
+                    let msg = signal::ChannelMessage {
+                        msg: contents,
+                        db: state.db.clone(),
+                        sender: send,
+                    };
+                    state.manager.send(msg);
+                    let res = recv.await.unwrap();
+                    Ok(Message::Text(res.into()))
+                }
+                SocketMessage::AddDeviceChannel(add) => {
+                    let (send, recv) = oneshot::channel();
+                    let contents = signal::ChannelMessageContents::AddDeviceChannel {
+                        id: add.id,
+                        url: add.url,
+                    };
+                    let msg = signal::ChannelMessage {
+                        msg: contents,
+                        db: state.db.clone(),
+                        sender: send,
+                    };
+                    state.manager.send(msg);
+                    let res = recv.await.unwrap();
+                    Ok(Message::Text(res.into()))
+                }
+                _ => Ok(Message::Text(
+                    serde_json::to_string("Invalid SocketMessage")?.into(),
+                )),
             }
         }
         Message::Binary(d) => {
             println!(">>> {} sent {} bytes: {:?}", who, d.len(), d);
+            Ok(Message::Text(
+                serde_json::to_string("Server doesn't accept binary frames")?.into(),
+            ))
         }
         Message::Close(c) => {
             if let Some(cf) = c {
@@ -165,12 +232,17 @@ fn process_message(
 
         Message::Pong(v) => {
             println!(">>> {who} sent pong with {v:?}");
+            Ok(Message::Text(
+                serde_json::to_string("Pong received")?.into(),
+            ))
         }
         Message::Ping(v) => {
             println!(">>> {who} sent ping with {v:?}");
+            Ok(Message::Text(
+                serde_json::to_string("Ping received")?.into(),
+            ))
         }
     }
-    Err(BitpartError::WebsocketClose)
 }
 
 #[tokio::main]
@@ -191,70 +263,42 @@ async fn main() -> Result<(), BitpartError> {
 
     let db = Database::connect(&uri).await?;
     let channels = db::channel::list(None, None, &db).await?;
-    for id in channels.iter() {
-        let id = id.clone();
-        let handle = db.clone();
-        std::thread::spawn(move || {
-            let local = LocalSet::new();
-            local.spawn_local(async move {
-                let _ = start_channel(&id, &handle).await;
-            });
-        });
-    }
     let state = ApiState {
         db,
         auth: server.auth,
+        manager: signal::SignalManager::new(),
     };
+    for id in channels.iter() {
+        println!("Channel: {:?}", id);
+        let (send, recv) = oneshot::channel();
+        let contents = signal::ChannelMessageContents::StartChannel(id.to_owned());
+        let msg = signal::ChannelMessage {
+            msg: contents,
+            db: state.db.clone(),
+            sender: send,
+        };
+        state.manager.send(msg);
+        let res = recv.await.unwrap();
+        println!("Started channel: {}", res);
+    }
 
     let app = Router::new()
-        .route("/api/v1/bots", post(api::post_bot))
-        .route(
-            "/api/v1/bots/{id}",
-            get(api::get_bot).delete(api::delete_bot),
-        )
-        .route("/api/v1/bots", get(api::list_bots))
-        .route("/api/v1/bots/{id}/versions", get(api::get_bot_versions))
-        .route(
-            "/api/v1/bots/{id}/versions/{id}",
-            get(api::get_bot_version).delete(api::delete_bot_version),
-        )
-        .route(
-            "/api/v1/conversations",
-            // get(api::get_conversations).patch(api::patch_conversation),
-            get(api::get_conversations),
-        )
-        .route(
-            "/api/v1/memories",
-            post(api::post_memory)
-                .get(api::get_memories)
-                .delete(api::delete_memories),
-        )
-        .route(
-            "/api/v1/memories/{id}",
-            get(api::get_memory).delete(api::delete_memory),
-        )
-        .route("/api/v1/messages", get(api::get_messages))
-        .route("/api/v1/state", get(api::get_state))
-        .route(
-            "/api/v1/channels",
-            post(api::post_channel).get(api::get_channels),
-        )
-        .route(
-            "/api/v1/channels/{id}",
-            get(api::get_channel).delete(api::delete_channel),
-        )
-        // .route("/api/v1/channels/:id/link", post(api::link_device_channel))
-        // .route("/api/v1/channels/:id/add", post(api::add_device_channel))
-        .route("/api/v1/requests", post(api::post_request))
         .route("/ws", any(ws_handler))
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .with_state(state);
 
     let addr: SocketAddr = server.bind.parse().expect("Unable to parse bind address");
 
-    axum_server::bind(addr)
-        .serve(app.into_make_service())
+    let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .unwrap();
+        .expect("Unable to bind to address");
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .unwrap();
+
     Ok(())
 }

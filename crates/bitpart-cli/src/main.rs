@@ -2,15 +2,16 @@ use std::ffi::OsStr;
 use std::{fs, io, path::PathBuf};
 
 use anyhow::Result;
-use bytes::Bytes;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures_util::{SinkExt, StreamExt};
-use reqwest::blocking::Client;
+use http::HeaderValue;
 use serde_json::{json, Value};
 use tokio_tungstenite::{
     connect_async,
+    tungstenite::client::IntoClientRequest,
     tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message},
 };
+use url::Url;
 
 /// The Bitpart CLI
 #[derive(Debug, Parser)] // requires `derive` feature
@@ -48,6 +49,62 @@ enum Commands {
         /// CSML file
         #[arg(required = true)]
         path: Vec<PathBuf>,
+    },
+
+    /// add channel
+    #[command(arg_required_else_help = true)]
+    ChannelAdd {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+
+        /// Bot ID
+        #[arg(short, long)]
+        bot_id: String,
+    },
+
+    /// describe channel
+    #[command(arg_required_else_help = true)]
+    ChannelDescribe {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+    },
+
+    /// delete channel
+    #[command(arg_required_else_help = true)]
+    ChannelDelete {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+    },
+
+    /// list channels
+    #[command()]
+    ChannelList {},
+
+    /// start channel linking
+    #[command(arg_required_else_help = true)]
+    ChannelLink {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+
+        /// Device name
+        #[arg(short, long)]
+        device_name: String,
+    },
+
+    /// complete channel linking
+    #[command(arg_required_else_help = true)]
+    ChannelAddDevice {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+
+        /// Link url
+        #[arg(short, long)]
+        url: Url,
     },
 
     /// delete a bot
@@ -127,6 +184,27 @@ async fn main() {
     let connect = args.connect;
     let auth = args.auth;
 
+    let url = Url::parse(&format!("ws://{}/ws", connect)).unwrap();
+    let mut request = url.into_client_request().unwrap();
+    let headers = request.headers_mut();
+    let auth_value = HeaderValue::from_str(&auth).unwrap();
+    headers.insert("Authorization", auth_value);
+    let ws_stream = match connect_async(request).await {
+        Ok((stream, response)) => {
+            println!("Handshake for client has been completed");
+            // This will be the HTTP response, same as with server this is the last moment we
+            // can still access HTTP stuff.
+            println!("Server response was {response:?}");
+            stream
+        }
+        Err(e) => {
+            println!("WebSocket handshake for client failed with {e}!");
+            return;
+        }
+    };
+
+    let (mut sender, mut receiver) = ws_stream.split();
+    //receiver just prints whatever it gets
     match args.command {
         Commands::Add {
             default: default_flow,
@@ -147,22 +225,90 @@ async fn main() {
                     })
                 })
                 .collect::<Vec<serde_json::Value>>();
-            let req = json!({
+            let req = json!({"CreateBot" : {
                 "id": id,
                 "name": name,
                 "default_flow": default_flow,
                 "flows": flows
-            });
+            }});
             println!("Request: {:?}", req.to_string());
 
-            let client = Client::new();
-            let res = client
-                .post(format!("{connect}/api/v1/bots"))
-                .json(&req)
-                .header("Authorization", auth)
-                .send()
-                .unwrap();
-            println!("Response: {:?}", res);
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
+        }
+        Commands::ChannelAdd { id, bot_id } => {
+            let req = json!({"CreateChannel" : {
+                "id": id,
+                "bot_id": bot_id,
+            }});
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
+        }
+        Commands::ChannelDescribe { id } => {
+            let req = json!({"ReadChannel" : id });
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
+        }
+        Commands::ChannelDelete { id } => {
+            let req = json!({"DeleteChannel" : {
+                "id": id,
+            }});
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
+        }
+        Commands::ChannelList {} => {
+            let req = json!({"ListChannels" : {}});
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
+        }
+        Commands::ChannelLink { id, device_name } => {
+            let req = json!({"LinkChannel" : {
+                "id": id,
+                "device_name": device_name
+            }});
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
+        }
+        Commands::ChannelAddDevice { id, url } => {
+            let req = json!({"AddDeviceChannel" : {
+                "id": id,
+                "url": url
+            }});
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
         }
         Commands::Delete { id } => {
             todo!();
@@ -174,30 +320,30 @@ async fn main() {
             todo!();
         }
         Commands::Describe { id } => {
-            let client = Client::new();
-            let res = client
-                .get(format!("{connect}/api/v1/bots/{id}/versions"))
-                .header("Authorization", auth)
-                .send()
-                .unwrap();
-            println!("Response: {:?}", res.text());
+            let req = json!({"ReadBot" : id });
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
         }
         Commands::List {} => {
-            let client = Client::new();
-            let res: Value = client
-                .get(format!("{connect}/api/v1/bots"))
-                .header("Authorization", auth)
-                .send()
-                .unwrap()
-                .json()
-                .unwrap();
-            println!("{res}");
+            let req = json!("ListBots");
+            println!("Request: {:?}", req.to_string());
+
+            //we can ping the server for start
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
         }
         Commands::Rollback { id, version } => {
             todo!();
         }
         Commands::Talk { id, message } => {
-            let req = json!({
+            let req = json!({ "ChatRequest": {
                 "bot_id": id,
                 "apps_endpoint": "http://localhost",
                 "multibot": serde_json::Value::Null,
@@ -216,41 +362,31 @@ async fn main() {
                     },
                     "metadata": serde_json::Value::Null,
                 }
-            });
-
-            let client = Client::new();
-            let res: Value = client
-                .post(format!("{connect}/api/v1/requests"))
-                .json(&req)
-                .header("Authorization", auth)
-                .send()
-                .unwrap()
-                .json()
-                .unwrap();
-            println!("{res}");
+            }});
+            sender
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+                .await
+                .expect("Can not send!");
         }
         Commands::Test {} => {
-            let ws_stream = match connect_async(format!("ws://{connect}/ws")).await {
-                Ok((stream, response)) => {
-                    println!("Handshake for client has been completed");
-                    // This will be the HTTP response, same as with server this is the last moment we
-                    // can still access HTTP stuff.
-                    println!("Server response was {response:?}");
-                    stream
-                }
-                Err(e) => {
-                    println!("WebSocket handshake for client failed with {e}!");
-                    return;
-                }
-            };
-
-            let (mut sender, mut receiver) = ws_stream.split();
-
-            //we can ping the server for start
+            let req = json!({"Register": "TEST"});
             sender
-                .send(Message::Ping(Bytes::from_static(b"Hello, Server!")))
+                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
         }
     }
+    tokio::spawn(async move {
+        println!("Receiving!");
+        while let Some(Ok(msg)) = receiver.next().await {
+            match msg {
+                Message::Text(t) => {
+                    println!("{}", t.as_str())
+                }
+                _ => println!("Unrecognized message"),
+            }
+        }
+    })
+    .await
+    .unwrap();
 }

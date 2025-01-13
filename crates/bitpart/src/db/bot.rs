@@ -33,6 +33,7 @@ pub async fn list(
     db: &DatabaseConnection,
 ) -> Result<Vec<String>, BitpartError> {
     let entries = Bot::find()
+        .column(bot::Column::Id)
         .column(bot::Column::BotId)
         .group_by(bot::Column::BotId)
         .order_by(bot::Column::CreatedAt, Order::Desc)
@@ -41,7 +42,7 @@ pub async fn list(
         .all(db)
         .await?;
 
-    Ok(entries.into_iter().map(|e| e.bot_id.to_string()).collect())
+    Ok(entries.into_iter().map(|e| e.id.to_string()).collect())
 }
 
 pub async fn get(

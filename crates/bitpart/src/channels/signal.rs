@@ -7,7 +7,7 @@ use anyhow::{anyhow, bail, Context as _};
 use base64::prelude::*;
 use chrono::Local;
 use futures::StreamExt;
-use futures::{channel::oneshot, future, pin_mut};
+use futures::{channel::oneshot, pin_mut};
 use mime_guess::mime::APPLICATION_OCTET_STREAM;
 use notify_rust::Notification;
 use presage::libsignal_service::configuration::SignalServers;
@@ -24,6 +24,7 @@ use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
 use presage::manager::ReceivingMode;
 use presage::model::contacts::Contact;
 use presage::model::groups::Group;
+use presage::model::identity::OnNewIdentity;
 use presage::proto::receipt_message;
 use presage::proto::EditMessage;
 use presage::proto::ReceiptMessage;
@@ -35,15 +36,130 @@ use presage::{
     store::{Store, Thread},
     Manager,
 };
+use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
+use sea_orm::DatabaseConnection;
+use serde::{Deserialize, Serialize};
 use tempfile::Builder;
 use tokio::task;
 use tokio::{
     fs,
     io::{self, AsyncBufReadExt, BufReader},
+    runtime::Builder as TokioBuilder,
+    sync::{mpsc, oneshot as tokio_oneshot},
+    task::LocalSet,
 };
 use tracing::warn;
 use tracing::{debug, error, info};
 use url::Url;
+
+use crate::error::BitpartError;
+
+#[derive(Serialize, Deserialize)]
+pub enum ChannelMessageContents {
+    LinkChannel { id: String, device_name: String },
+    AddDeviceChannel { id: String, url: Url },
+    StartChannel(String),
+}
+
+pub struct ChannelMessage {
+    pub msg: ChannelMessageContents,
+    pub db: DatabaseConnection,
+    pub sender: tokio_oneshot::Sender<String>,
+}
+
+#[derive(Clone)]
+pub struct SignalManager {
+    inner: mpsc::UnboundedSender<ChannelMessage>,
+}
+
+impl SignalManager {
+    pub fn new() -> Self {
+        let (send, mut recv) = mpsc::unbounded_channel();
+
+        let rt = TokioBuilder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        std::thread::spawn(move || {
+            let local = LocalSet::new();
+
+            local.spawn_local(async move {
+                while let Some(msg) = recv.recv().await {
+                    tokio::task::spawn_local(process_message(msg));
+                }
+            });
+
+            rt.block_on(local);
+        });
+
+        Self { inner: send }
+    }
+
+    pub fn send(&self, msg: ChannelMessage) {
+        self.inner.send(msg).expect("Thread has shutdown")
+    }
+}
+
+async fn start_channel(id: String, db: DatabaseConnection) -> Result<(), BitpartError> {
+    println!("START CHANNEL");
+    let store = BitpartStore::open(
+        &id,
+        &db,
+        MigrationConflictStrategy::Raise,
+        OnNewIdentity::Trust,
+    )
+    .await?;
+    println!("START CHANNEL STORE");
+
+    receive_from(store, true)
+        .await
+        .map_err(|e| BitpartError::Signal(e))
+}
+
+async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
+    let ChannelMessage { msg, db, sender } = msg;
+    match msg {
+        ChannelMessageContents::LinkChannel { id, device_name } => {
+            let config_store = BitpartStore::open(
+                &id,
+                &db,
+                MigrationConflictStrategy::Raise,
+                OnNewIdentity::Trust,
+            )
+            .await?;
+            let res = link_device(config_store, SignalServers::Staging, device_name)
+                .await
+                .map(|url| url.to_string())
+                .map_err(|e| BitpartError::Signal(e))?;
+            Ok(sender
+                .send(res)
+                .map_err(|err| BitpartError::Interpreter(err))?)
+        }
+        ChannelMessageContents::AddDeviceChannel { id, url } => {
+            let config_store = BitpartStore::open(
+                &id,
+                &db,
+                MigrationConflictStrategy::Raise,
+                OnNewIdentity::Trust,
+            )
+            .await?;
+            add_device(config_store, url)
+                .await
+                .map_err(|e| BitpartError::Signal(e))?;
+            tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
+            Ok(sender
+                .send("".to_owned())
+                .map_err(|err| BitpartError::Interpreter(err))?)
+        }
+        ChannelMessageContents::StartChannel(id) => {
+            tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
+            Ok(sender
+                .send("".to_owned())
+                .map_err(|err| BitpartError::Interpreter(err))?)
+        }
+    }
+}
 
 enum Recipient {
     Contact(Uuid),
