@@ -1,6 +1,10 @@
 start:
   remember count = 0
 
+  if (count >= 3) {
+    goto submit_question_step
+  }
+
   say "Hi. You have been invited to the distribution list [LIST NAME].
     \nYou can agree, and receive periodic messages. You number will be stored on the secure system in order to receive messages.
     \nYou can disagree, and your contact number will be deleted automatically from the list."
@@ -17,6 +21,7 @@ start:
     goto menu_step
   } else {
     say "Sorry, I do not understand."
+    set count += 1
     goto start
   }
 
