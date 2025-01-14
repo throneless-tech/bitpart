@@ -39,6 +39,7 @@ use presage::{
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 use tempfile::Builder;
 use tokio::task;
 use tokio::{
@@ -56,8 +57,15 @@ use crate::error::BitpartError;
 
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
-    LinkChannel { id: String, device_name: String },
-    AddDeviceChannel { id: String, url: Url },
+    LinkChannel {
+        id: String,
+        device_name: String,
+    },
+    RegisterChannel {
+        id: String,
+        phone_number: String,
+        captcha: String,
+    },
     StartChannel(String),
 }
 
@@ -128,15 +136,28 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
                 OnNewIdentity::Trust,
             )
             .await?;
-            let res = link_device(config_store, SignalServers::Staging, device_name)
+            let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
+            tokio::task::spawn_local(link_device(
+                config_store,
+                SignalServers::Production,
+                device_name,
+                provisioning_link_tx,
+            ));
+
+            let res = provisioning_link_rx
                 .await
                 .map(|url| url.to_string())
-                .map_err(|e| BitpartError::Signal(e))?;
+                .map_err(|_e| anyhow!("Linking error"))?;
+            println!("Link result: {}", res);
             Ok(sender
                 .send(res)
                 .map_err(|err| BitpartError::Interpreter(err))?)
         }
-        ChannelMessageContents::AddDeviceChannel { id, url } => {
+        ChannelMessageContents::RegisterChannel {
+            id,
+            phone_number,
+            captcha,
+        } => {
             let config_store = BitpartStore::open(
                 &id,
                 &db,
@@ -144,10 +165,19 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
                 OnNewIdentity::Trust,
             )
             .await?;
-            add_device(config_store, url)
-                .await
-                .map_err(|e| BitpartError::Signal(e))?;
-            tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
+            let (registration_tx, registration_rx) = oneshot::channel();
+            register(
+                config_store,
+                SignalServers::Production,
+                PhoneNumber::from_str(&phone_number).unwrap(),
+                false,
+                Url::parse(&captcha).unwrap(),
+                false,
+                registration_rx,
+            )
+            .await
+            .unwrap();
+            //tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
             Ok(sender
                 .send("".to_owned())
                 .map_err(|err| BitpartError::Interpreter(err))?)
@@ -486,6 +516,7 @@ async fn receive<S: Store>(
         .await
         .context("failed to initialize messages stream")?;
     pin_mut!(messages);
+    println!("***LOADED MANAGER 2");
 
     while let Some(content) = messages.next().await {
         process_incoming_message(manager, attachments_tmp_dir.path(), notifications, &content)
@@ -497,6 +528,7 @@ async fn receive<S: Store>(
 
 pub async fn receive_from<S: Store>(config_store: S, notifications: bool) -> anyhow::Result<()> {
     let mut manager = Manager::load_registered(config_store).await?;
+    println!("***LOADED MANAGER");
     receive(&mut manager, notifications).await
 }
 
@@ -556,7 +588,9 @@ pub async fn register<S: Store>(
     use_voice_call: bool,
     captcha: Url,
     force: bool,
-) -> Result<(), anyhow::Error> {
+    registration_rx: oneshot::Receiver<String>,
+) -> Result<String, anyhow::Error> {
+    println!("***REGISTER");
     let manager = Manager::register(
         config_store,
         RegistrationOptions {
@@ -571,25 +605,23 @@ pub async fn register<S: Store>(
 
     // ask for confirmation code here
     println!("input confirmation code (followed by RETURN): ");
-    let stdin = io::stdin();
-    let reader = BufReader::new(stdin);
-    if let Some(confirmation_code) = reader.lines().next_line().await? {
-        let registered_manager = manager.confirm_verification_code(confirmation_code).await?;
-        println!(
-            "Account identifiers: {}",
-            registered_manager.registration_data().service_ids
-        );
-    }
-    Ok(())
+    let confirmation_code = registration_rx.await?;
+    let registered_manager = manager.confirm_verification_code(confirmation_code).await?;
+
+    let service_ids = registered_manager
+        .registration_data()
+        .service_ids
+        .to_string();
+    println!("Account identifiers: {}", service_ids);
+    Ok(service_ids)
 }
 
 pub async fn link_device<S: Store>(
     config_store: S,
     servers: SignalServers,
     device_name: String,
-) -> Result<Url, anyhow::Error> {
-    let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
-
+    provisioning_link_tx: oneshot::Sender<Url>,
+) -> Result<(), anyhow::Error> {
     Manager::link_secondary_device(
         config_store,
         servers,
@@ -597,10 +629,7 @@ pub async fn link_device<S: Store>(
         provisioning_link_tx,
     )
     .await?;
-
-    provisioning_link_rx
-        .await
-        .map_err(|_e| anyhow!("Linking error"))
+    Ok(())
 }
 
 pub async fn add_device<S: Store>(config_store: S, url: Url) -> Result<(), anyhow::Error> {

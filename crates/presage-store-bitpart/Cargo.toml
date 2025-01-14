@@ -24,6 +24,7 @@ thiserror = "1.0"
 tokio = "1.35"
 tracing = "0.1"
 uuid = "1.11.0"
+vectorize = "0.2.0"
 
 [build-dependencies]
 prost-build = "0.13"

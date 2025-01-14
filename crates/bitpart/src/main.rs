@@ -82,22 +82,6 @@ async fn authenticate(
 // PUBLIC FUNCTION
 ////////////////////////////////////////////////////////////////////////////////
 
-async fn start_channel(id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
-    println!("START CHANNEL");
-    let store = BitpartStore::open(
-        id,
-        db,
-        MigrationConflictStrategy::Raise,
-        OnNewIdentity::Trust,
-    )
-    .await?;
-    println!("START CHANNEL STORE");
-
-    channels::signal::receive_from(store, true)
-        .await
-        .map_err(|e| BitpartError::Signal(e))
-}
-
 async fn ws_handler(
     ws: WebSocketUpgrade,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -192,11 +176,16 @@ async fn process_message(
                     let res = recv.await.unwrap();
                     Ok(Message::Text(res.into()))
                 }
-                SocketMessage::AddDeviceChannel(add) => {
+                SocketMessage::RegisterChannel {
+                    id,
+                    phone_number,
+                    captcha,
+                } => {
                     let (send, recv) = oneshot::channel();
-                    let contents = signal::ChannelMessageContents::AddDeviceChannel {
-                        id: add.id,
-                        url: add.url,
+                    let contents = signal::ChannelMessageContents::RegisterChannel {
+                        id,
+                        phone_number,
+                        captcha,
                     };
                     let msg = signal::ChannelMessage {
                         msg: contents,

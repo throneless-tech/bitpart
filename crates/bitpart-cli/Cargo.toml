@@ -7,7 +7,6 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 axum = { version = "0.8.1", features = ["ws"] }
-bitpart-common = { path = "../bitpart-common" }
 bytes = "1.9.0"
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = "2.2.2"

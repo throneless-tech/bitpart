@@ -560,23 +560,23 @@ pub async fn delete_channel(id: &str, state: &ApiState) -> Result<(), BitpartErr
     db::channel::delete_by_id(&id, &state.db).await
 }
 
-pub async fn link_channel(
-    id: &str,
-    device_name: &str,
-    state: &ApiState,
-) -> Result<String, BitpartError> {
-    let config_store = BitpartStore::open(
-        id,
-        &state.db,
-        MigrationConflictStrategy::Raise,
-        OnNewIdentity::Trust,
-    )
-    .await?;
-    signal::link_device(config_store, SignalServers::Staging, device_name.to_owned())
-        .await
-        .map(|url| url.to_string())
-        .map_err(|e| BitpartError::Signal(e))
-}
+// pub async fn link_channel(
+//     id: &str,
+//     device_name: &str,
+//     state: &ApiState,
+// ) -> Result<String, BitpartError> {
+//     let config_store = BitpartStore::open(
+//         id,
+//         &state.db,
+//         MigrationConflictStrategy::Raise,
+//         OnNewIdentity::Trust,
+//     )
+//     .await?;
+//     signal::link_device(config_store, SignalServers::Staging, device_name.to_owned())
+//         .await
+//         .map(|url| url.to_string())
+//         .map_err(|e| BitpartError::Signal(e))
+// }
 
 pub async fn add_device_channel(id: &str, url: &Url, state: &ApiState) -> Result<(), BitpartError> {
     let config_store = BitpartStore::open(

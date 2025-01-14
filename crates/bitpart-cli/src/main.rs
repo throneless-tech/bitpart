@@ -97,14 +97,17 @@ enum Commands {
 
     /// complete channel linking
     #[command(arg_required_else_help = true)]
-    ChannelAddDevice {
+    ChannelRegister {
         /// Channel ID
         #[arg(short, long)]
         id: String,
 
-        /// Link url
+        /// Captcha URL
         #[arg(short, long)]
-        url: Url,
+        captcha: String,
+
+        /// Phone number
+        phone_number: String,
     },
 
     /// delete a bot
@@ -297,10 +300,15 @@ async fn main() {
                 .await
                 .expect("Can not send!");
         }
-        Commands::ChannelAddDevice { id, url } => {
-            let req = json!({"AddDeviceChannel" : {
+        Commands::ChannelRegister {
+            id,
+            phone_number,
+            captcha,
+        } => {
+            let req = json!({"RegisterChannel" : {
                 "id": id,
-                "url": url
+                "phone_number": phone_number,
+                "captcha": captcha,
             }});
             println!("Request: {:?}", req.to_string());
 

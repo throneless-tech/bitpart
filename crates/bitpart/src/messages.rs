@@ -36,8 +36,11 @@ pub enum SocketMessage {
     ListChannels(PaginateMessage),
     DeleteChannel(String),
     LinkChannel(LinkChannelMessage),
-    AddDeviceChannel(AddDeviceChannelMessage),
+    RegisterChannel {
+        id: String,
+        phone_number: String,
+        captcha: String,
+    },
     ChatRequest(Request),
-    Register(String),
     Error(String),
 }
