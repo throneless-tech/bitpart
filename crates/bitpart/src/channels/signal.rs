@@ -6,6 +6,7 @@ use std::time::UNIX_EPOCH;
 use anyhow::{anyhow, bail, Context as _};
 use base64::prelude::*;
 use chrono::Local;
+use csml_interpreter::data::Client;
 use futures::StreamExt;
 use futures::{channel::oneshot, pin_mut};
 use mime_guess::mime::APPLICATION_OCTET_STREAM;
@@ -39,6 +40,7 @@ use presage::{
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::str::FromStr;
 use tempfile::Builder;
 use tokio::task;
@@ -52,8 +54,15 @@ use tokio::{
 use tracing::warn;
 use tracing::{debug, error, info};
 use url::Url;
+use uuid;
 
+use crate::api;
+use crate::conversation::start_conversation;
+use crate::data::BotOpt;
+use crate::data::Request;
+use crate::db;
 use crate::error::BitpartError;
+use crate::event::SerializedEvent;
 
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
@@ -109,20 +118,54 @@ impl SignalManager {
     }
 }
 
-async fn start_channel(id: String, db: DatabaseConnection) -> Result<(), BitpartError> {
-    println!("START CHANNEL");
-    let store = BitpartStore::open(
-        &id,
-        &db,
-        MigrationConflictStrategy::Raise,
-        OnNewIdentity::Trust,
-    )
-    .await?;
-    println!("START CHANNEL STORE");
+#[derive(Debug)]
+struct ChannelState {
+    id: String,
+    db: DatabaseConnection,
+    tx: mpsc::Sender<(String, String)>,
+}
 
-    receive_from(store, true)
+async fn start_channel_recv(
+    id: String,
+    db: DatabaseConnection,
+    mut manager: Manager<BitpartStore, Registered>,
+    tx: mpsc::Sender<(String, String)>,
+) -> Result<(), BitpartError> {
+    let channel = db::channel::get_by_id(&id, &db).await.unwrap().unwrap();
+    let state = ChannelState {
+        id: channel.bot_id,
+        db,
+        tx,
+    };
+    receive(&mut manager, true, Some(state))
         .await
         .map_err(|e| BitpartError::Signal(e))
+}
+
+async fn start_channel_send(
+    mut manager: Manager<BitpartStore, Registered>,
+    mut rx: mpsc::Receiver<(String, String)>,
+) -> Result<(), BitpartError> {
+    while let Some((recipient, msg)) = rx.recv().await {
+        println!("***SENDER LOOP");
+        println!("***MESSAGE: {}", msg);
+        let attachments = upload_attachments(vec![PathBuf::from("/tmp")], &manager).await?;
+        let data_message = DataMessage {
+            body: Some(msg),
+            attachments,
+            ..Default::default()
+        };
+
+        send(
+            &mut manager,
+            Recipient::Contact(Uuid::from_str(&recipient).unwrap()),
+            data_message,
+        )
+        .await
+        .unwrap();
+    }
+    println!("***DONE SENDING");
+    Ok(())
 }
 
 async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
@@ -183,7 +226,17 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
                 .map_err(|err| BitpartError::Interpreter(err))?)
         }
         ChannelMessageContents::StartChannel(id) => {
-            tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
+            let (tx, rx) = mpsc::channel(100);
+            let store = BitpartStore::open(
+                &id,
+                &db,
+                MigrationConflictStrategy::Raise,
+                OnNewIdentity::Trust,
+            )
+            .await?;
+            let manager = Manager::load_registered(store).await.unwrap();
+            tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
+            tokio::task::spawn_local(start_channel_recv(id, db.clone(), manager, tx));
             Ok(sender
                 .send("".to_owned())
                 .map_err(|err| BitpartError::Interpreter(err))?)
@@ -234,7 +287,7 @@ async fn send<S: Store>(
     recipient: Recipient,
     msg: impl Into<ContentBody>,
 ) -> anyhow::Result<()> {
-    let local = task::LocalSet::new();
+    // let local = task::LocalSet::new();
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -246,33 +299,33 @@ async fn send<S: Store>(
         d.timestamp = Some(timestamp);
     }
 
-    local
-        .run_until(async move {
-            let mut receiving_manager = manager.clone();
-            task::spawn_local(async move {
-                if let Err(error) = receive(&mut receiving_manager, false).await {
-                    error!(%error, "error while receiving stuff");
-                }
-            });
+    // local
+    // .run_until(async move {
+    // let mut receiving_manager = manager.clone();
+    // tokio::task::spawn_local(async move {
+    //     if let Err(error) = receive(&mut receiving_manager, false, None).await {
+    //         error!(%error, "error while receiving stuff");
+    //     }
+    // });
 
-            match recipient {
-                Recipient::Contact(uuid) => {
-                    info!(recipient =% uuid, "sending message to contact");
-                    manager
-                        .send_message(ServiceId::Aci(uuid.into()), content_body, timestamp)
-                        .await
-                        .expect("failed to send message");
-                }
-                Recipient::Group(master_key) => {
-                    info!("sending message to group");
-                    manager
-                        .send_message_to_group(&master_key, content_body, timestamp)
-                        .await
-                        .expect("failed to send message");
-                }
-            }
-        })
-        .await;
+    match recipient {
+        Recipient::Contact(uuid) => {
+            info!(recipient =% uuid, "sending message to contact");
+            manager
+                .send_message(ServiceId::Aci(uuid.into()), content_body, timestamp)
+                .await
+                .expect("failed to send message");
+        }
+        Recipient::Group(master_key) => {
+            info!("sending message to group");
+            manager
+                .send_message_to_group(&master_key, content_body, timestamp)
+                .await
+                .expect("failed to send message");
+        }
+    }
+    // })
+    // .await;
 
     Ok(())
 }
@@ -284,8 +337,9 @@ async fn process_incoming_message<S: Store>(
     attachments_tmp_dir: &Path,
     notifications: bool,
     content: &Content,
+    state: &Option<ChannelState>,
 ) {
-    print_message(manager, notifications, content).await;
+    print_message(manager, notifications, content, state).await;
 
     let sender = content.metadata.sender.raw_uuid();
     if let ContentBody::DataMessage(DataMessage { attachments, .. }) = &content.body {
@@ -324,6 +378,7 @@ async fn print_message<S: Store>(
     manager: &Manager<S, Registered>,
     notifications: bool,
     content: &Content,
+    state: &Option<ChannelState>,
 ) {
     let Ok(thread) = Thread::try_from(content) else {
         warn!("failed to derive thread from content");
@@ -400,6 +455,7 @@ async fn print_message<S: Store>(
     }
 
     enum Msg<'a> {
+        Replyable(&'a Thread, String),
         Received(&'a Thread, String),
         Sent(&'a Thread, String),
     }
@@ -412,7 +468,7 @@ async fn print_message<S: Store>(
         ContentBody::DataMessage(data_message) => {
             format_data_message(&thread, data_message, manager)
                 .await
-                .map(|body| Msg::Received(&thread, body))
+                .map(|body| Msg::Replyable(&thread, body))
         }
         ContentBody::EditMessage(EditMessage {
             data_message: Some(data_message),
@@ -471,11 +527,23 @@ async fn print_message<S: Store>(
                 let contact = format_contact(sender, manager).await;
                 (format!("From {contact} @ {ts}: "), body)
             }
+            Msg::Replyable(Thread::Contact(sender), body) => {
+                let contact = format_contact(sender, manager).await;
+                if let Some(state) = state {
+                    reply(sender.to_string(), body.clone(), manager.store(), state).await
+                }
+                (format!("From {contact} @ {ts}: "), body)
+            }
             Msg::Sent(Thread::Contact(recipient), body) => {
                 let contact = format_contact(recipient, manager).await;
                 (format!("To {contact} @ {ts}"), body)
             }
             Msg::Received(Thread::Group(key), body) => {
+                let sender = format_contact(&content.metadata.sender.raw_uuid(), manager).await;
+                let group = format_group(*key, manager).await;
+                (format!("From {sender} to group {group} @ {ts}: "), body)
+            }
+            Msg::Replyable(Thread::Group(key), body) => {
                 let sender = format_contact(&content.metadata.sender.raw_uuid(), manager).await;
                 let group = format_group(*key, manager).await;
                 (format!("From {sender} to group {group} @ {ts}: "), body)
@@ -501,9 +569,60 @@ async fn print_message<S: Store>(
     }
 }
 
+async fn reply<S: Store>(user_id: String, body: String, store: &S, state: &ChannelState) {
+    println!("***REPLYING");
+    let payload = json!({
+        "content_type": "text",
+        "content": {
+            "text": body
+        }
+    });
+
+    let client = Client {
+        bot_id: state.id.clone(),
+        channel_id: "signal".to_owned(),
+        user_id: user_id.clone(),
+    };
+
+    let event = SerializedEvent {
+        id: uuid::Uuid::new_v4().to_string(),
+        client,
+        metadata: serde_json::Value::Null,
+        payload,
+        step_limit: None,
+        callback_url: None,
+    };
+
+    let request = Request {
+        bot: None,
+        bot_id: Some(state.id.clone()),
+        version_id: None,
+        apps_endpoint: None,
+        multibot: None,
+        event,
+    };
+
+    let res = api::process_request(&request, &state.db).await.unwrap();
+    state.tx.send((user_id, reply_get_text(res))).await.unwrap();
+}
+
+fn reply_get_text(res: serde_json::Map<String, serde_json::Value>) -> String {
+    if let Some(messages) = res.get("messages") {
+        if let Some(ref payload) = messages[0].get("payload") {
+            if let Some(content) = payload.get("content") {
+                if let Some(text) = content.get("text") {
+                    return text.to_string();
+                }
+            }
+        }
+    }
+    return "".to_owned();
+}
+
 async fn receive<S: Store>(
     manager: &mut Manager<S, Registered>,
     notifications: bool,
+    state: Option<ChannelState>,
 ) -> anyhow::Result<()> {
     let attachments_tmp_dir = Builder::new().prefix("presage-attachments").tempdir()?;
     info!(
@@ -516,20 +635,28 @@ async fn receive<S: Store>(
         .await
         .context("failed to initialize messages stream")?;
     pin_mut!(messages);
-    println!("***LOADED MANAGER 2");
 
     while let Some(content) = messages.next().await {
-        process_incoming_message(manager, attachments_tmp_dir.path(), notifications, &content)
-            .await;
+        process_incoming_message(
+            manager,
+            attachments_tmp_dir.path(),
+            notifications,
+            &content,
+            &state,
+        )
+        .await;
     }
 
     Ok(())
 }
 
-pub async fn receive_from<S: Store>(config_store: S, notifications: bool) -> anyhow::Result<()> {
+pub async fn receive_from<S: Store>(
+    config_store: S,
+    notifications: bool,
+    state: Option<ChannelState>,
+) -> anyhow::Result<()> {
     let mut manager = Manager::load_registered(config_store).await?;
-    println!("***LOADED MANAGER");
-    receive(&mut manager, notifications).await
+    receive(&mut manager, notifications, state).await
 }
 
 async fn upload_attachments<S: Store>(
@@ -868,7 +995,7 @@ pub async fn list_messages<S: Store>(
         .await?
         .filter_map(Result::ok)
     {
-        print_message(&manager, false, &msg).await;
+        print_message(&manager, false, &msg, &None).await;
     }
 
     Ok(())

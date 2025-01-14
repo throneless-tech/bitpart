@@ -445,7 +445,7 @@ Request
 
 pub async fn process_request(
     body: &Request,
-    state: &ApiState,
+    db: &DatabaseConnection,
 ) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
     let mut request = body.event.to_owned();
 
@@ -460,7 +460,7 @@ pub async fn process_request(
         val => val,
     };
 
-    match start_conversation(request, bot_opt, &state.db).await {
+    match start_conversation(request, bot_opt, db).await {
         Ok(res) => Ok(res),
         Err(err) => Err(err),
     }

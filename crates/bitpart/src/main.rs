@@ -158,7 +158,7 @@ async fn process_message(
                     Ok(Message::Text(serde_json::to_string(&bot)?.into()))
                 }
                 SocketMessage::ChatRequest(req) => {
-                    let res = api::process_request(&req, state).await?;
+                    let res = api::process_request(&req, &state.db).await?;
                     Ok(Message::Text(serde_json::to_string(&res)?.into()))
                 }
                 SocketMessage::LinkChannel(link) => {
