@@ -1,6 +1,7 @@
 use std::convert::TryInto;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, bail, Context as _};
@@ -22,10 +23,10 @@ use presage::libsignal_service::proto::sync_message::Sent;
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
-use presage::manager::ReceivingMode;
 use presage::model::contacts::Contact;
 use presage::model::groups::Group;
 use presage::model::identity::OnNewIdentity;
+use presage::model::messages::Received;
 use presage::proto::receipt_message;
 use presage::proto::EditMessage;
 use presage::proto::ReceiptMessage;
@@ -43,7 +44,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;
 use tempfile::Builder;
-use tokio::task;
+use tempfile::TempDir;
 use tokio::{
     fs,
     io::{self, AsyncBufReadExt, BufReader},
@@ -249,6 +250,15 @@ enum Recipient {
     Group(GroupMasterKeyBytes),
 }
 
+fn attachments_tmp_dir() -> anyhow::Result<TempDir> {
+    let attachments_tmp_dir = Builder::new().prefix("presage-attachments").tempdir()?;
+    info!(
+        path =% attachments_tmp_dir.path().display(),
+        "attachments will be stored"
+    );
+    Ok(attachments_tmp_dir)
+}
+
 fn parse_group_master_key(value: &str) -> anyhow::Result<GroupMasterKeyBytes> {
     let master_key_bytes = hex::decode(value)?;
     master_key_bytes
@@ -427,7 +437,10 @@ async fn print_message<S: Store>(
             DataMessage {
                 body: Some(body), ..
             } => Some(body.to_string()),
-            _ => Some("Empty data message".to_string()),
+            _ => {
+                println!("Empty data message");
+                None
+            }
         }
     }
 
@@ -603,16 +616,33 @@ async fn reply<S: Store>(user_id: String, body: String, store: &S, state: &Chann
     };
 
     let res = api::process_request(&request, &state.db).await.unwrap();
-    state.tx.send((user_id, reply_get_text(res))).await.unwrap();
+    println!("***API RESULT: {:?}", res);
+    if let Some(ref messages) = res.get("messages") {
+        println!("****************i {:?}", messages);
+        for i in messages.as_array().unwrap().iter() {
+            state
+                .tx
+                .send((user_id.clone(), reply_get_text(i)))
+                .await
+                .unwrap();
+        }
+    }
 }
 
-fn reply_get_text(res: serde_json::Map<String, serde_json::Value>) -> String {
-    if let Some(messages) = res.get("messages") {
-        if let Some(ref payload) = messages[0].get("payload") {
-            if let Some(content) = payload.get("content") {
-                if let Some(text) = content.get("text") {
-                    return text.to_string();
-                }
+fn unescape(input: &str) -> String {
+    input
+        .trim_matches(|c| c == '\"' || c == '\'')
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\")
+}
+
+fn reply_get_text(res: &serde_json::Value) -> String {
+    if let Some(ref payload) = res.get("payload") {
+        if let Some(content) = payload.get("content") {
+            if let Some(text) = content.get("text") {
+                return format!("{}", unescape(&text.to_string()));
             }
         }
     }
@@ -631,20 +661,26 @@ async fn receive<S: Store>(
     );
 
     let messages = manager
-        .receive_messages(ReceivingMode::Forever)
+        .receive_messages()
         .await
         .context("failed to initialize messages stream")?;
     pin_mut!(messages);
 
     while let Some(content) = messages.next().await {
-        process_incoming_message(
-            manager,
-            attachments_tmp_dir.path(),
-            notifications,
-            &content,
-            &state,
-        )
-        .await;
+        match content {
+            Received::QueueEmpty => println!("done with synchronization"),
+            Received::Contacts => println!("got contacts synchronization"),
+            Received::Content(content) => {
+                process_incoming_message(
+                    manager,
+                    attachments_tmp_dir.path(),
+                    notifications,
+                    &content,
+                    &state,
+                )
+                .await
+            }
+        }
     }
 
     Ok(())
@@ -974,7 +1010,21 @@ pub async fn find_contact<S: Store>(
 
 pub async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
     let mut manager = Manager::load_registered(config_store).await?;
-    Ok(manager.sync_contacts().await?)
+    manager.request_contacts().await?;
+    let messages = manager
+        .receive_messages()
+        .await
+        .context("failed to initialize messages stream")?;
+    pin_mut!(messages);
+    println!("synchronizing messages until we get contacts (dots are messages synced from the past timeline)");
+    while let Some(content) = messages.next().await {
+        match content {
+            Received::QueueEmpty => break,
+            Received::Contacts => println!("got contacts! thank you, come again."),
+            Received::Content(_) => print!("."),
+        }
+    }
+    Ok(())
 }
 
 pub async fn list_messages<S: Store>(

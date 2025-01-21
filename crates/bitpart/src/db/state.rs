@@ -23,7 +23,8 @@ pub async fn get(
     else {
         return Err(BitpartError::Interpreter("No state found".to_owned()));
     };
-    Ok(entry.value.into())
+    // Ok(entry.value.into())
+    Ok(serde_json::from_str(&entry.value).unwrap())
 }
 
 pub async fn get_by_client(
@@ -62,6 +63,7 @@ pub async fn set(
             channel_id: ActiveValue::Set(client.channel_id.to_owned()),
             user_id: ActiveValue::Set(client.user_id.to_owned()),
             r#type: ActiveValue::Set(r#type.to_owned().to_owned()),
+            key: ActiveValue::Set(key.to_owned()),
             value: ActiveValue::Set(value.to_string()),
             expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
             ..Default::default()

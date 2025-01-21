@@ -186,6 +186,15 @@ pub fn get_default_flow<'a>(bot: &'a CsmlBot) -> Result<&'a CsmlFlow, BitpartErr
     }
 }
 
+pub async fn clean_hold_and_restart(
+    data: &mut ConversationData,
+    db: &DatabaseConnection,
+) -> Result<(), BitpartError> {
+    db::state::delete(&data.client, "hold", "position", db).await?;
+    data.context.hold = None;
+    return Ok(());
+}
+
 pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String, BitpartError> {
     let mut hash = Md5::new();
 

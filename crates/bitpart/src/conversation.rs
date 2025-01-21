@@ -4,7 +4,8 @@ use chrono::Utc;
 use csml_interpreter::data::{
     ast::Flow,
     context::{get_hashmap_from_json, get_hashmap_from_mem, ContextStepInfo},
-    ApiInfo, Client, Context, CsmlBot, CsmlFlow, CsmlResult, Event, Message, PreviousBot,
+    ApiInfo, Client, Context, CsmlBot, CsmlFlow, CsmlResult, Event, Hold, IndexInfo, Message,
+    PreviousBot,
 };
 use csml_interpreter::{load_components, search_for_modules, validate_bot};
 use sea_orm::*;
@@ -55,6 +56,7 @@ async fn get_or_create_conversation<'a>(
 ) -> Result<String, BitpartError> {
     match db::conversation::get_latest_by_client(client, db).await? {
         Some(conversation) => {
+            println!("****************DB CONVERSATION {:?}", conversation);
             match flow_found {
                 Some((flow, step)) => {
                     context.step = ContextStepInfo::UnknownFlow(step);
@@ -170,6 +172,7 @@ pub async fn init_conversation_data<'a>(
 
     let flow = data.context.flow.to_owned();
     let step = data.context.step.to_owned();
+    println!("***********************STEP {:?}", step);
 
     // Now that everything is correctly setup, update the conversation with wherever
     // we are now and continue with the rest of the request!
@@ -389,6 +392,62 @@ async fn check_switch_bot(
     }
 }
 
+async fn check_for_hold(
+    data: &mut ConversationData,
+    bot: &CsmlBot,
+    event: &mut Event,
+    db: &DatabaseConnection,
+) -> Result<(), BitpartError> {
+    match db::state::get(&data.client, "hold", "position", db).await {
+        // user is currently on hold
+        Ok(hold) => {
+            println!("*****************HOLD {:?}", hold);
+            match hold.get("hash") {
+                Some(hash_value) => {
+                    let flow_hash = utils::get_current_step_hash(&data.context, bot)?;
+                    println!("*****************CURRENT HASH {:?}", flow_hash);
+                    println!("*****************NEW HASH {:?}", hash_value);
+                    // cleanup the current hold and restart flow
+                    if flow_hash != *hash_value {
+                        return utils::clean_hold_and_restart(data, db).await;
+                    }
+                    flow_hash
+                }
+                _ => return Ok(()),
+            };
+
+            let index = match serde_json::from_value::<IndexInfo>(hold["index"].clone()) {
+                Ok(index) => index,
+                Err(_) => {
+                    db::state::delete(&data.client, "hold", "position", db).await?;
+                    return Ok(());
+                }
+            };
+
+            let secure_hold = hold["secure"].as_bool().unwrap_or(false);
+
+            if secure_hold {
+                event.secure = true;
+            }
+
+            // all good, let's load the position and local variables
+            data.context.hold = Some(Hold {
+                index,
+                step_vars: hold["step_vars"].clone(),
+                step_name: data.context.step.get_step(),
+                flow_name: data.context.flow.to_owned(),
+                previous: serde_json::from_value(hold["previous"].clone()).unwrap_or(None),
+                secure: secure_hold,
+            });
+
+            db::state::delete(&data.client, "hold", "position", db).await?;
+        }
+        // user is not on hold
+        Err(_) => (),
+    };
+    Ok(())
+}
+
 pub async fn start_conversation(
     request: SerializedEvent,
     mut bot_opt: BotOpt,
@@ -411,7 +470,7 @@ pub async fn start_conversation(
     )
     .await?;
 
-    //check_for_hold(&mut data, &bot, &mut formatted_event)?;
+    check_for_hold(&mut data, &bot, &mut formatted_event, db).await?;
 
     /////////// block user event if delay variable si on and delay_time is bigger than current time
     if let Some(delay) = bot.no_interruption_delay {

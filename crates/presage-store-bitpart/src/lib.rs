@@ -177,7 +177,6 @@ impl BitpartStore {
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
         let store = db::channel::get_by_id(id, database).await?;
-        println!("***DESERIALIZING STORE");
         let state: DoubleMap = match serde_json::from_str(&store.state) {
             Ok(state) => state,
             Err(_) => DoubleMap::new(),
@@ -191,7 +190,6 @@ impl BitpartStore {
     }
 
     pub async fn flush(&self) -> Result<usize, BitpartStoreError> {
-        println!("***SERIALIZING STORE");
         let state = serde_json::to_string(&*self.read().await).unwrap();
         db::channel::set_by_id(&self.id, &state, &self.db_handle).await?;
         Ok(0)

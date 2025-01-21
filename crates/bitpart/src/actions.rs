@@ -90,6 +90,7 @@ pub async fn step(
                     msg
                 );
 
+                debug!("CONTEXT {:?}", data.context);
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
                 data.messages.push(msg);
             }
