@@ -6,8 +6,7 @@ start:
   say "Thank you for contacting [HELPDESK NAME]. We help people in [LOCATION] with digital rights issues. We use a secure automated messaging system so you can get quicker answers to problems, and our team is on hand to help.
     \nIf you are in immediate physical danger [ ADD REFERRAL]"
   // TODO: user research needed about if we want bitpart to accept voice notes
-  say "Our helpdesk will ask you to select the problem you're experience.
-    \nYour answers will be stored on our system for [duration] and visible to [who]. We will not ask you for personal information.
+  say "Our helpdesk will ask you to select the problem you're experiencing.
     \nFor more information at any time, including how to delete your data, you can reply with 'Privacy policy'.
     \nTo continue, reply with 'Agree'.
     \nTo disagree and end the conversation, reply with 'End'."
