@@ -2,7 +2,7 @@ use csml_interpreter::data::{Client, Event};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::data::FlowTrigger;
+use super::data::FlowTrigger;
 use crate::error::BitpartError;
 
 fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, BitpartError> {

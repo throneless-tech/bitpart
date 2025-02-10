@@ -8,7 +8,6 @@ use csml_interpreter::{
     search_for_modules, validate_bot,
 };
 use presage::libsignal_service::configuration::SignalServers;
-use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::model::identity::OnNewIdentity;
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
@@ -21,8 +20,8 @@ use crate::error::BitpartError;
 
 use crate::{
     channels::signal,
-    conversation::start_conversation,
-    data::{BotVersion, Request},
+    csml::conversation::start_conversation,
+    csml::data::{BotVersion, Request},
     db::{self, entities::channel::Model},
 };
 

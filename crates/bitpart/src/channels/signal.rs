@@ -1,7 +1,6 @@
 use std::convert::TryInto;
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use anyhow::{anyhow, bail, Context as _};
@@ -47,7 +46,6 @@ use tempfile::Builder;
 use tempfile::TempDir;
 use tokio::{
     fs,
-    io::{self, AsyncBufReadExt, BufReader},
     runtime::Builder as TokioBuilder,
     sync::{mpsc, oneshot as tokio_oneshot},
     task::LocalSet,
@@ -58,12 +56,10 @@ use url::Url;
 use uuid;
 
 use crate::api;
-use crate::conversation::start_conversation;
-use crate::data::BotOpt;
-use crate::data::Request;
+use crate::csml::data::Request;
+use crate::csml::event::SerializedEvent;
 use crate::db;
 use crate::error::BitpartError;
-use crate::event::SerializedEvent;
 
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
@@ -97,7 +93,7 @@ impl SignalManager {
         let rt = TokioBuilder::new_current_thread()
             .enable_all()
             .build()
-            .unwrap();
+            .expect("Failed to create thread builder");
 
         std::thread::spawn(move || {
             let local = LocalSet::new();
@@ -120,7 +116,7 @@ impl SignalManager {
 }
 
 #[derive(Debug)]
-struct ChannelState {
+pub struct ChannelState {
     id: String,
     db: DatabaseConnection,
     tx: mpsc::Sender<(String, String)>,
@@ -265,32 +261,6 @@ fn parse_group_master_key(value: &str) -> anyhow::Result<GroupMasterKeyBytes> {
         .try_into()
         .map_err(|_| anyhow::format_err!("master key should be 32 bytes long"))
 }
-
-// #[tokio::main(flavor = "multi_thread")]
-// async fn main() -> anyhow::Result<()> {
-//     env_logger::Builder::from_env(
-//         Env::default().default_filter_or(format!("{}=warn", env!("CARGO_PKG_NAME"))),
-//     )
-//     .init();
-
-//     let args = Args::parse();
-
-//     let db_path = args.db_path.unwrap_or_else(|| {
-//         ProjectDirs::from("org", "whisperfish", "presage")
-//             .unwrap()
-//             .config_dir()
-//             .into()
-//     });
-//     debug!(db_path =% db_path.display(), "opening config database");
-//     let config_store = SledStore::open_with_passphrase(
-//         db_path,
-//         args.passphrase,
-//         MigrationConflictStrategy::Raise,
-//         OnNewIdentity::Trust,
-//     )
-//     .await?;
-//     run(args.subcommand, config_store).await
-// }
 
 async fn send<S: Store>(
     manager: &mut Manager<S, Registered>,
@@ -543,7 +513,7 @@ async fn print_message<S: Store>(
             Msg::Replyable(Thread::Contact(sender), body) => {
                 let contact = format_contact(sender, manager).await;
                 if let Some(state) = state {
-                    reply(sender.to_string(), body.clone(), manager.store(), state).await
+                    reply(sender.to_string(), body.clone(), state).await
                 }
                 (format!("From {contact} @ {ts}: "), body)
             }
@@ -582,8 +552,7 @@ async fn print_message<S: Store>(
     }
 }
 
-async fn reply<S: Store>(user_id: String, body: String, store: &S, state: &ChannelState) {
-    println!("***REPLYING");
+async fn reply(user_id: String, body: String, state: &ChannelState) {
     let payload = json!({
         "content_type": "text",
         "content": {

@@ -12,13 +12,13 @@ use std::sync::mpsc;
 use std::thread;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::data::{ConversationData, SwitchBot};
-use crate::db;
-use crate::error::BitpartError;
-use crate::utils::{
+use super::data::{ConversationData, SwitchBot};
+use super::utils::{
     get_current_step_hash, get_flow_by_id, messages_formatter, send_msg_to_callback_url,
     update_current_context,
 };
+use crate::db;
+use crate::error::BitpartError;
 
 #[derive(Debug, Clone)]
 enum InterpreterReturn {

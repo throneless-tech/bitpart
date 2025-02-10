@@ -1,34 +1,25 @@
-mod actions;
 pub mod api;
 mod channels;
-mod conversation;
-mod data;
+mod csml;
 pub mod db;
 pub mod error;
-mod event;
 mod messages;
-pub mod utils;
 
-use axum::extract::connect_info::ConnectInfo;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     http::{header, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{any, get, post},
+    routing::any,
     Router,
 };
 use channels::signal;
 use clap::Parser;
-use sea_orm::{ConnectionTrait, Database, DatabaseConnection};
-//use sea_orm_migration::prelude::*;
 use clap_verbosity_flag::Verbosity;
-use presage::model::identity::OnNewIdentity;
-use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
+use sea_orm::{ConnectionTrait, Database};
 use std::net::SocketAddr;
 use tokio::sync::oneshot;
-use tokio::task::LocalSet;
 use tracing::{debug, error};
 use tracing_log::AsTrace;
 

@@ -2,7 +2,7 @@ use csml_interpreter::data::CsmlBot;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
-use crate::data::Request;
+use crate::csml::data::Request;
 
 #[derive(Serialize, Deserialize)]
 pub struct PaginateMessage {

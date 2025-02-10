@@ -11,12 +11,12 @@ use csml_interpreter::{load_components, search_for_modules, validate_bot};
 use sea_orm::*;
 use std::collections::HashMap;
 
-use crate::actions;
-use crate::data::{BotOpt, ConversationData, SwitchBot};
+use super::actions;
+use super::data::{BotOpt, ConversationData, SwitchBot};
+use super::event::SerializedEvent;
+use super::utils;
 use crate::db;
 use crate::error::BitpartError;
-use crate::event::SerializedEvent;
-use crate::utils;
 
 async fn create_new_conversation<'a>(
     context: &mut Context,
@@ -95,7 +95,7 @@ async fn get_previous_bot(client: &Client, db: &DatabaseConnection) -> Option<Pr
     }
 }
 
-pub async fn init_context(
+async fn init_context(
     flow: String,
     client: Client,
     apps_endpoint: &Option<String>,
@@ -122,7 +122,7 @@ pub async fn init_context(
     }
 }
 
-pub async fn init_conversation_data<'a>(
+async fn init_conversation_data<'a>(
     default_flow: String,
     event: &Event,
     request: &'a SerializedEvent,
@@ -184,7 +184,7 @@ pub async fn init_conversation_data<'a>(
 /**
  * Initialize the bot
  */
-pub fn init_bot(bot: &mut CsmlBot) -> Result<(), BitpartError> {
+fn init_bot(bot: &mut CsmlBot) -> Result<(), BitpartError> {
     // load native components into the bot
     bot.native_components = match load_components() {
         Ok(components) => Some(components),
@@ -238,7 +238,7 @@ fn set_bot_ast(bot: &mut CsmlBot) -> Result<(), BitpartError> {
     Ok(())
 }
 
-pub async fn switch_bot(
+async fn switch_bot(
     data: &mut ConversationData,
     bot: &mut CsmlBot,
     next_bot: SwitchBot,

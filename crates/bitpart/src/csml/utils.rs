@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::env;
 use tracing::debug;
 
-use crate::data::{ConversationData, FlowTrigger};
+use super::data::{ConversationData, FlowTrigger};
 use crate::db;
 use crate::error::BitpartError;
 
