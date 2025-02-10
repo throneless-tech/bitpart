@@ -8,33 +8,22 @@ edition = "2021"
 anyhow = "1.0"
 async-recursion = "1.1.1"
 axum = { version = "0.8.0", features = ["http2", "macros", "ws"] }
-axum-extra = { version = "0.10.0", features = ["typed-header"] }
-axum-server = "0.7.1"
 axum-test = "16.0.0"
 base64 = "0.22.1"
 bincode = "1.3.3"
-bytes = "1.9.0"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = "2.2.2"
-config = { version = "0.14", features = ["toml"] }
 csml_interpreter = { git = "https://github.com/throneless-tech/csml-engine", branch = "bitpart" }
-directories = "5.0"
 futures = "0.3.31"
-headers = "0.4.0"
 hex = "0.4.3"
-libsqlite3-sys = { version = "0.26.0", features = ["bundled-sqlcipher"] }
-log = "0.4"
 md-5 = "0.10.6"
 mime_guess = "2.0.5"
 notify-rust = "4.11.3"
 presage = { git = "https://github.com/whisperfish/presage" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
-pretty_env_logger = "0.5"
-qr2term = "0.3.3"
 rand = "0.8.5"
 regex = "1.10.6"
-rustls = { version = "0.21.12", features = ["dangerous_configuration"]}
 sea-orm = { version = "~1.0", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
 sea-orm-migration = "1.0.1"
 serde = { version = "1.0.204", features = ["derive"] }
@@ -42,7 +31,6 @@ serde_json = "1.0.117"
 tempfile = "3.13.0"
 thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["full"] }
-tower-http = { version = "0.5.2", features = ["auth"] }
 tracing = "0.1.40"
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
@@ -51,6 +39,3 @@ url = "2.5.3"
 uuid = { version = "1.10.0", features = ["v4", "fast-rng", "macro-diagnostics"]}
 
 [dev-dependencies]
-rusty-hook = "^0.11"
-trybuild = "1.0"
-trycmd = "0.15"
