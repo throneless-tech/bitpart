@@ -1,11 +1,60 @@
-use csml_interpreter::data::CsmlBot;
+use csml_interpreter::data::{CsmlBot, CsmlFlow, Module};
 use sea_orm::*;
+use serde::{Deserialize, Serialize};
 use std::env;
 use uuid;
 
 use super::entities::{prelude::*, *};
-use crate::csml::data::{BotVersion, SerializedCsmlBot};
+use crate::csml::data::BotVersion;
 use crate::error::BitpartError;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SerializedCsmlBot {
+    pub id: String,
+    pub name: String,
+    pub flows: Vec<CsmlFlow>,
+    pub native_components: Option<String>, // serde_json::Map<String, serde_json::Value>
+    pub custom_components: Option<String>, // serde_json::Value
+    pub default_flow: String,
+    pub no_interruption_delay: Option<i32>,
+    pub env: Option<String>,
+    pub modules: Option<Vec<Module>>,
+}
+
+impl Into<CsmlBot> for SerializedCsmlBot {
+    fn into(self) -> CsmlBot {
+        CsmlBot {
+            id: self.id.to_owned(),
+            name: self.name.to_owned(),
+            apps_endpoint: None,
+            flows: self.flows.to_owned(),
+            native_components: {
+                match self.native_components.to_owned() {
+                    Some(value) => match serde_json::from_str(&value) {
+                        Ok(serde_json::Value::Object(map)) => Some(map),
+                        _ => unreachable!(),
+                    },
+                    None => None,
+                }
+            },
+            custom_components: {
+                match self.custom_components.to_owned() {
+                    Some(value) => match serde_json::from_str(&value) {
+                        Ok(value) => Some(value),
+                        Err(_e) => unreachable!(),
+                    },
+                    None => None,
+                }
+            },
+            default_flow: self.default_flow.to_owned(),
+            bot_ast: None,
+            no_interruption_delay: self.no_interruption_delay,
+            env: self.env.as_ref().map(|e| serde_json::from_str(&e).unwrap()),
+            modules: self.modules.to_owned(),
+            multibot: None,
+        }
+    }
+}
 
 pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion, BitpartError> {
     let model = bot::ActiveModel {
@@ -21,7 +70,7 @@ pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion,
     let bot: SerializedCsmlBot = serde_json::from_str(&entry.bot).unwrap();
 
     Ok(BotVersion {
-        bot: bot.to_bot(),
+        bot: bot.into(),
         version_id: entry.id,
         engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
     })
@@ -64,8 +113,8 @@ pub async fn get(
         .map(|e| {
             let bot: SerializedCsmlBot = serde_json::from_str(&e.bot).unwrap();
             BotVersion {
-                bot: bot.to_bot(),
                 version_id: bot.id.to_string(),
+                bot: bot.into(),
                 engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
             }
         })
@@ -82,8 +131,8 @@ pub async fn get_by_id(
             let bot: SerializedCsmlBot = serde_json::from_str(&e.bot)?;
 
             Ok(Some(BotVersion {
-                bot: bot.to_bot(),
                 version_id: bot.id.to_string(),
+                bot: bot.into(),
                 engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
             }))
         }
@@ -109,8 +158,8 @@ pub async fn get_latest_by_bot_id(
             let bot: SerializedCsmlBot = serde_json::from_str(&e.bot)?;
 
             Ok(Some(BotVersion {
-                bot: bot.to_bot(),
                 version_id: bot.id.to_string(),
+                bot: bot.into(),
                 engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
             }))
         }

@@ -1,4 +1,4 @@
-use csml_interpreter::data::{Client, Context, CsmlBot, CsmlFlow, Message, Module, MultiBot};
+use csml_interpreter::data::{Client, Context, CsmlBot, Message, MultiBot};
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
@@ -15,7 +15,7 @@ pub struct SwitchBot {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct FlowTrigger {
+pub(super) struct FlowTrigger {
     pub flow_id: String,
     pub step_id: Option<String>,
 }
@@ -25,67 +25,6 @@ pub struct BotVersion {
     pub bot: CsmlBot,
     pub version_id: String,
     pub engine_version: String,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct BotSummary {
-    pub bot: CsmlBot,
-    pub version_id: String,
-    pub engine_version: String,
-}
-
-// impl IntoResponse for BotVersion {
-//     fn into_response(self) -> axum::response::Response {
-//         (StatusCode::CREATED, self).into_response()
-//     }
-// }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SerializedCsmlBot {
-    pub id: String,
-    pub name: String,
-    pub flows: Vec<CsmlFlow>,
-    pub native_components: Option<String>, // serde_json::Map<String, serde_json::Value>
-    pub custom_components: Option<String>, // serde_json::Value
-    pub default_flow: String,
-    pub no_interruption_delay: Option<i32>,
-    pub env: Option<String>,
-    pub modules: Option<Vec<Module>>,
-}
-
-impl SerializedCsmlBot {
-    pub fn to_bot(&self) -> CsmlBot {
-        CsmlBot {
-            id: self.id.to_owned(),
-            name: self.name.to_owned(),
-            apps_endpoint: None,
-            flows: self.flows.to_owned(),
-            native_components: {
-                match self.native_components.to_owned() {
-                    Some(value) => match serde_json::from_str(&value) {
-                        Ok(serde_json::Value::Object(map)) => Some(map),
-                        _ => unreachable!(),
-                    },
-                    None => None,
-                }
-            },
-            custom_components: {
-                match self.custom_components.to_owned() {
-                    Some(value) => match serde_json::from_str(&value) {
-                        Ok(value) => Some(value),
-                        Err(_e) => unreachable!(),
-                    },
-                    None => None,
-                }
-            },
-            default_flow: self.default_flow.to_owned(),
-            bot_ast: None,
-            no_interruption_delay: self.no_interruption_delay,
-            env: self.env.as_ref().map(|e| serde_json::from_str(&e).unwrap()),
-            modules: self.modules.to_owned(),
-            multibot: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -102,7 +41,7 @@ pub struct ConversationData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum BotOpt {
+pub(super) enum BotOpt {
     #[serde(rename = "bot")]
     CsmlBot(CsmlBot),
     #[serde(rename = "version_id")]
@@ -176,53 +115,6 @@ pub struct Request {
     pub apps_endpoint: Option<String>,
     pub multibot: Option<Vec<MultiBot>>,
     pub event: SerializedEvent,
-}
-
-impl Request {
-    pub fn get_bot_opt(&self) -> Result<BotOpt, BitpartError> {
-        match self.clone() {
-            // Bot
-            Request {
-                bot: Some(mut csml_bot),
-                multibot,
-                ..
-            } => {
-                csml_bot.multibot = multibot;
-
-                Ok(BotOpt::CsmlBot(csml_bot))
-            }
-
-            // version id
-            Request {
-                version_id: Some(version_id),
-                bot_id: Some(bot_id),
-                apps_endpoint,
-                multibot,
-                ..
-            } => Ok(BotOpt::Id {
-                version_id,
-                bot_id,
-                apps_endpoint,
-                multibot,
-            }),
-
-            // get bot by id will search for the last version id
-            Request {
-                bot_id: Some(bot_id),
-                apps_endpoint,
-                multibot,
-                ..
-            } => Ok(BotOpt::BotId {
-                bot_id,
-                apps_endpoint,
-                multibot,
-            }),
-
-            _ => Err(BitpartError::Interpreter(
-                "Invalid bot_opt format".to_owned(),
-            )),
-        }
-    }
 }
 
 impl TryInto<BotOpt> for Request {

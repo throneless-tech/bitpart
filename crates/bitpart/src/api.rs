@@ -20,7 +20,7 @@ use crate::error::BitpartError;
 
 use crate::{
     channels::signal,
-    csml::conversation::start_conversation,
+    csml::conversation,
     csml::data::{BotVersion, Request},
     db::{self, entities::channel::Model},
 };
@@ -446,20 +446,7 @@ pub async fn process_request(
     body: &Request,
     db: &DatabaseConnection,
 ) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
-    let mut request = body.event.to_owned();
-
-    let bot_opt = match body.try_into() {
-        Ok(bot_opt) => bot_opt,
-        _ => return Err(BitpartError::Interpreter("Bad Request".to_owned())),
-    };
-
-    // request metadata should be an empty object by default
-    request.metadata = match request.metadata {
-        Value::Null => json!({}),
-        val => val,
-    };
-
-    match start_conversation(request, bot_opt, db).await {
+    match conversation::start(body, db).await {
         Ok(res) => Ok(res),
         Err(err) => Err(err),
     }

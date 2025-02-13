@@ -9,11 +9,12 @@ use csml_interpreter::data::{
 };
 use csml_interpreter::{load_components, search_for_modules, validate_bot};
 use sea_orm::*;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use super::actions;
-use super::data::{BotOpt, ConversationData, SwitchBot};
+use super::data::{BotOpt, ConversationData, Request, SwitchBot};
 use super::event::SerializedEvent;
+use super::interpret;
 use super::utils;
 use crate::db;
 use crate::error::BitpartError;
@@ -365,7 +366,7 @@ async fn check_switch_bot(
                 return Err(err);
             };
 
-            let result = actions::step(data, event.clone(), &bot, db).await;
+            let result = interpret::step(data, event.clone(), &bot, db).await;
 
             let mut new_messages = check_switch_bot(result, data, bot, bot_opt, event, db).await?;
 
@@ -448,15 +449,24 @@ async fn check_for_hold(
     Ok(())
 }
 
-pub async fn start_conversation(
-    request: SerializedEvent,
-    mut bot_opt: BotOpt,
+pub async fn start(
+    body: &Request,
     db: &DatabaseConnection,
 ) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
-    //init_logger();
+    let mut request = body.event.to_owned();
+
+    let mut bot_opt: BotOpt = match body.try_into() {
+        Ok(bot_opt) => bot_opt,
+        _ => return Err(BitpartError::Interpreter("Bad Request".to_owned())),
+    };
+
+    // request metadata should be an empty object by default
+    request.metadata = match request.metadata {
+        Value::Null => json!({}),
+        val => val,
+    };
 
     let mut formatted_event = Event::try_from(&request)?;
-    //let mut db = init_db()?;
 
     let mut bot = bot_opt.search_bot(db).await?;
     init_bot(&mut bot)?;
@@ -515,7 +525,7 @@ pub async fn start_conversation(
         (true, _) => {}
     }
 
-    let result = actions::step(&mut data, formatted_event.to_owned(), &bot, db).await;
+    let result = interpret::step(&mut data, formatted_event.to_owned(), &bot, db).await;
 
     check_switch_bot(
         result,
