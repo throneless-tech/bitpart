@@ -3,7 +3,6 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
-use anyhow::{anyhow, bail, Context as _};
 use base64::prelude::*;
 use chrono::Local;
 use csml_interpreter::data::Client;
@@ -128,15 +127,15 @@ async fn start_channel_recv(
     mut manager: Manager<BitpartStore, Registered>,
     tx: mpsc::Sender<(String, String)>,
 ) -> Result<(), BitpartError> {
-    let channel = db::channel::get_by_id(&id, &db).await.unwrap().unwrap();
+    let channel = db::channel::get_by_id(&id, &db)
+        .await?
+        .ok_or_else(|| BitpartError::Signal("No such channel.".to_owned()))?;
     let state = ChannelState {
         id: channel.bot_id,
         db,
         tx,
     };
-    receive(&mut manager, true, Some(state))
-        .await
-        .map_err(|e| BitpartError::Signal(e))
+    receive(&mut manager, true, Some(state)).await
 }
 
 async fn start_channel_send(
@@ -144,8 +143,6 @@ async fn start_channel_send(
     mut rx: mpsc::Receiver<(String, String)>,
 ) -> Result<(), BitpartError> {
     while let Some((recipient, msg)) = rx.recv().await {
-        println!("***SENDER LOOP");
-        println!("***MESSAGE: {}", msg);
         let attachments = upload_attachments(vec![PathBuf::from("/tmp")], &manager).await?;
         let data_message = DataMessage {
             body: Some(msg),
@@ -161,7 +158,6 @@ async fn start_channel_send(
         .await
         .unwrap();
     }
-    println!("***DONE SENDING");
     Ok(())
 }
 
@@ -187,8 +183,7 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
             let res = provisioning_link_rx
                 .await
                 .map(|url| url.to_string())
-                .map_err(|_e| anyhow!("Linking error"))?;
-            println!("Link result: {}", res);
+                .map_err(|_e| BitpartError::Signal("Linking error".to_owned()))?;
             Ok(sender
                 .send(res)
                 .map_err(|err| BitpartError::Interpreter(err))?)
@@ -205,7 +200,7 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
                 OnNewIdentity::Trust,
             )
             .await?;
-            let (registration_tx, registration_rx) = oneshot::channel();
+            let (_registration_tx, registration_rx) = oneshot::channel();
             register(
                 config_store,
                 SignalServers::Production,
@@ -246,7 +241,7 @@ enum Recipient {
     Group(GroupMasterKeyBytes),
 }
 
-fn attachments_tmp_dir() -> anyhow::Result<TempDir> {
+fn attachments_tmp_dir() -> Result<TempDir, BitpartError> {
     let attachments_tmp_dir = Builder::new().prefix("presage-attachments").tempdir()?;
     info!(
         path =% attachments_tmp_dir.path().display(),
@@ -255,18 +250,18 @@ fn attachments_tmp_dir() -> anyhow::Result<TempDir> {
     Ok(attachments_tmp_dir)
 }
 
-fn parse_group_master_key(value: &str) -> anyhow::Result<GroupMasterKeyBytes> {
+fn parse_group_master_key(value: &str) -> Result<GroupMasterKeyBytes, BitpartError> {
     let master_key_bytes = hex::decode(value)?;
     master_key_bytes
         .try_into()
-        .map_err(|_| anyhow::format_err!("master key should be 32 bytes long"))
+        .map_err(|_| BitpartError::Signal("master key should be 32 bytes long".to_owned()))
 }
 
 async fn send<S: Store>(
     manager: &mut Manager<S, Registered>,
     recipient: Recipient,
     msg: impl Into<ContentBody>,
-) -> anyhow::Result<()> {
+) -> Result<(), BitpartError> {
     // let local = task::LocalSet::new();
 
     let timestamp = std::time::SystemTime::now()
@@ -408,7 +403,7 @@ async fn print_message<S: Store>(
                 body: Some(body), ..
             } => Some(body.to_string()),
             _ => {
-                println!("Empty data message");
+                debug!("Empty data message");
                 None
             }
         }
@@ -537,7 +532,7 @@ async fn print_message<S: Store>(
             }
         };
 
-        println!("{prefix} / {body}");
+        debug!("{prefix} / {body}");
 
         if notifications {
             if let Err(error) = Notification::new()
@@ -585,9 +580,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) {
     };
 
     let res = api::process_request(&request, &state.db).await.unwrap();
-    println!("***API RESULT: {:?}", res);
     if let Some(ref messages) = res.get("messages") {
-        println!("****************i {:?}", messages);
         for i in messages.as_array().unwrap().iter() {
             state
                 .tx
@@ -622,7 +615,7 @@ async fn receive<S: Store>(
     manager: &mut Manager<S, Registered>,
     notifications: bool,
     state: Option<ChannelState>,
-) -> anyhow::Result<()> {
+) -> Result<(), BitpartError> {
     let attachments_tmp_dir = Builder::new().prefix("presage-attachments").tempdir()?;
     info!(
         path =% attachments_tmp_dir.path().display(),
@@ -632,13 +625,13 @@ async fn receive<S: Store>(
     let messages = manager
         .receive_messages()
         .await
-        .context("failed to initialize messages stream")?;
+        .map_err(|_e| BitpartError::Signal("failed to initialize messages stream".to_owned()))?;
     pin_mut!(messages);
 
     while let Some(content) = messages.next().await {
         match content {
-            Received::QueueEmpty => println!("done with synchronization"),
-            Received::Contacts => println!("got contacts synchronization"),
+            Received::QueueEmpty => debug!("done with synchronization"),
+            Received::Contacts => debug!("got contacts synchronization"),
             Received::Content(content) => {
                 process_incoming_message(
                     manager,
@@ -659,7 +652,7 @@ pub async fn receive_from<S: Store>(
     config_store: S,
     notifications: bool,
     state: Option<ChannelState>,
-) -> anyhow::Result<()> {
+) -> Result<(), BitpartError> {
     let mut manager = Manager::load_registered(config_store).await?;
     receive(&mut manager, notifications, state).await
 }
@@ -667,7 +660,7 @@ pub async fn receive_from<S: Store>(
 async fn upload_attachments<S: Store>(
     attachment_filepath: Vec<PathBuf>,
     manager: &Manager<S, Registered>,
-) -> Result<Vec<presage::proto::AttachmentPointer>, anyhow::Error> {
+) -> Result<Vec<presage::proto::AttachmentPointer>, BitpartError> {
     let attachment_specs: Vec<_> = attachment_filepath
         .into_iter()
         .filter_map(|path| {
@@ -703,11 +696,11 @@ async fn upload_attachments<S: Store>(
     Ok(attachments)
 }
 
-fn parse_base64_profile_key(s: &str) -> anyhow::Result<ProfileKey> {
+fn parse_base64_profile_key(s: &str) -> Result<ProfileKey, BitpartError> {
     let bytes = BASE64_STANDARD
         .decode(s)?
         .try_into()
-        .map_err(|_| anyhow!("profile key of invalid length"))?;
+        .map_err(|_| BitpartError::Signal("profile key of invalid length".to_owned()))?;
     Ok(ProfileKey::create(bytes))
 }
 
@@ -721,8 +714,7 @@ pub async fn register<S: Store>(
     captcha: Url,
     force: bool,
     registration_rx: oneshot::Receiver<String>,
-) -> Result<String, anyhow::Error> {
-    println!("***REGISTER");
+) -> Result<String, BitpartError> {
     let manager = Manager::register(
         config_store,
         RegistrationOptions {
@@ -753,7 +745,7 @@ pub async fn link_device<S: Store>(
     servers: SignalServers,
     device_name: String,
     provisioning_link_tx: oneshot::Sender<Url>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), BitpartError> {
     Manager::link_secondary_device(
         config_store,
         servers,
@@ -764,21 +756,21 @@ pub async fn link_device<S: Store>(
     Ok(())
 }
 
-pub async fn add_device<S: Store>(config_store: S, url: Url) -> Result<(), anyhow::Error> {
+pub async fn add_device<S: Store>(config_store: S, url: Url) -> Result<(), BitpartError> {
     let mut manager = Manager::load_registered(config_store).await?;
     manager.link_secondary(url).await?;
-    println!("Added new secondary device");
+    info!("Added new secondary device");
     Ok(())
 }
 
-pub async fn unlink_device<S: Store>(config_store: S, device_id: i64) -> Result<(), anyhow::Error> {
+pub async fn unlink_device<S: Store>(config_store: S, device_id: i64) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
     manager.unlink_secondary(device_id).await?;
-    println!("Unlinked device with id: {}", device_id);
+    info!("Unlinked device with id: {}", device_id);
     Ok(())
 }
 
-pub async fn list_devices<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
+pub async fn list_devices<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
     let devices = manager.devices().await?;
     let current_device_id = manager.device_id() as i64;
@@ -793,7 +785,7 @@ pub async fn list_devices<S: Store>(config_store: S) -> Result<(), anyhow::Error
             ""
         };
 
-        println!(
+        debug!(
             "- Device {} {}\n  Name: {}\n  Created: {}\n  Last seen: {}",
             device.id, current_marker, device_name, device.created, device.last_seen,
         );
@@ -806,7 +798,7 @@ pub async fn send_to_individual<S: Store>(
     uuid: Uuid,
     message: String,
     attachment_filepath: Vec<PathBuf>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), BitpartError> {
     let mut manager = Manager::load_registered(config_store).await?;
     let attachments = upload_attachments(attachment_filepath, &manager).await?;
     let data_message = DataMessage {
@@ -823,7 +815,7 @@ pub async fn send_to_group<S: Store>(
     message: String,
     master_key: [u8; 32],
     attachment_filepath: Vec<PathBuf>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), BitpartError> {
     let mut manager = Manager::load_registered(config_store).await?;
     let attachments = upload_attachments(attachment_filepath, &manager).await?;
     let data_message = DataMessage {
@@ -844,36 +836,42 @@ pub async fn retrieve_profile<S: Store>(
     config_store: S,
     uuid: Uuid,
     mut profile_key: Option<ProfileKey>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), BitpartError> {
     let mut manager = Manager::load_registered(config_store).await?;
     if profile_key.is_none() {
         for contact in manager
             .store()
             .contacts()
-            .await?
+            .await
+            .map_err(|e| BitpartError::Signal(e.to_string()))?
             .filter_map(Result::ok)
             .filter(|c| c.uuid == uuid)
         {
             let profilek:[u8;32] = match(contact.profile_key).try_into() {
                     Ok(profilek) => profilek,
-                    Err(_) => bail!("Profile key is not 32 bytes or empty for uuid: {:?} and no alternative profile key was provided", uuid),
+                    Err(_) => return Err(BitpartError::Signal(format!("Profile key is not 32 bytes or empty for uuid: {:?} and no alternative profile key was provided", uuid))),
                 };
             profile_key = Some(ProfileKey::create(profilek));
         }
     } else {
-        println!("Retrieving profile for: {uuid:?} with profile_key");
+        info!("Retrieving profile for: {uuid:?} with profile_key");
     }
     let profile = match profile_key {
         None => manager.retrieve_profile().await?,
         Some(profile_key) => manager.retrieve_profile_by_uuid(uuid, profile_key).await?,
     };
-    println!("{profile:#?}");
+    debug!("{profile:#?}");
     Ok(())
 }
 
-pub async fn list_groups<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
+pub async fn list_groups<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
-    for group in manager.store().groups().await? {
+    for group in manager
+        .store()
+        .groups()
+        .await
+        .map_err(|e| BitpartError::Signal(e.to_string()))?
+    {
         match group {
             Ok((
                 group_master_key,
@@ -886,7 +884,7 @@ pub async fn list_groups<S: Store>(config_store: S) -> Result<(), anyhow::Error>
                 },
             )) => {
                 let key = hex::encode(group_master_key);
-                println!(
+                debug!(
                     "{key} {title}: {description:?} / revision {revision} / {} members",
                     members.len()
                 );
@@ -900,31 +898,41 @@ pub async fn list_groups<S: Store>(config_store: S) -> Result<(), anyhow::Error>
     Ok(())
 }
 
-pub async fn list_contacts<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
+pub async fn list_contacts<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
     for Contact {
         name,
         uuid,
         phone_number,
         ..
-    } in manager.store().contacts().await?.flatten()
+    } in manager
+        .store()
+        .contacts()
+        .await
+        .map_err(|e| BitpartError::Signal(e.to_string()))?
+        .flatten()
     {
-        println!("{uuid} / {phone_number:?} / {name}");
+        debug!("{uuid} / {phone_number:?} / {name}");
     }
     Ok(())
 }
 
-pub async fn list_sticker_packs<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
+pub async fn list_sticker_packs<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
-    for sticker_pack in manager.store().sticker_packs().await? {
+    for sticker_pack in manager
+        .store()
+        .sticker_packs()
+        .await
+        .map_err(|e| BitpartError::Signal(e.to_string()))?
+    {
         match sticker_pack {
             Ok(sticker_pack) => {
-                println!(
+                debug!(
                     "title={} author={}",
                     sticker_pack.manifest.title, sticker_pack.manifest.author,
                 );
                 for sticker in sticker_pack.manifest.stickers {
-                    println!(
+                    debug!(
                         "\tid={} emoji={} content_type={} bytes={}",
                         sticker.id,
                         sticker.emoji.unwrap_or_default(),
@@ -941,15 +949,20 @@ pub async fn list_sticker_packs<S: Store>(config_store: S) -> Result<(), anyhow:
     Ok(())
 }
 
-pub async fn whoami<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
+pub async fn whoami<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
     println!("{:?}", &manager.whoami().await?);
     Ok(())
 }
 
-pub async fn get_contact<S: Store>(config_store: S, uuid: &Uuid) -> Result<(), anyhow::Error> {
+pub async fn get_contact<S: Store>(config_store: S, uuid: &Uuid) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
-    match manager.store().contact_by_id(uuid).await? {
+    match manager
+        .store()
+        .contact_by_id(uuid)
+        .await
+        .map_err(|e| BitpartError::Signal(e.to_string()))?
+    {
         Some(contact) => println!("{contact:#?}"),
         None => eprintln!("Could not find contact for {uuid}"),
     }
@@ -961,12 +974,13 @@ pub async fn find_contact<S: Store>(
     uuid: Option<Uuid>,
     phone_number: Option<PhoneNumber>,
     name: Option<String>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
     for contact in manager
         .store()
         .contacts()
-        .await?
+        .await
+        .map_err(|e| BitpartError::Signal(e.to_string()))?
         .filter_map(Result::ok)
         .filter(|c| uuid.map_or_else(|| true, |u| c.uuid == u))
         .filter(|c| c.phone_number == phone_number)
@@ -977,19 +991,19 @@ pub async fn find_contact<S: Store>(
     Ok(())
 }
 
-pub async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
+pub async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let mut manager = Manager::load_registered(config_store).await?;
     manager.request_contacts().await?;
     let messages = manager
         .receive_messages()
         .await
-        .context("failed to initialize messages stream")?;
+        .map_err(|_e| BitpartError::Signal("failed to initialize messages stream".to_owned()))?;
     pin_mut!(messages);
-    println!("synchronizing messages until we get contacts (dots are messages synced from the past timeline)");
+    debug!("synchronizing messages until we get contacts (dots are messages synced from the past timeline)");
     while let Some(content) = messages.next().await {
         match content {
             Received::QueueEmpty => break,
-            Received::Contacts => println!("got contacts! thank you, come again."),
+            Received::Contacts => debug!("got contacts!"),
             Received::Content(_) => print!("."),
         }
     }
@@ -1001,7 +1015,7 @@ pub async fn list_messages<S: Store>(
     group_master_key: Option<[u8; 32]>,
     recipient_uuid: Option<Uuid>,
     from: Option<u64>,
-) -> Result<(), anyhow::Error> {
+) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
     let thread = match (group_master_key, recipient_uuid) {
         (Some(master_key), _) => Thread::Group(master_key),
@@ -1011,7 +1025,8 @@ pub async fn list_messages<S: Store>(
     for msg in manager
         .store()
         .messages(&thread, from.unwrap_or(0)..)
-        .await?
+        .await
+        .map_err(|e| BitpartError::Signal(e.to_string()))?
         .filter_map(Result::ok)
     {
         print_message(&manager, false, &msg, &None).await;
@@ -1020,7 +1035,7 @@ pub async fn list_messages<S: Store>(
     Ok(())
 }
 
-pub async fn stats<S: Store>(config_store: S) -> Result<(), anyhow::Error> {
+pub async fn stats<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let manager = Manager::load_registered(config_store).await?;
 
     #[allow(unused)]

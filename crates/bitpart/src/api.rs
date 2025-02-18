@@ -12,7 +12,6 @@ use presage::model::identity::OnNewIdentity;
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
-use serde_json::{json, Value};
 use url::Url;
 use uuid::Uuid;
 
@@ -574,5 +573,5 @@ pub async fn add_device_channel(id: &str, url: &Url, state: &ApiState) -> Result
     .await?;
     signal::add_device(config_store, url.to_owned())
         .await
-        .map_err(|e| BitpartError::Signal(e))
+        .map_err(|e| BitpartError::Signal(e.to_string()))
 }
