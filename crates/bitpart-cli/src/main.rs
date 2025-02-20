@@ -228,12 +228,15 @@ async fn main() {
                     })
                 })
                 .collect::<Vec<serde_json::Value>>();
-            let req = json!({"CreateBot" : {
+            let req = json!({
+            "message_type": "CreateBot",
+            "data" : {
                 "id": id,
                 "name": name,
                 "default_flow": default_flow,
                 "flows": flows
-            }});
+                }
+            });
             println!("Request: {:?}", req.to_string());
 
             //we can ping the server for start
@@ -243,10 +246,12 @@ async fn main() {
                 .expect("Can not send!");
         }
         Commands::ChannelAdd { id, bot_id } => {
-            let req = json!({"CreateChannel" : {
-                "id": id,
-                "bot_id": bot_id,
-            }});
+            let req = json!({"message_type": "CreateChannel",
+                    "data" : {
+                    "id": id,
+                    "bot_id": bot_id,
+                    }
+            });
             println!("Request: {:?}", req.to_string());
 
             //we can ping the server for start
@@ -256,7 +261,9 @@ async fn main() {
                 .expect("Can not send!");
         }
         Commands::ChannelDescribe { id } => {
-            let req = json!({"ReadChannel" : id });
+            let req = json!({"message_type": "ReadChannel", "data" : {
+                "id": id
+            }});
             println!("Request: {:?}", req.to_string());
 
             //we can ping the server for start
@@ -266,7 +273,8 @@ async fn main() {
                 .expect("Can not send!");
         }
         Commands::ChannelDelete { id } => {
-            let req = json!({"DeleteChannel" : {
+            let req = json!({"message_type": "DeleteChannel",
+                "data" : {
                 "id": id,
             }});
             println!("Request: {:?}", req.to_string());
@@ -278,7 +286,7 @@ async fn main() {
                 .expect("Can not send!");
         }
         Commands::ChannelList {} => {
-            let req = json!({"ListChannels" : {}});
+            let req = json!({"message_type": "ListChannels"});
             println!("Request: {:?}", req.to_string());
 
             //we can ping the server for start
@@ -288,7 +296,8 @@ async fn main() {
                 .expect("Can not send!");
         }
         Commands::ChannelLink { id, device_name } => {
-            let req = json!({"LinkChannel" : {
+            let req = json!({"message_type": "LinkChannel",
+                "data" : {
                 "id": id,
                 "device_name": device_name
             }});
@@ -305,7 +314,8 @@ async fn main() {
             phone_number,
             captcha,
         } => {
-            let req = json!({"RegisterChannel" : {
+            let req = json!({"message_type" : "RegisterChannel",
+                "data" : {
                 "id": id,
                 "phone_number": phone_number,
                 "captcha": captcha,
@@ -328,7 +338,9 @@ async fn main() {
             todo!();
         }
         Commands::Describe { id } => {
-            let req = json!({"ReadBot" : id });
+            let req = json!({"message_type": "ReadBot",
+                "data" : id
+            });
             println!("Request: {:?}", req.to_string());
 
             //we can ping the server for start
@@ -338,7 +350,7 @@ async fn main() {
                 .expect("Can not send!");
         }
         Commands::List {} => {
-            let req = json!("ListBots");
+            let req = json!({ "message_type" : "ListBots" });
             println!("Request: {:?}", req.to_string());
 
             //we can ping the server for start
@@ -351,7 +363,8 @@ async fn main() {
             todo!();
         }
         Commands::Talk { id, message } => {
-            let req = json!({ "ChatRequest": {
+            let req = json!({ "message_type": "ChatRequest",
+                "data" : {
                 "bot_id": id,
                 "apps_endpoint": "http://localhost",
                 "multibot": serde_json::Value::Null,

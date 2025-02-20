@@ -1,14 +1,3 @@
-#[cfg(test)]
-use crate::api::ApiState;
-#[cfg(test)]
-use axum::Router;
-#[cfg(test)]
-use axum_test::TestServer;
-#[cfg(test)]
-use sea_orm::Database;
-#[cfg(test)]
-use sea_orm_migration::MigratorTrait;
-
 use base64::prelude::*;
 use chrono::{SecondsFormat, Utc};
 use csml_interpreter::data::{
@@ -30,25 +19,6 @@ use tracing::debug;
 use super::data::{ConversationData, FlowTrigger};
 use crate::db;
 use crate::error::BitpartError;
-
-#[cfg(test)]
-pub async fn get_test_server(app: Router<ApiState>) -> TestServer {
-    let db = Database::connect("sqlite::memory:").await.unwrap();
-    db::migration::Migrator::refresh(&db).await.unwrap();
-
-    let state = ApiState {
-        db,
-        auth: "test".into(),
-    };
-    TestServer::builder()
-        // Preserve cookies across requests
-        // for the session cookie to work.
-        .save_cookies()
-        //.expect_success_by_default()
-        .mock_transport()
-        .build(app.with_state(state))
-        .unwrap()
-}
 
 fn add_info_to_message(data: &ConversationData, mut msg: Message, interaction_order: i32) -> Value {
     let payload = msg.message_to_json();

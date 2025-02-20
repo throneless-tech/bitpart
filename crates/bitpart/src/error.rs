@@ -3,6 +3,7 @@ use hex;
 use presage;
 use presage_store_bitpart::BitpartStoreError;
 use sea_orm::DbErr;
+use serde::Serialize;
 use serde_json::Error as SerdeError;
 use std::io;
 use thiserror::Error;

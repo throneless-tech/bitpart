@@ -7,7 +7,6 @@ use csml_interpreter::{
     data::{Client, CsmlBot, CsmlResult},
     search_for_modules, validate_bot,
 };
-use presage::libsignal_service::configuration::SignalServers;
 use presage::model::identity::OnNewIdentity;
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
@@ -50,23 +49,6 @@ pub struct QueryClientPagination {
 pub struct MemoryData {
     key: String,
     value: String,
-}
-
-#[derive(Deserialize)]
-pub struct ChannelRequest {
-    id: String,
-    bot_id: String,
-}
-
-#[derive(Deserialize)]
-pub struct ChannelLinkRequest {
-    servers: SignalServers,
-    device_name: String,
-}
-
-#[derive(Deserialize)]
-pub struct ChannelAddRequest {
-    url: Url,
 }
 
 #[derive(Clone)]
