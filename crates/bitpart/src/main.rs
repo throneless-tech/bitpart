@@ -17,8 +17,16 @@ use axum::{
 use channels::signal;
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
-use sea_orm::{ConnectionTrait, Database};
+use directories::ProjectDirs;
+use figment::{
+    providers::{Env, Format, Serialized, Toml},
+    Figment,
+};
+use figment_file_provider_adapter::FileAdapter;
+use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use tokio::sync::oneshot;
 use tracing::{debug, error};
 use tracing_log::AsTrace;
@@ -28,7 +36,7 @@ use db::migration::migrate;
 use error::BitpartError;
 
 /// The Bitpart server
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Serialize, Deserialize)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Verbosity
@@ -70,7 +78,15 @@ async fn authenticate(
 
 #[tokio::main]
 async fn main() -> Result<(), BitpartError> {
-    let server = Cli::parse();
+    let proj_dirs = ProjectDirs::from("tech", "throneless", "bitpart").unwrap();
+    let server: Cli = Figment::new()
+        .merge(Serialized::defaults(Cli::parse()))
+        .merge(FileAdapter::wrap(Toml::file(
+            proj_dirs.config_dir().join("config.toml"),
+        )))
+        .merge(FileAdapter::wrap(Env::prefixed("BITPART_")))
+        .extract()
+        .unwrap();
     tracing_subscriber::fmt()
         .with_max_level(server.verbose.log_level_filter().as_trace())
         .init();
@@ -78,13 +94,11 @@ async fn main() -> Result<(), BitpartError> {
     println!("Server is running!");
 
     let uri = format!("sqlite://{}?mode=rwc", server.database);
-    let db = Database::connect(&uri).await?;
-    let key_query = format!("PRAGMA key = '{}';", server.key);
-    db.execute_unprepared(&key_query).await?;
-    migrate(&uri).await?;
-    db.close().await?;
+    let mut opts = ConnectOptions::new(&uri);
+    opts.sqlcipher_key(server.key);
+    let db = Database::connect(opts).await?;
+    migrate(&db).await?;
 
-    let db = Database::connect(&uri).await?;
     let channels = db::channel::list(None, None, &db).await?;
     let state = ApiState {
         db,
@@ -110,18 +124,24 @@ async fn main() -> Result<(), BitpartError> {
         .route_layer(middleware::from_fn_with_state(state.clone(), authenticate))
         .with_state(state);
 
-    let addr: SocketAddr = server.bind.parse().expect("Unable to parse bind address");
-
-    let listener = tokio::net::TcpListener::bind(addr)
+    if let Ok(addr) = server.bind.parse::<SocketAddr>() {
+        let listener = tokio::net::TcpListener::bind(addr)
+            .await
+            .expect("Unable to bind to address");
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
         .await
-        .expect("Unable to bind to address");
-
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .unwrap();
+        .unwrap();
+    } else if let Ok(path) = server.bind.parse::<PathBuf>() {
+        let listener = tokio::net::UnixListener::bind(path).expect("Unable to bind to address");
+        axum::serve(listener, app.into_make_service())
+            .await
+            .unwrap();
+    } else {
+        panic!("Unable to bind to address");
+    };
 
     Ok(())
 }

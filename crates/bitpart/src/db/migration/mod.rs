@@ -1,3 +1,4 @@
+use sea_orm::DatabaseConnection;
 pub use sea_orm_migration::prelude::*;
 
 use crate::error::BitpartError;
@@ -25,8 +26,7 @@ impl MigratorTrait for Migrator {
     }
 }
 
-pub async fn migrate(uri: &str) -> Result<(), BitpartError> {
-    let db = sea_orm::Database::connect(uri).await?;
-    Migrator::up(&db, None).await?;
+pub async fn migrate(db: &DatabaseConnection) -> Result<(), BitpartError> {
+    Migrator::up(db, None).await?;
     Ok(())
 }

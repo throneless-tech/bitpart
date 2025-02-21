@@ -13,14 +13,19 @@ base64 = "0.22.1"
 bincode = "1.3.3"
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
-clap-verbosity-flag = "2.2.2"
+clap-verbosity-flag = { git = "https://github.com/joshka/clap-verbosity-flag", branch = "jm/serde", features = ["serde"] } # TODO Revisit when PR is merged
 csml_interpreter = { git = "https://github.com/throneless-tech/csml-engine", branch = "bitpart" }
+directories = "6.0.0"
+figment = { version = "0.10.19", features = ["env", "toml"] }
+figment_file_provider_adapter = "0.1.1"
 futures = "0.3.31"
 hex = "0.4.3"
+libsqlite3-sys = { version = "0.26.0", features = ["bundled-sqlcipher"] }
 md-5 = "0.10.6"
 mime_guess = "2.0.5"
 notify-rust = "4.11.3"
 presage = { git = "https://github.com/whisperfish/presage" }
+#presage = { git = "https://github.com/whisperfish/presage", rev = "4377bdbfc7a94fcbf349cde7ceff9616c43f0830" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"
 regex = "1.10.6"
