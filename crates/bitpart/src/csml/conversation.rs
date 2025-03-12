@@ -57,7 +57,6 @@ async fn get_or_create_conversation<'a>(
 ) -> Result<String, BitpartError> {
     match db::conversation::get_latest_by_client(client, db).await? {
         Some(conversation) => {
-            println!("****************DB CONVERSATION {:?}", conversation);
             match flow_found {
                 Some((flow, step)) => {
                     context.step = ContextStepInfo::UnknownFlow(step);
@@ -173,7 +172,6 @@ async fn init_conversation_data<'a>(
 
     let flow = data.context.flow.to_owned();
     let step = data.context.step.to_owned();
-    println!("***********************STEP {:?}", step);
 
     // Now that everything is correctly setup, update the conversation with wherever
     // we are now and continue with the rest of the request!
@@ -402,12 +400,9 @@ async fn check_for_hold(
     match db::state::get(&data.client, "hold", "position", db).await {
         // user is currently on hold
         Ok(hold) => {
-            println!("*****************HOLD {:?}", hold);
             match hold.get("hash") {
                 Some(hash_value) => {
                     let flow_hash = utils::get_current_step_hash(&data.context, bot)?;
-                    println!("*****************CURRENT HASH {:?}", flow_hash);
-                    println!("*****************NEW HASH {:?}", hash_value);
                     // cleanup the current hold and restart flow
                     if flow_hash != *hash_value {
                         return utils::clean_hold_and_restart(data, db).await;

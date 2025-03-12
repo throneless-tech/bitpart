@@ -184,9 +184,7 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
                 .await
                 .map(|url| url.to_string())
                 .map_err(|_e| BitpartError::Signal("Linking error".to_owned()))?;
-            Ok(sender
-                .send(res)
-                .map_err(|err| BitpartError::Interpreter(err))?)
+            Ok(sender.send(res).map_err(|err| BitpartError::Signal(err))?)
         }
         ChannelMessageContents::RegisterChannel {
             id,
@@ -215,7 +213,7 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
             //tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
             Ok(sender
                 .send("".to_owned())
-                .map_err(|err| BitpartError::Interpreter(err))?)
+                .map_err(|err| BitpartError::Signal(err))?)
         }
         ChannelMessageContents::StartChannel(id) => {
             let (tx, rx) = mpsc::channel(100);
@@ -231,7 +229,7 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
             tokio::task::spawn_local(start_channel_recv(id, db.clone(), manager, tx));
             Ok(sender
                 .send("".to_owned())
-                .map_err(|err| BitpartError::Interpreter(err))?)
+                .map_err(|err| BitpartError::Signal(err))?)
         }
     }
 }

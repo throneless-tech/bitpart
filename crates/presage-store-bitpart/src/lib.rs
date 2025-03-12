@@ -11,7 +11,7 @@ use presage::{
     store::{ContentsStore, StateStore, Store},
 };
 use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{
     de::DeserializeOwned,
     ser::{SerializeMap, Serializer},
@@ -223,8 +223,36 @@ impl BitpartStore {
     #[cfg(test)]
     async fn temporary() -> Result<Self, BitpartStoreError> {
         let db_handle = sea_orm::Database::connect("sqlite::memory:").await?;
+        db_handle
+            .execute_unprepared(
+                "CREATE TABLE channel (
+                    id TEXT PRIMARY KEY,
+                    bot_id TEXT,
+                    channel_id TEXT,
+                    state TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                );
+                INSERT INTO channel (
+                    id,
+                    bot_id,
+                    channel_id,
+                    state,
+                    created_at,
+                    updated_at
+                ) VALUES(
+                    'test',
+                    'bot_id',
+                    'signal',
+                    '{}',
+                    '1678295210',
+                    '1678295210'
+                );",
+            )
+            .await
+            .unwrap();
         Ok(Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: "test".to_owned(),
             db_handle,
             db: Arc::new(Mutex::new(DoubleMap::new())),
             trust_new_identities: OnNewIdentity::Reject,

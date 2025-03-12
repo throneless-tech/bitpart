@@ -25,7 +25,6 @@ md-5 = "0.10.6"
 mime_guess = "2.0.5"
 notify-rust = "4.11.3"
 presage = { git = "https://github.com/whisperfish/presage" }
-#presage = { git = "https://github.com/whisperfish/presage", rev = "4377bdbfc7a94fcbf349cde7ceff9616c43f0830" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"
 regex = "1.10.6"

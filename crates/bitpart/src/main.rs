@@ -23,12 +23,12 @@ use figment::{
     Figment,
 };
 use figment_file_provider_adapter::FileAdapter;
-use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+use sea_orm::{ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::sync::oneshot;
-use tracing::{debug, error};
+use tracing::info;
 use tracing_log::AsTrace;
 
 use api::ApiState;
@@ -91,7 +91,7 @@ async fn main() -> Result<(), BitpartError> {
         .with_max_level(server.verbose.log_level_filter().as_trace())
         .init();
 
-    println!("Server is running!");
+    info!("Server is running!");
 
     let uri = format!("sqlite://{}?mode=rwc", server.database);
     let mut opts = ConnectOptions::new(&uri);
@@ -105,10 +105,9 @@ async fn main() -> Result<(), BitpartError> {
         auth: server.auth,
         manager: signal::SignalManager::new(),
     };
-    for id in channels.iter() {
-        println!("Channel: {:?}", id);
+    for channel in channels.iter() {
         let (send, recv) = oneshot::channel();
-        let contents = signal::ChannelMessageContents::StartChannel(id.to_owned());
+        let contents = signal::ChannelMessageContents::StartChannel(channel.id.to_owned());
         let msg = signal::ChannelMessage {
             msg: contents,
             db: state.db.clone(),
@@ -116,7 +115,7 @@ async fn main() -> Result<(), BitpartError> {
         };
         state.manager.send(msg);
         let res = recv.await.unwrap();
-        println!("Started channel: {}", res);
+        info!("Started channel: {}", res);
     }
 
     let app = Router::new()

@@ -91,7 +91,7 @@ pub async fn list(
         .all(db)
         .await?;
 
-    Ok(entries.into_iter().map(|e| e.id.to_string()).collect())
+    Ok(entries.into_iter().map(|e| e.bot_id.to_string()).collect())
 }
 
 pub async fn get(
@@ -144,14 +144,11 @@ pub async fn get_latest_by_bot_id(
     bot_id: &str,
     db: &DatabaseConnection,
 ) -> Result<Option<BotVersion>, BitpartError> {
-    println!("bot_id: {:?}", bot_id);
     let entry = Bot::find()
         .filter(bot::Column::BotId.eq(bot_id))
-        .order_by(bot::Column::CreatedAt, Order::Desc)
+        .order_by(bot::Column::UpdatedAt, Order::Desc)
         .one(db)
         .await?;
-
-    println!("Entry: {:?}", entry);
 
     match entry {
         Some(e) => {

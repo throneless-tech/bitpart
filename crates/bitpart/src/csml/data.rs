@@ -76,7 +76,7 @@ impl BotOpt {
                         bot_version.bot.multibot = multibot.to_owned();
                         Ok(bot_version.bot)
                     }
-                    None => Err(BitpartError::Manager(format!(
+                    None => Err(BitpartError::Interpreter(format!(
                         "bot ({}) not found in db",
                         bot_id
                     ))),
@@ -96,7 +96,7 @@ impl BotOpt {
                         bot_version.bot.multibot = multibot.to_owned();
                         Ok(bot_version.bot)
                     }
-                    None => Err(BitpartError::Manager(format!(
+                    None => Err(BitpartError::Interpreter(format!(
                         "bot version ({}) not found in db",
                         version_id
                     ))),

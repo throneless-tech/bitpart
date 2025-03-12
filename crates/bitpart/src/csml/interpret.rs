@@ -94,6 +94,7 @@ pub async fn step(
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
                 data.messages.push(msg);
             }
+            MSG::Shout(_) => todo!(),
             MSG::Log {
                 flow,
                 line,

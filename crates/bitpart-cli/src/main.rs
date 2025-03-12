@@ -69,6 +69,10 @@ enum Commands {
         /// Channel ID
         #[arg(short, long)]
         id: String,
+
+        /// Bot ID
+        #[arg(short, long)]
+        bot_id: String,
     },
 
     /// delete channel
@@ -77,13 +81,17 @@ enum Commands {
         /// Channel ID
         #[arg(short, long)]
         id: String,
+
+        /// Bot ID
+        #[arg(short, long)]
+        bot_id: String,
     },
 
     /// list channels
     #[command()]
     ChannelList {},
 
-    /// start channel linking
+    /// link a channel to a Signal account
     #[command(arg_required_else_help = true)]
     ChannelLink {
         /// Channel ID
@@ -93,21 +101,6 @@ enum Commands {
         /// Device name
         #[arg(short, long)]
         device_name: String,
-    },
-
-    /// complete channel linking
-    #[command(arg_required_else_help = true)]
-    ChannelRegister {
-        /// Channel ID
-        #[arg(short, long)]
-        id: String,
-
-        /// Captcha URL
-        #[arg(short, long)]
-        captcha: String,
-
-        /// Phone number
-        phone_number: String,
     },
 
     /// delete a bot
@@ -163,10 +156,6 @@ enum Commands {
 
         message: String,
     },
-
-    /// Websocket test
-    #[command()]
-    Test {},
 }
 
 fn find_csml(path: &str) -> Result<Vec<PathBuf>> {
@@ -207,7 +196,6 @@ async fn main() {
     };
 
     let (mut sender, mut receiver) = ws_stream.split();
-    //receiver just prints whatever it gets
     match args.command {
         Commands::Add {
             default: default_flow,
@@ -239,11 +227,14 @@ async fn main() {
             });
             println!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
             sender
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
         Commands::ChannelAdd { id, bot_id } => {
             let req = json!({"message_type": "CreateChannel",
@@ -254,36 +245,47 @@ async fn main() {
             });
             println!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
             sender
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
-        Commands::ChannelDescribe { id } => {
+        Commands::ChannelDescribe { id, bot_id } => {
             let req = json!({"message_type": "ReadChannel", "data" : {
-                "id": id
+                "id": id,
+                "bot_id": bot_id
             }});
             println!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
             sender
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
-        Commands::ChannelDelete { id } => {
+        Commands::ChannelDelete { id, bot_id } => {
             let req = json!({"message_type": "DeleteChannel",
                 "data" : {
                 "id": id,
+                "bot_id": bot_id
             }});
             println!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
             sender
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
         Commands::ChannelList {} => {
             let req = json!({"message_type": "ListChannels"});
@@ -294,6 +296,10 @@ async fn main() {
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
         Commands::ChannelLink { id, device_name } => {
             let req = json!({"message_type": "LinkChannel",
@@ -308,28 +314,50 @@ async fn main() {
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
-        Commands::ChannelRegister {
-            id,
-            phone_number,
-            captcha,
-        } => {
-            let req = json!({"message_type" : "RegisterChannel",
+        // Commands::ChannelRegister {
+        //     id,
+        //     phone_number,
+        //     captcha,
+        // } => {
+        //     let req = json!({"message_type" : "RegisterChannel",
+        //         "data" : {
+        //         "id": id,
+        //         "phone_number": phone_number,
+        //         "captcha": captcha,
+        //     }});
+        //     println!("Request: {:?}", req.to_string());
+
+        //     //we can ping the server for start
+        //     sender
+        //         .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
+        //         .await
+        //         .expect("Can not send!");
+        //     sender
+        //         .send(Message::Close(None))
+        //         .await
+        //         .expect("Failed to send close message.");
+        // }
+        Commands::Delete { id } => {
+            let req = json!({"message_type": "DeleteBot",
                 "data" : {
-                "id": id,
-                "phone_number": phone_number,
-                "captcha": captcha,
-            }});
+                    "id": id
+                }
+            });
             println!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
             sender
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
-        }
-        Commands::Delete { id } => {
-            todo!();
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
         Commands::Diff {
             version_a,
@@ -339,25 +367,33 @@ async fn main() {
         }
         Commands::Describe { id } => {
             let req = json!({"message_type": "ReadBot",
-                "data" : id
+                "data" : {
+                    "id": id
+                }
             });
             println!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
             sender
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
         Commands::List {} => {
             let req = json!({ "message_type" : "ListBots" });
             println!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
             sender
                 .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
                 .await
                 .expect("Can not send!");
+            sender
+                .send(Message::Close(None))
+                .await
+                .expect("Failed to send close message.");
         }
         Commands::Rollback { id, version } => {
             todo!();
@@ -389,14 +425,8 @@ async fn main() {
                 .await
                 .expect("Can not send!");
         }
-        Commands::Test {} => {
-            let req = json!({"Register": "TEST"});
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-        }
     }
+    //receiver just prints whatever it gets
     tokio::spawn(async move {
         println!("Receiving!");
         while let Some(Ok(msg)) = receiver.next().await {

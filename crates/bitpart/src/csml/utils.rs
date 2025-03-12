@@ -185,7 +185,7 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
                             .to_owned(),
                     }
                 }
-                None => return Err(BitpartError::Manager(format!("not valid ast"))),
+                None => return Err(BitpartError::Interpreter(format!("not valid ast"))),
             };
 
             get_step(step, &flow, &ast)
@@ -232,7 +232,7 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
                         None => get_step(step, &flow, &default_flow),
                     }
                 }
-                None => return Err(BitpartError::Manager(format!("not valid ast"))),
+                None => return Err(BitpartError::Interpreter(format!("not valid ast"))),
             }
         }
         ContextStepInfo::InsertedStep {
@@ -255,7 +255,7 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
                             .to_owned(),
                     }
                 }
-                None => return Err(BitpartError::Manager(format!("not valid ast"))),
+                None => return Err(BitpartError::Interpreter(format!("not valid ast"))),
             };
 
             get_step(step, &flow, &ast)

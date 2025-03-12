@@ -229,7 +229,7 @@ impl ContentsStore for BitpartStore {
         let tree_thread = db.open_tree(&messages_thread_tree_name(thread))?;
         debug!(%thread, count = tree_thread.len(), "loading message tree");
 
-        let iter = match (range.start_bound(), range.end_bound()) {
+        let range = match (range.start_bound(), range.end_bound()) {
             (Bound::Included(start), Bound::Unbounded) => {
                 tree_thread.range(start.to_be_bytes().to_vec()..)
             }
@@ -251,9 +251,13 @@ impl ContentsStore for BitpartStore {
             }
         };
 
+        let iter = Vec::from_iter(range.map(|(k, v)| (k.clone(), v.clone())));
+        let end = if iter.len() > 0 { iter.len() - 1 } else { 0 };
+
         Ok(BitpartMessagesIter {
-            data: Vec::from_iter(iter.map(|(k, v)| (k.clone(), v.clone()))),
-            index: 0,
+            start: 0,
+            end,
+            data: iter,
         })
     }
 
@@ -408,7 +412,8 @@ impl Iterator for BitpartStickerPacksIter {
 
 pub struct BitpartMessagesIter {
     data: Vec<(Vec<u8>, Vec<u8>)>,
-    index: usize,
+    start: usize,
+    end: usize,
 }
 
 impl BitpartMessagesIter {
@@ -435,16 +440,18 @@ impl Iterator for BitpartMessagesIter {
     type Item = Result<Content, BitpartStoreError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (key, value) = self.data.get(self.index)?;
-        self.index += 1;
+        let (key, value) = self.data.get(self.start)?;
+        self.start += 1;
         self.decode(Ok((key, value)))
     }
 }
 
 impl DoubleEndedIterator for BitpartMessagesIter {
     fn next_back(&mut self) -> Option<Self::Item> {
-        let (key, value) = self.data.get(self.index)?;
-        self.index -= 1;
+        let (key, value) = self.data.get(self.end)?;
+        if self.end > 0 {
+            self.end -= 1;
+        }
         self.decode(Ok((key, value)))
     }
 }

@@ -3,17 +3,16 @@ use hex;
 use presage;
 use presage_store_bitpart::BitpartStoreError;
 use sea_orm::DbErr;
-use serde::Serialize;
 use serde_json::Error as SerdeError;
 use std::io;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum BitpartError {
+    #[error("API error: `{0}`")]
+    Api(String),
     #[error("Interpreter error: `{0}`")]
     Interpreter(String),
-    #[error("Manager error: `{0}`")]
-    Manager(String),
     #[error("Database error: `{0}`")]
     Db(#[from] DbErr),
     #[error("I/O error: `{0}`")]

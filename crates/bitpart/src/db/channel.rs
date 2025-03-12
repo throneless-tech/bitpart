@@ -27,17 +27,15 @@ pub async fn list(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<String>, BitpartError> {
+) -> Result<Vec<channel::Model>, BitpartError> {
     let entries = Channel::find()
-        .column(channel::Column::Id)
-        .group_by(channel::Column::BotId)
         .order_by(channel::Column::CreatedAt, Order::Desc)
         .limit(limit)
         .offset(offset)
         .all(db)
         .await?;
 
-    Ok(entries.into_iter().map(|e| e.id.to_string()).collect())
+    Ok(entries)
 }
 
 pub async fn get(
@@ -93,8 +91,8 @@ pub async fn set(
 }
 
 pub async fn delete(
-    bot_id: &str,
     channel_id: &str,
+    bot_id: &str,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
     let entry = Channel::find()

@@ -1,20 +1,22 @@
 #[cfg(test)]
-use crate::api::ApiState;
-#[cfg(test)]
 use crate::channels::signal;
 #[cfg(test)]
 use crate::db;
 #[cfg(test)]
-use axum::Router;
+use crate::{api::ApiState, socket};
 #[cfg(test)]
-use axum_test::TestServer;
+use axum::{routing::any, Router};
+#[cfg(test)]
+use axum_test::{TestServer, TestWebSocket};
 #[cfg(test)]
 use sea_orm::Database;
 #[cfg(test)]
 use sea_orm_migration::MigratorTrait;
+#[cfg(test)]
+use std::net::SocketAddr;
 
 #[cfg(test)]
-pub async fn get_test_server(app: Router<ApiState>) -> TestServer {
+pub async fn get_test_socket() -> TestWebSocket {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     db::migration::Migrator::refresh(&db).await.unwrap();
 
@@ -23,10 +25,14 @@ pub async fn get_test_server(app: Router<ApiState>) -> TestServer {
         auth: "test".into(),
         manager: signal::SignalManager::new(),
     };
-    TestServer::builder()
+
+    let app = Router::new()
+        .route("/ws", any(socket::handler))
+        .with_state(state);
+
+    let server = TestServer::builder()
         .http_transport()
-        //.expect_success_by_default()
-        .mock_transport()
-        .build(app.with_state(state))
-        .unwrap()
+        .build(app.into_make_service_with_connect_info::<SocketAddr>())
+        .unwrap();
+    server.get_websocket("/ws").await.into_websocket().await
 }
