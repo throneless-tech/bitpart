@@ -7,6 +7,14 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
 
+  - hooks:
+      - id: commitizen
+      - id: commitizen-branch
+        stages:
+          - push
+    repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.4.1
+
   - repo: https://github.com/crate-ci/typos
     rev: v1.26.0
     hooks:
