@@ -9,10 +9,3 @@ members = [
 [patch.crates-io]
 reqwest-websocket = { git = 'https://github.com/throneless-tech/reqwest-websocket' }
 curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }
-
-#[patch.'https://github.com/whisperfish/libsignal-service-rs']
-#libsignal-service = { git = 'https://github.com/throneless-tech/libsignal-service-rs', branch = 'main' }
-
-# [patch.'https://github.com/signalapp/libsignal']
-# libsignal-protocol = { git = 'https://github.com/throneless-tech/libsignal', rev = '0a06f69bce222c184a8d4022b8cf4202b02b9001' }
-# zkgroup = { git = 'https://github.com/throneless-tech/libsignal', rev = '0a06f69bce222c184a8d4022b8cf4202b02b9001' }

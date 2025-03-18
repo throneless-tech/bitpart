@@ -23,7 +23,6 @@ pub async fn get(
     else {
         return Err(BitpartError::Interpreter("No state found".to_owned()));
     };
-    // Ok(entry.value.into())
     Ok(serde_json::from_str(&entry.value).unwrap())
 }
 
@@ -103,15 +102,6 @@ pub async fn delete(
 
     Ok(())
 }
-
-// pub async fn set_many(
-//     client: &Client,
-//     r#type: &str,
-//     pairs: Vec<(&str, &Value)>,
-//     expires_at: Option<NaiveDateTime>,
-//     db: &DatabaseConnection,
-// ) -> Result<(), BitpartError> {
-// }
 
 pub async fn delete_by_client(
     client: &Client,

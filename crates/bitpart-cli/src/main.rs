@@ -1,16 +1,17 @@
-use std::ffi::OsStr;
-use std::{fs, io, path::PathBuf};
-
-use anyhow::Result;
-use clap::{Args, Parser, Subcommand, ValueEnum};
-use futures_util::{SinkExt, StreamExt};
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use clap_verbosity_flag::Verbosity;
+use futures_util::{Sink, SinkExt, StreamExt};
 use http::HeaderValue;
-use serde_json::{json, Value};
+use serde_json::json;
+use std::{fs, marker::Unpin, path::PathBuf};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::client::IntoClientRequest,
     tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message},
 };
+use tracing::{debug, error};
+use tracing_log::AsTrace;
 use url::Url;
 
 /// The Bitpart CLI
@@ -24,6 +25,10 @@ struct Cli {
     /// IP address and port to connect to
     #[arg(short, long)]
     connect: String,
+
+    /// Verbosity
+    #[command(flatten)]
+    verbose: Verbosity,
 
     #[command(subcommand)]
     command: Commands,
@@ -158,21 +163,37 @@ enum Commands {
     },
 }
 
-fn find_csml(path: &str) -> Result<Vec<PathBuf>> {
-    let entries = fs::read_dir(path)?
-        .filter_map(|res| match res.ok()?.path() {
-            path if path.extension() == Some(OsStr::new("csml")) => Some(path),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+async fn send<S>(sender: &mut S, req: &serde_json::Value) -> Result<()>
+where
+    S: Sink<Message> + Unpin,
+    S::Error: Send + Sync + std::error::Error + 'static,
+{
+    Ok(sender
+        .send(Message::Text(serde_json::to_string(req).unwrap().into()))
+        .await
+        .context("Failed to send!")?)
+}
 
-    Ok(entries)
+async fn hangup<S>(sender: &mut S) -> Result<()>
+where
+    S: Sink<Message> + Unpin,
+    S::Error: Send + Sync + std::error::Error + 'static,
+{
+    Ok(sender
+        .send(Message::Close(Some(CloseFrame {
+            code: CloseCode::Normal,
+            reason: "Normal".into(),
+        })))
+        .await
+        .context("Failed to send close message.")?)
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     let args = Cli::parse();
-
+    tracing_subscriber::fmt()
+        .with_max_level(args.verbose.log_level_filter().as_trace())
+        .init();
     let connect = args.connect;
     let auth = args.auth;
 
@@ -183,15 +204,15 @@ async fn main() {
     headers.insert("Authorization", auth_value);
     let ws_stream = match connect_async(request).await {
         Ok((stream, response)) => {
-            println!("Handshake for client has been completed");
+            debug!("Handshake for client has been completed");
             // This will be the HTTP response, same as with server this is the last moment we
             // can still access HTTP stuff.
-            println!("Server response was {response:?}");
+            debug!("Server response was {response:?}");
             stream
         }
         Err(e) => {
-            println!("WebSocket handshake for client failed with {e}!");
-            return;
+            error!("WebSocket handshake for client failed with {e}!");
+            return Ok(());
         }
     };
 
@@ -225,16 +246,10 @@ async fn main() {
                 "flows": flows
                 }
             });
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::ChannelAdd { id, bot_id } => {
             let req = json!({"message_type": "CreateChannel",
@@ -243,32 +258,20 @@ async fn main() {
                     "bot_id": bot_id,
                     }
             });
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::ChannelDescribe { id, bot_id } => {
             let req = json!({"message_type": "ReadChannel", "data" : {
                 "id": id,
                 "bot_id": bot_id
             }});
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::ChannelDelete { id, bot_id } => {
             let req = json!({"message_type": "DeleteChannel",
@@ -276,30 +279,17 @@ async fn main() {
                 "id": id,
                 "bot_id": bot_id
             }});
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::ChannelList {} => {
             let req = json!({"message_type": "ListChannels"});
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::ChannelLink { id, device_name } => {
             let req = json!({"message_type": "LinkChannel",
@@ -307,17 +297,10 @@ async fn main() {
                 "id": id,
                 "device_name": device_name
             }});
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            //we can ping the server for start
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         // Commands::ChannelRegister {
         //     id,
@@ -348,20 +331,14 @@ async fn main() {
                     "id": id
                 }
             });
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::Diff {
-            version_a,
-            version_b,
+            version_a: _,
+            version_b: _,
         } => {
             todo!();
         }
@@ -371,31 +348,19 @@ async fn main() {
                     "id": id
                 }
             });
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::List {} => {
             let req = json!({ "message_type" : "ListBots" });
-            println!("Request: {:?}", req.to_string());
+            debug!("Request: {:?}", req.to_string());
 
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
-            sender
-                .send(Message::Close(None))
-                .await
-                .expect("Failed to send close message.");
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
-        Commands::Rollback { id, version } => {
+        Commands::Rollback { id: _, version: _ } => {
             todo!();
         }
         Commands::Talk { id, message } => {
@@ -420,15 +385,14 @@ async fn main() {
                     "metadata": serde_json::Value::Null,
                 }
             }});
-            sender
-                .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-                .await
-                .expect("Can not send!");
+            debug!("Request: {:?}", req.to_string());
+
+            send(&mut sender, &req).await?;
         }
     }
     //receiver just prints whatever it gets
     tokio::spawn(async move {
-        println!("Receiving!");
+        debug!("Receiving!");
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(t) => {
@@ -440,4 +404,5 @@ async fn main() {
     })
     .await
     .unwrap();
+    Ok(())
 }

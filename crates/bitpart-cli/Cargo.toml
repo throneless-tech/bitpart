@@ -1,11 +1,12 @@
 [package]
 name = "bitpart-cli"
-version = "0.1.0"
+version = "1.0.0-alpha.1"
 authors = ["Josh King <josh@throneless.tech>"]
 edition = "2021"
+license = "AGPL-3.0-only"
 
 [dependencies]
-anyhow = "1.0"
+anyhow = "1.0.97"
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = "3.0.2"
 ctrlc = "3.4.5"
