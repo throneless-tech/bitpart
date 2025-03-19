@@ -1,3 +1,19 @@
+// Bitpart
+// Copyright (C) 2025 Throneless Tech
+
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Affero General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU Affero General Public License for more details.
+
+// You should have received a copy of the GNU Affero General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
 use crate::channels::signal;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
@@ -78,7 +94,11 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: ApiState) 
     while let Some(msg) = socket.recv().await {
         let msg = if let Ok(msg) = msg {
             match process_message(msg, who, &state).await {
-                Ok(msg) => msg,
+                Ok(Some(msg)) => msg,
+                Ok(None) => {
+                    debug!("Websocket closed");
+                    return;
+                }
                 Err(err) => {
                     error!("Error parsing message from {who}: {}", err);
                     return;
@@ -96,31 +116,34 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: ApiState) 
     }
 }
 
-fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Message, BitpartError> {
-    Ok(Message::Text(
+fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Message>, BitpartError> {
+    Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Error(Response {
             response_type: response_type.to_owned(),
             response: serde_json::to_string(res)?,
         }))?
         .into(),
-    ))
+    )))
 }
 
-fn wrap_response<S: Serialize>(response_type: &str, res: &S) -> Result<Message, BitpartError> {
-    Ok(Message::Text(
+fn wrap_response<S: Serialize>(
+    response_type: &str,
+    res: &S,
+) -> Result<Option<Message>, BitpartError> {
+    Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Response(Response {
             response_type: response_type.to_owned(),
             response: serde_json::to_string(res)?,
         }))?
         .into(),
-    ))
+    )))
 }
 
 async fn process_message(
     msg: Message,
     who: SocketAddr,
     state: &ApiState,
-) -> Result<Message, BitpartError> {
+) -> Result<Option<Message>, BitpartError> {
     match msg {
         Message::Text(t) => {
             debug!(">>> {who} sent str: {t:?}");
@@ -244,23 +267,27 @@ async fn process_message(
                     ">>> {} sent close with code {} and reason `{}`",
                     who, cf.code, cf.reason
                 );
+                match cf.code {
+                    1000 => Ok(None), // 1000 is code for "Normal"
+                    _ => Err(BitpartError::WebsocketClose),
+                }
             } else {
                 debug!(">>> {who} somehow sent close message without CloseFrame");
+                Err(BitpartError::WebsocketClose)
             }
-            return Err(BitpartError::WebsocketClose);
         }
 
         Message::Pong(v) => {
             debug!(">>> {who} sent pong with {v:?}");
-            Ok(Message::Text(
+            Ok(Some(Message::Text(
                 serde_json::to_string("Pong received")?.into(),
-            ))
+            )))
         }
         Message::Ping(v) => {
             debug!(">>> {who} sent ping with {v:?}");
-            Ok(Message::Text(
+            Ok(Some(Message::Text(
                 serde_json::to_string("Ping received")?.into(),
-            ))
+            )))
         }
     }
 }

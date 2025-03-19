@@ -2,7 +2,7 @@
 name = "bitpart-cli"
 version = "1.0.0-alpha.1"
 authors = ["Josh King <josh@throneless.tech>"]
-edition = "2021"
+edition = "2024"
 license = "AGPL-3.0-only"
 
 [dependencies]

@@ -1,7 +1,7 @@
 [package]
 name = "presage-store-bitpart"
 version = "1.0.0-alpha.1"
-edition = "2021"
+edition = "2024"
 authors = ["Josh King <josh@throneless.tech>"]
 license = "AGPL-3.0-only"
 
