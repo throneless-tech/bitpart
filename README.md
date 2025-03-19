@@ -12,9 +12,15 @@ This repository contains three components: the Bitpart server, a command-line cl
 
 ## Installing
 
+TODO
+
 ## Usage
 
+TODO
+
 ### CSML
+
+TODO
 
 ## License
 
