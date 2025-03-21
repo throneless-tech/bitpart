@@ -32,9 +32,9 @@ use notify_rust::Notification;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::Reaction;
 use presage::libsignal_service::pre_keys::PreKeysStore;
-use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::prelude::ProfileKey;
 use presage::libsignal_service::prelude::Uuid;
+use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::proto::data_message::Quote;
 use presage::libsignal_service::proto::sync_message::Sent;
 use presage::libsignal_service::protocol::ServiceId;
@@ -44,16 +44,16 @@ use presage::model::contacts::Contact;
 use presage::model::groups::Group;
 use presage::model::identity::OnNewIdentity;
 use presage::model::messages::Received;
-use presage::proto::receipt_message;
 use presage::proto::EditMessage;
 use presage::proto::ReceiptMessage;
 use presage::proto::SyncMessage;
+use presage::proto::receipt_message;
 use presage::store::ContentExt;
 use presage::{
+    Manager,
     libsignal_service::content::{Content, ContentBody, DataMessage, GroupContextV2},
     manager::{Registered, RegistrationOptions},
     store::{Store, Thread},
-    Manager,
 };
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
@@ -601,7 +601,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) {
         for i in messages.as_array().unwrap().iter() {
             state
                 .tx
-                .send((user_id.clone(), reply_get_text(i)))
+                .send((reply_get_user_id(i, &user_id), reply_get_text(i)))
                 .await
                 .unwrap();
         }
@@ -615,6 +615,19 @@ fn unescape(input: &str) -> String {
         .replace("\\t", "\t")
         .replace("\\\"", "\"")
         .replace("\\\\", "\\")
+}
+
+fn reply_get_user_id(res: &serde_json::Value, default_user_id: &str) -> String {
+    if let Some(ref payload) = res.get("payload") {
+        if let Some(content) = payload.get("content") {
+            if let Some(client) = content.get("client") {
+                if let Some(user_id) = client.get("user_id") {
+                    return format!("{}", unescape(&user_id.to_string()));
+                }
+            }
+        }
+    }
+    return default_user_id.to_string();
 }
 
 fn reply_get_text(res: &serde_json::Value) -> String {
@@ -864,10 +877,15 @@ pub async fn retrieve_profile<S: Store>(
             .filter_map(Result::ok)
             .filter(|c| c.uuid == uuid)
         {
-            let profilek:[u8;32] = match(contact.profile_key).try_into() {
-                    Ok(profilek) => profilek,
-                    Err(_) => return Err(BitpartError::Signal(format!("Profile key is not 32 bytes or empty for uuid: {:?} and no alternative profile key was provided", uuid))),
-                };
+            let profilek: [u8; 32] = match (contact.profile_key).try_into() {
+                Ok(profilek) => profilek,
+                Err(_) => {
+                    return Err(BitpartError::Signal(format!(
+                        "Profile key is not 32 bytes or empty for uuid: {:?} and no alternative profile key was provided",
+                        uuid
+                    )));
+                }
+            };
             profile_key = Some(ProfileKey::create(profilek));
         }
     } else {
@@ -1016,7 +1034,9 @@ pub async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), Bitp
         .await
         .map_err(|_e| BitpartError::Signal("failed to initialize messages stream".to_owned()))?;
     pin_mut!(messages);
-    debug!("synchronizing messages until we get contacts (dots are messages synced from the past timeline)");
+    debug!(
+        "synchronizing messages until we get contacts (dots are messages synced from the past timeline)"
+    );
     while let Some(content) = messages.next().await {
         match content {
             Received::QueueEmpty => break,

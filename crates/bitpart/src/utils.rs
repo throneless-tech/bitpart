@@ -21,7 +21,7 @@ use crate::db;
 #[cfg(test)]
 use crate::{api::ApiState, socket};
 #[cfg(test)]
-use axum::{routing::any, Router};
+use axum::{Router, routing::any};
 #[cfg(test)]
 use axum_test::{TestServer, TestWebSocket};
 #[cfg(test)]

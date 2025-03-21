@@ -20,12 +20,12 @@
 use chrono::Utc;
 use csml_interpreter::csml_logs::LogLvl;
 use csml_interpreter::data::{
-    ast::ForgetMemory, context::ContextStepInfo, event::Event, Client, CsmlBot, CsmlFlow, Hold,
-    Memory, Message, MultiBot, MSG,
+    Client, CsmlBot, CsmlFlow, Hold, MSG, Memory, Message, MultiBot, ast::ForgetMemory,
+    context::ContextStepInfo, event::Event,
 };
 use csml_interpreter::interpret;
 use sea_orm::DatabaseConnection;
-use serde_json::{map::Map, Value};
+use serde_json::{Value, map::Map};
 use std::collections::HashMap;
 use std::sync::mpsc;
 use std::thread;
@@ -113,7 +113,36 @@ pub async fn step(
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
                 data.messages.push(msg);
             }
-            MSG::Shout(_) => todo!(),
+            MSG::Shout(msg) => {
+                info!(flow = data.context.flow.to_string(), "sending message");
+                debug!(
+                    bot_id = data.client.bot_id.to_string(),
+                    user_id = data.client.user_id.to_string(),
+                    channel_id = data.client.channel_id.to_string(),
+                    flow = data.context.flow.to_string(),
+                    "sending message {:?}",
+                    msg
+                );
+
+                debug!("CONTEXT {:?}", data.context);
+
+                send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
+
+                let convos =
+                    db::conversation::get_by_bot_id(&data.client.bot_id, None, None, db).await?;
+
+                for c in convos.iter() {
+                    let mut msg_copy = msg.clone();
+                    if let Value::Object(ref mut content) = msg_copy.content {
+                        content.insert(
+                            "client".to_owned(),
+                            serde_json::json!({ "bot_id": c.bot_id, "user_id": c.user_id, "channel_id": c.channel_id }),
+                        );
+                    };
+
+                    data.messages.push(msg_copy);
+                }
+            }
             MSG::Log {
                 flow,
                 line,

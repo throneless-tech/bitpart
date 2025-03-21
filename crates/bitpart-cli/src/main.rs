@@ -24,7 +24,7 @@ use std::{fs, marker::Unpin, path::PathBuf};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::client::IntoClientRequest,
-    tungstenite::protocol::{frame::coding::CloseCode, CloseFrame, Message},
+    tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode},
 };
 use tracing::{debug, error};
 use tracing_log::AsTrace;
@@ -184,10 +184,10 @@ where
     S: Sink<Message> + Unpin,
     S::Error: Send + Sync + std::error::Error + 'static,
 {
-    Ok(sender
+    sender
         .send(Message::Text(serde_json::to_string(req).unwrap().into()))
         .await
-        .context("Failed to send!")?)
+        .context("Failed to send!")
 }
 
 async fn hangup<S>(sender: &mut S) -> Result<()>
@@ -195,13 +195,13 @@ where
     S: Sink<Message> + Unpin,
     S::Error: Send + Sync + std::error::Error + 'static,
 {
-    Ok(sender
+    sender
         .send(Message::Close(Some(CloseFrame {
             code: CloseCode::Normal,
             reason: "Normal".into(),
         })))
         .await
-        .context("Failed to send close message.")?)
+        .context("Failed to send close message.")
 }
 
 #[tokio::main]

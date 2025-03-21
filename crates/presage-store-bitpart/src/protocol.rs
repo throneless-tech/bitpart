@@ -35,7 +35,7 @@ use presage::{
         session_store::SessionStoreExt,
     },
     proto::verified,
-    store::{save_trusted_identity_message, StateStore},
+    store::{StateStore, save_trusted_identity_message},
 };
 use tracing::{error, trace, warn};
 

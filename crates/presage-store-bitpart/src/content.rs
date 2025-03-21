@@ -20,22 +20,22 @@
 use std::ops::{Bound, RangeBounds, RangeFull};
 
 use presage::{
+    AvatarBytes,
     libsignal_service::{
+        Profile,
         content::Content,
         prelude::Uuid,
-        zkgroup::{profiles::ProfileKey, GroupMasterKeyBytes},
-        Profile,
+        zkgroup::{GroupMasterKeyBytes, profiles::ProfileKey},
     },
     model::{contacts::Contact, groups::Group},
     store::{ContentExt, ContentsStore, StickerPack, Thread},
-    AvatarBytes,
 };
 use prost::Message;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use tracing::{debug, trace};
 
-use crate::{protobuf::ContentProto, BitpartStore, BitpartStoreError};
+use crate::{BitpartStore, BitpartStoreError, protobuf::ContentProto};
 
 const SLED_TREE_PROFILE_AVATARS: &str = "profile_avatars";
 const SLED_TREE_PROFILE_KEYS: &str = "profile_keys";

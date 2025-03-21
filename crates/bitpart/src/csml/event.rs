@@ -19,7 +19,7 @@
 
 use csml_interpreter::data::{Client, Event};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::data::FlowTrigger;
 use crate::error::BitpartError;
@@ -90,7 +90,7 @@ fn request_to_event(request: &SerializedEvent) -> Result<Event, BitpartError> {
         None => {
             return Err(BitpartError::Interpreter(
                 "no content_type in event payload".to_owned(),
-            ))
+            ));
         }
     };
     let content = json_event["payload"]["content"].to_owned();

@@ -23,20 +23,20 @@ mod socket;
 mod utils;
 
 use axum::{
+    Router,
     extract::{Request, State},
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     middleware::{self, Next},
     response::Response,
     routing::any,
-    Router,
 };
 use channels::signal;
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use directories::ProjectDirs;
 use figment::{
-    providers::{Env, Format, Serialized, Toml},
     Figment,
+    providers::{Env, Format, Serialized, Toml},
 };
 use figment_file_provider_adapter::FileAdapter;
 use sea_orm::{ConnectOptions, Database};

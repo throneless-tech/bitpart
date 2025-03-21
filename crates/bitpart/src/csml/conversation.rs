@@ -21,14 +21,14 @@ use async_recursion::async_recursion;
 use base64::prelude::*;
 use chrono::Utc;
 use csml_interpreter::data::{
-    ast::Flow,
-    context::{get_hashmap_from_json, get_hashmap_from_mem, ContextStepInfo},
     ApiInfo, Client, Context, CsmlBot, CsmlFlow, CsmlResult, Event, Hold, IndexInfo, Message,
     PreviousBot,
+    ast::Flow,
+    context::{ContextStepInfo, get_hashmap_from_json, get_hashmap_from_mem},
 };
 use csml_interpreter::{load_components, search_for_modules, validate_bot};
 use sea_orm::*;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 
 use super::data::{BotOpt, ConversationData, Request, SwitchBot};
@@ -248,7 +248,7 @@ fn set_bot_ast(bot: &mut CsmlBot) -> Result<(), BitpartError> {
             return Err(BitpartError::Interpreter(format!(
                 "invalid bot {:?}",
                 errors
-            )))
+            )));
         }
         _ => return Err(BitpartError::Interpreter(format!("empty bot"))),
     }
@@ -501,7 +501,7 @@ pub async fn start(
         if let Ok(delay) = db::state::get(&data.client, "delay", "content", db).await {
             match (delay["delay_value"].as_i64(), delay["timestamp"].as_i64()) {
                 (Some(delay), Some(timestamp)) if timestamp + delay >= Utc::now().timestamp() => {
-                    return Ok(serde_json::Map::new())
+                    return Ok(serde_json::Map::new());
                 }
                 _ => {}
             }

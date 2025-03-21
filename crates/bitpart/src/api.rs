@@ -300,7 +300,7 @@ pub async fn process_request(
 #[cfg(test)]
 mod test_request {
     use crate::utils::get_test_socket;
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     #[tokio::test]
     async fn it_should_send_request() {

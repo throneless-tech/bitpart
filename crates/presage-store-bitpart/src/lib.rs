@@ -32,9 +32,9 @@ use presage::{
 use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{
+    Deserialize, Deserializer, Serialize,
     de::DeserializeOwned,
     ser::{SerializeMap, Serializer},
-    Deserialize, Deserializer, Serialize,
 };
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, MutexGuard};

@@ -111,6 +111,22 @@ pub async fn get_by_client(
     Ok(entry)
 }
 
+pub async fn get_by_bot_id(
+    bot_id: &str,
+    limit: Option<u64>,
+    offset: Option<u64>,
+    db: &DatabaseConnection,
+) -> Result<Vec<conversation::Model>, BitpartError> {
+    let entry = Conversation::find()
+        .filter(conversation::Column::BotId.eq(bot_id.to_owned()))
+        .limit(limit)
+        .offset(offset)
+        .all(db)
+        .await?;
+
+    Ok(entry)
+}
+
 pub async fn update(
     id: &str,
     flow_id: Option<String>,

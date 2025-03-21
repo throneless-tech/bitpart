@@ -20,17 +20,17 @@
 use base64::prelude::*;
 use chrono::{SecondsFormat, Utc};
 use csml_interpreter::data::{
+    Client, Context, CsmlBot, CsmlFlow, Event, Interval, Memory, Message,
     ast::{Flow, InsertStep, InstructionScope},
     context::ContextStepInfo,
-    Client, Context, CsmlBot, CsmlFlow, Event, Interval, Memory, Message,
 };
 use csml_interpreter::get_step;
 use csml_interpreter::interpreter::json_to_literal;
 use md5::{Digest, Md5};
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use regex::Regex;
 use sea_orm::DatabaseConnection;
-use serde_json::{json, map::Map, Value};
+use serde_json::{Value, json, map::Map};
 use std::collections::HashMap;
 use std::env;
 use tracing::debug;

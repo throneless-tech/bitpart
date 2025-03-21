@@ -16,11 +16,6 @@ repos:
         stages:
           - push
 
-  - repo: https://github.com/crate-ci/typos
-    rev: v1.26.0
-    hooks:
-      - id: typos
-
   - repo: local
     hooks:
       - id: cargo-fmt
