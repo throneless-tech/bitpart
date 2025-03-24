@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::BTreeMap, ops::Range, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use base64::prelude::*;
 use presage::{
@@ -30,7 +30,8 @@ use presage::{
     store::{ContentsStore, StateStore, Store},
 };
 use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
-use sea_orm::{ConnectionTrait, DatabaseConnection};
+
+use sea_orm::DatabaseConnection;
 use serde::{
     Deserialize, Deserializer, Serialize,
     de::DeserializeOwned,
@@ -47,10 +48,12 @@ mod protocol;
 
 pub use error::BitpartStoreError;
 
+#[cfg(test)]
+use sea_orm::ConnectionTrait;
+
 const SLED_TREE_STATE: &str = "state";
 
 const SLED_KEY_REGISTRATION: &str = "registration";
-const SLED_KEY_SCHEMA_VERSION: &str = "schema_version";
 
 // In-memory stand-in for Sled
 #[derive(Debug, Deserialize)]
@@ -147,45 +150,6 @@ pub enum MigrationConflictStrategy {
     Raise,
     // / _Default_: The _entire_ database is backed up under, before the databases are dropped.
     // BackupAndDrop,
-}
-
-#[derive(PartialEq, Eq, Clone, Debug, Default, Serialize, Deserialize)]
-pub enum SchemaVersion {
-    /// prior to any versioning of the schema
-    #[default]
-    V0 = 0,
-    V1 = 1,
-    V2 = 2,
-    V3 = 3,
-    // Introduction of avatars, requires dropping all profiles from the cache
-    V4 = 4,
-    /// ACI and PNI identity key pairs are moved into dedicated storage keys from registration data
-    V5 = 5,
-    /// Reset pre-keys after fixing persistence
-    V6 = 6,
-}
-
-impl SchemaVersion {
-    fn current() -> SchemaVersion {
-        Self::V6
-    }
-
-    /// return an iterator on all the necessary migration steps from another version
-    fn steps(self) -> impl Iterator<Item = SchemaVersion> {
-        Range {
-            start: self as u8 + 1,
-            end: Self::current() as u8 + 1,
-        }
-        .map(|i| match i {
-            1 => SchemaVersion::V1,
-            2 => SchemaVersion::V2,
-            3 => SchemaVersion::V3,
-            4 => SchemaVersion::V4,
-            5 => SchemaVersion::V5,
-            6 => SchemaVersion::V6,
-            _ => unreachable!("oops, this not supposed to happen!"),
-        })
-    }
 }
 
 impl BitpartStore {
@@ -286,22 +250,6 @@ impl BitpartStore {
         self.db.lock().await
     }
 
-    async fn schema_version(&self) -> SchemaVersion {
-        self.get(SLED_TREE_STATE, SLED_KEY_SCHEMA_VERSION)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    }
-
-    fn decrypt_value<T: DeserializeOwned>(&self, value: Vec<u8>) -> Result<T, BitpartStoreError> {
-        Ok(serde_json::from_slice(&value)?)
-    }
-
-    fn encrypt_value(&self, value: &impl Serialize) -> Result<Vec<u8>, BitpartStoreError> {
-        Ok(serde_json::to_vec(value)?)
-    }
-
     pub async fn get<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
     where
         K: AsRef<[u8]>,
@@ -312,9 +260,6 @@ impl BitpartStore {
         } else {
             Ok(None)
         }
-        // .map(|p| self.decrypt_value(p))
-        // .transpose()
-        // .map_err(BitpartStoreError::from)
     }
 
     pub async fn iter<'a, V: DeserializeOwned + 'a>(
@@ -327,7 +272,7 @@ impl BitpartStore {
             .open_tree(tree)?
             .clone()
             .into_iter()
-            .map(move |(_, value)| self.decrypt_value::<V>(value.clone())))
+            .map(move |(_, value)| Ok(serde_json::from_slice::<V>(&value)?)))
     }
 
     async fn insert<K, V>(&self, tree: &str, key: K, value: V) -> Result<bool, BitpartStoreError>
@@ -335,7 +280,6 @@ impl BitpartStore {
         K: AsRef<[u8]>,
         V: Serialize,
     {
-        // let value = self.encrypt_value(&value)?;
         let replaced = self
             .write()
             .await
@@ -388,165 +332,11 @@ impl BitpartStore {
 }
 
 async fn migrate(
-    id: &str,
-    database: &DatabaseConnection,
-    migration_conflict_strategy: MigrationConflictStrategy,
+    _id: &str,
+    _database: &DatabaseConnection,
+    _migration_conflict_strategy: MigrationConflictStrategy,
 ) -> Result<(), BitpartStoreError> {
-    // let run_migrations = {
-    //     let mut store = BitpartStore::new(id, database, OnNewIdentity::Reject).await?;
-    //     let schema_version = store.schema_version();
-    //     for step in schema_version.steps() {
-    //         match &step {
-    //             SchemaVersion::V1 => {
-    //                 debug!("migrating from v0, nothing to do")
-    //             }
-    //             SchemaVersion::V2 => {
-    //                 debug!("migrating from schema v1 to v2: encrypting state if cipher is enabled");
-
-    //                 // load registration data the old school way
-    //                 let registration = store
-    //                     .read()
-    //                     .open_tree("default")?
-    //                     .get(SLED_KEY_REGISTRATION.as_bytes());
-    //                 if let Some(data) = registration {
-    //                     let state =
-    //                         serde_json::from_slice(&data).map_err(BitpartStoreError::from)?;
-
-    //                     // save it the new school way
-    //                     store.save_registration_data(&state).await?;
-
-    //                     // remove old data
-    //                     let db = store.write();
-    //                     db.open_tree("default")?
-    //                         .remove(SLED_KEY_REGISTRATION.as_bytes());
-    //                     store.flush().await?;
-    //                 }
-    //             }
-    //             SchemaVersion::V3 => {
-    //                 debug!("migrating from schema v2 to v3: dropping encrypted group cache");
-    //                 store.clear_groups().await?;
-    //             }
-    //             SchemaVersion::V4 => {
-    //                 debug!("migrating from schema v3 to v4: dropping profile cache");
-    //                 store.clear_profiles().await?;
-    //             }
-    //             SchemaVersion::V5 => {
-    //                 debug!("migrating from schema v4 to v5: moving identity key pairs");
-
-    //                 #[derive(Deserialize)]
-    //                 struct RegistrationDataV4Keys {
-    //                     #[serde(with = "serde_private_key", rename = "private_key")]
-    //                     pub(crate) aci_private_key: PrivateKey,
-    //                     #[serde(with = "serde_identity_key", rename = "public_key")]
-    //                     pub(crate) aci_public_key: IdentityKey,
-    //                     #[serde(with = "serde_optional_private_key", default)]
-    //                     pub(crate) pni_private_key: Option<PrivateKey>,
-    //                     #[serde(with = "serde_optional_identity_key", default)]
-    //                     pub(crate) pni_public_key: Option<IdentityKey>,
-    //                 }
-
-    //                 let run_step: Result<(), BitpartStoreError> = {
-    //                     let registration_data: Option<RegistrationDataV4Keys> =
-    //                         store.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION)?;
-    //                     if let Some(data) = registration_data {
-    //                         store
-    //                             .set_aci_identity_key_pair(IdentityKeyPair::new(
-    //                                 data.aci_public_key,
-    //                                 data.aci_private_key,
-    //                             ))
-    //                             .await?;
-    //                         if let Some((public_key, private_key)) =
-    //                             data.pni_public_key.zip(data.pni_private_key)
-    //                         {
-    //                             store
-    //                                 .set_pni_identity_key_pair(IdentityKeyPair::new(
-    //                                     public_key,
-    //                                     private_key,
-    //                                 ))
-    //                                 .await?;
-    //                         }
-    //                     }
-    //                     Ok(())
-    //                 };
-
-    //                 if let Err(error) = run_step {
-    //                     error!("failed to run v4 -> v5 migration: {error}");
-    //                 }
-    //             }
-    //             SchemaVersion::V6 => {
-    //                 debug!("migrating from schema v5 to v6: new keys encoding in ACI and PNI protocol stores");
-    //                 let db = store.read();
-
-    //                 let trees = [
-    //                     AciBitpartStore::signed_pre_keys(),
-    //                     AciBitpartStore::pre_keys(),
-    //                     AciBitpartStore::kyber_pre_keys(),
-    //                     AciBitpartStore::kyber_pre_keys_last_resort(),
-    //                     PniBitpartStore::signed_pre_keys(),
-    //                     PniBitpartStore::pre_keys(),
-    //                     PniBitpartStore::kyber_pre_keys(),
-    //                     PniBitpartStore::kyber_pre_keys_last_resort(),
-    //                 ];
-
-    //                 for tree_name in trees {
-    //                     let tree = db.open_tree(tree_name)?;
-    //                     let num_keys_before = tree.len();
-    //                     let mut data = Vec::new();
-    //                     for (k, v) in tree.iter() {
-    //                         if let Some(key) = std::str::from_utf8(&k)
-    //                             .ok()
-    //                             .and_then(|s| s.parse::<u32>().ok())
-    //                         {
-    //                             data.push((key, v));
-    //                         }
-    //                     }
-    //                     tree.clear();
-    //                     for (k, v) in data {
-    //                         let _ = tree.insert(Vec::from(k.to_be_bytes()), v.to_owned());
-    //                     }
-    //                     let num_keys_after = tree.len();
-    //                     debug!(tree_name, num_keys_before, num_keys_after, "migrated keys");
-    //                 }
-    //             }
-    //             _ => return Err(BitpartStoreError::MigrationConflict),
-    //         }
-
-    //         store
-    //             .insert(SLED_TREE_STATE, SLED_KEY_SCHEMA_VERSION, step)
-    //             .await?;
-    //     }
-
-    //     Ok(())
-    // };
-
-    // // let db_path = database
-    // //     .get_sqlite_connection_pool()
-    // //     .connect_options()
-    // //     .get_filename();
-
-    // if let Err(BitpartStoreError::MigrationConflict) = run_migrations {
-    //     match migration_conflict_strategy {
-    //         // MigrationConflictStrategy::BackupAndDrop => {
-    //         //     let mut new_db_path = db_path.clone();
-    //         //     new_db_path.set_extension(format!(
-    //         //         "{}.backup",
-    //         //         SystemTime::now()
-    //         //             .duration_since(UNIX_EPOCH)
-    //         //             .expect("time doesn't go backwards")
-    //         //             .as_secs()
-    //         //     ));
-    //         //     fs_extra::dir::create_all(&new_db_path, false)?;
-    //         //     fs_extra::dir::copy(db_path, new_db_path, &fs_extra::dir::CopyOptions::new())?;
-    //         //     fs_extra::dir::remove(db_path)?;
-    //         // }
-    //         // MigrationConflictStrategy::Drop => {
-    //         //     fs_extra::dir::remove(db_path)?;
-    //         // }
-    //         MigrationConflictStrategy::Raise => return Err(BitpartStoreError::MigrationConflict),
-    //     }
-    // }
-
-    Ok(())
+    todo!("No migrations yet!");
 }
 
 impl StateStore for BitpartStore {
@@ -643,25 +433,8 @@ mod tests {
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
 
-    use crate::SchemaVersion;
-
     use super::*;
 
-    #[test]
-    fn test_migration_steps() {
-        let steps: Vec<_> = SchemaVersion::steps(SchemaVersion::V0).collect();
-        assert_eq!(
-            steps,
-            [
-                SchemaVersion::V1,
-                SchemaVersion::V2,
-                SchemaVersion::V3,
-                SchemaVersion::V4,
-                SchemaVersion::V5,
-                SchemaVersion::V6,
-            ]
-        )
-    }
     #[derive(Debug, Clone)]
     struct Thread(presage::store::Thread);
 
