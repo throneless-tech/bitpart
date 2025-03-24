@@ -15,6 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use base64;
+use figment;
 use hex;
 use presage;
 use presage_store_bitpart::BitpartStoreError;
@@ -22,6 +23,7 @@ use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
 use std::io;
 use thiserror::Error;
+use tokio;
 
 #[derive(Debug, Error)]
 pub enum BitpartError {
@@ -33,6 +35,12 @@ pub enum BitpartError {
     Db(#[from] DbErr),
     #[error("I/O error: `{0}`")]
     Io(#[from] io::Error),
+    #[error("Directory error: `{0}`")]
+    Directory(String),
+    #[error("Figment error: `{0}`")]
+    Figment(#[from] figment::Error),
+    #[error("Channel Receive error: `{0}`")]
+    ChannelRecv(#[from] tokio::sync::oneshot::error::RecvError),
     #[error("Presage store error")]
     PresageStore,
     #[error("Attachment error: `{0}`")]
@@ -51,8 +59,8 @@ pub enum BitpartError {
     SignalStore(#[from] BitpartStoreError),
     #[error("Websocket close")]
     WebsocketClose,
-    #[error("Channel error: `{0}`")]
-    ChannelError(#[from] futures::channel::oneshot::Canceled),
+    #[error("Channel Canceled error: `{0}`")]
+    ChannelCanceled(#[from] futures::channel::oneshot::Canceled),
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartError {

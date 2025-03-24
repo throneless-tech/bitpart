@@ -48,35 +48,19 @@ struct Response {
 #[serde(tag = "message_type", content = "data")]
 enum SocketMessage {
     CreateBot(CsmlBot),
-    ReadBot {
-        id: String,
-    },
-    DeleteBot {
-        id: String,
-    },
+    ReadBot { id: String },
+    DeleteBot { id: String },
     ListBots(Option<Paginate>),
-    CreateChannel {
-        id: String,
-        bot_id: String,
-    },
-    ReadChannel {
-        id: String,
-        bot_id: String,
-    },
+    CreateChannel { id: String, bot_id: String },
+    ReadChannel { id: String, bot_id: String },
     ListChannels(Option<Paginate>),
-    DeleteChannel {
-        id: String,
-        bot_id: String,
-    },
-    LinkChannel {
-        id: String,
-        device_name: String,
-    },
-    RegisterChannel {
-        id: String,
-        phone_number: String,
-        captcha: String,
-    },
+    DeleteChannel { id: String, bot_id: String },
+    LinkChannel { id: String, device_name: String },
+    // RegisterChannel {
+    //     id: String,
+    //     phone_number: String,
+    //     captcha: String,
+    // },
     ChatRequest(Request),
     Response(Response),
     Error(Response),
@@ -226,30 +210,30 @@ async fn process_message(
                         Err(err) => wrap_error("LinkChannel", &err.to_string()),
                     }
                 }
-                SocketMessage::RegisterChannel {
-                    id,
-                    phone_number,
-                    captcha,
-                } => {
-                    let (send, recv) = oneshot::channel();
-                    let contents = signal::ChannelMessageContents::RegisterChannel {
-                        id,
-                        phone_number,
-                        captcha,
-                    };
-                    let msg = signal::ChannelMessage {
-                        msg: contents,
-                        db: state.db.clone(),
-                        sender: send,
-                    };
-                    state.manager.send(msg);
-                    match recv.await {
-                        Ok(res) => wrap_response("RegisterChannel", &res),
-                        Err(err) => wrap_error("RegisterChannel", &err.to_string()),
-                    }
-                }
+                // SocketMessage::RegisterChannel {
+                //     id,
+                //     phone_number,
+                //     captcha,
+                // } => {
+                //     let (send, recv) = oneshot::channel();
+                //     let contents = signal::ChannelMessageContents::RegisterChannel {
+                //         id,
+                //         phone_number,
+                //         captcha,
+                //     };
+                //     let msg = signal::ChannelMessage {
+                //         msg: contents,
+                //         db: state.db.clone(),
+                //         sender: send,
+                //     };
+                //     state.manager.send(msg);
+                //     match recv.await {
+                //         Ok(res) => wrap_response("RegisterChannel", &res),
+                //         Err(err) => wrap_error("RegisterChannel", &err.to_string()),
+                //     }
+                // }
                 _ => Ok(wrap_error(
-                    "RegisterChannel",
+                    "SocketMessage",
                     &"Invalid SocketMessage".to_owned(),
                 )?),
             }

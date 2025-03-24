@@ -17,31 +17,23 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::convert::TryInto;
 use std::path::Path;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
 
-use base64::prelude::*;
 use chrono::Local;
 use csml_interpreter::data::Client;
 use futures::StreamExt;
 use futures::{channel::oneshot, pin_mut};
 use mime_guess::mime::APPLICATION_OCTET_STREAM;
-use notify_rust::Notification;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::Reaction;
-use presage::libsignal_service::pre_keys::PreKeysStore;
-use presage::libsignal_service::prelude::ProfileKey;
 use presage::libsignal_service::prelude::Uuid;
-use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::proto::data_message::Quote;
 use presage::libsignal_service::proto::sync_message::Sent;
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
-use presage::model::contacts::Contact;
-use presage::model::groups::Group;
 use presage::model::identity::OnNewIdentity;
 use presage::model::messages::Received;
 use presage::proto::EditMessage;
@@ -52,7 +44,7 @@ use presage::store::ContentExt;
 use presage::{
     Manager,
     libsignal_service::content::{Content, ContentBody, DataMessage, GroupContextV2},
-    manager::{Registered, RegistrationOptions},
+    manager::Registered,
     store::{Store, Thread},
 };
 use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
@@ -60,8 +52,6 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::str::FromStr;
-use tempfile::Builder;
-use tempfile::TempDir;
 use tokio::{
     fs,
     runtime::Builder as TokioBuilder,
@@ -85,12 +75,15 @@ pub enum ChannelMessageContents {
         id: String,
         device_name: String,
     },
-    RegisterChannel {
+    // RegisterChannel {
+    //     id: String,
+    //     phone_number: String,
+    //     captcha: String,
+    // },
+    StartChannel {
         id: String,
-        phone_number: String,
-        captcha: String,
+        attachments_dir: PathBuf,
     },
-    StartChannel(String),
 }
 
 pub struct ChannelMessage {
@@ -118,7 +111,7 @@ impl SignalManager {
 
             local.spawn_local(async move {
                 while let Some(msg) = recv.recv().await {
-                    tokio::task::spawn_local(process_message(msg));
+                    tokio::task::spawn_local(process_channel_message(msg));
                 }
             });
 
@@ -142,6 +135,7 @@ pub struct ChannelState {
 
 async fn start_channel_recv(
     id: String,
+    attachments_dir: PathBuf,
     db: DatabaseConnection,
     mut manager: Manager<BitpartStore, Registered>,
     tx: mpsc::Sender<(String, String)>,
@@ -154,7 +148,7 @@ async fn start_channel_recv(
         db,
         tx,
     };
-    receive(&mut manager, true, Some(state)).await
+    receive(&mut manager, &attachments_dir, Some(state)).await
 }
 
 async fn start_channel_send(
@@ -180,7 +174,7 @@ async fn start_channel_send(
     Ok(())
 }
 
-async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
+async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError> {
     let ChannelMessage { msg, db, sender } = msg;
     match msg {
         ChannelMessageContents::LinkChannel { id, device_name } => {
@@ -205,36 +199,39 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
                 .map_err(|_e| BitpartError::Signal("Linking error".to_owned()))?;
             Ok(sender.send(res).map_err(|err| BitpartError::Signal(err))?)
         }
-        ChannelMessageContents::RegisterChannel {
+        // ChannelMessageContents::RegisterChannel {
+        //     id,
+        //     phone_number,
+        //     captcha,
+        // } => {
+        //     let config_store = BitpartStore::open(
+        //         &id,
+        //         &db,
+        //         MigrationConflictStrategy::Raise,
+        //         OnNewIdentity::Trust,
+        //     )
+        //     .await?;
+        //     let (_registration_tx, registration_rx) = oneshot::channel();
+        //     register(
+        //         config_store,
+        //         SignalServers::Production,
+        //         PhoneNumber::from_str(&phone_number).unwrap(),
+        //         false,
+        //         Url::parse(&captcha).unwrap(),
+        //         false,
+        //         registration_rx,
+        //     )
+        //     .await
+        //     .unwrap();
+        //     //tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
+        //     Ok(sender
+        //         .send("".to_owned())
+        //         .map_err(|err| BitpartError::Signal(err))?)
+        // }
+        ChannelMessageContents::StartChannel {
             id,
-            phone_number,
-            captcha,
+            attachments_dir,
         } => {
-            let config_store = BitpartStore::open(
-                &id,
-                &db,
-                MigrationConflictStrategy::Raise,
-                OnNewIdentity::Trust,
-            )
-            .await?;
-            let (_registration_tx, registration_rx) = oneshot::channel();
-            register(
-                config_store,
-                SignalServers::Production,
-                PhoneNumber::from_str(&phone_number).unwrap(),
-                false,
-                Url::parse(&captcha).unwrap(),
-                false,
-                registration_rx,
-            )
-            .await
-            .unwrap();
-            //tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
-            Ok(sender
-                .send("".to_owned())
-                .map_err(|err| BitpartError::Signal(err))?)
-        }
-        ChannelMessageContents::StartChannel(id) => {
             let (tx, rx) = mpsc::channel(100);
             let store = BitpartStore::open(
                 &id,
@@ -245,7 +242,13 @@ async fn process_message(msg: ChannelMessage) -> Result<(), BitpartError> {
             .await?;
             let manager = Manager::load_registered(store).await.unwrap();
             tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
-            tokio::task::spawn_local(start_channel_recv(id, db.clone(), manager, tx));
+            tokio::task::spawn_local(start_channel_recv(
+                id,
+                attachments_dir,
+                db.clone(),
+                manager,
+                tx,
+            ));
             Ok(sender
                 .send("".to_owned())
                 .map_err(|err| BitpartError::Signal(err))?)
@@ -258,29 +261,11 @@ enum Recipient {
     Group(GroupMasterKeyBytes),
 }
 
-fn attachments_tmp_dir() -> Result<TempDir, BitpartError> {
-    let attachments_tmp_dir = Builder::new().prefix("presage-attachments").tempdir()?;
-    info!(
-        path =% attachments_tmp_dir.path().display(),
-        "attachments will be stored"
-    );
-    Ok(attachments_tmp_dir)
-}
-
-fn parse_group_master_key(value: &str) -> Result<GroupMasterKeyBytes, BitpartError> {
-    let master_key_bytes = hex::decode(value)?;
-    master_key_bytes
-        .try_into()
-        .map_err(|_| BitpartError::Signal("master key should be 32 bytes long".to_owned()))
-}
-
 async fn send<S: Store>(
     manager: &mut Manager<S, Registered>,
     recipient: Recipient,
     msg: impl Into<ContentBody>,
 ) -> Result<(), BitpartError> {
-    // let local = task::LocalSet::new();
-
     let timestamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
@@ -290,15 +275,6 @@ async fn send<S: Store>(
     if let ContentBody::DataMessage(d) = &mut content_body {
         d.timestamp = Some(timestamp);
     }
-
-    // local
-    // .run_until(async move {
-    // let mut receiving_manager = manager.clone();
-    // tokio::task::spawn_local(async move {
-    //     if let Err(error) = receive(&mut receiving_manager, false, None).await {
-    //         error!(%error, "error while receiving stuff");
-    //     }
-    // });
 
     match recipient {
         Recipient::Contact(uuid) => {
@@ -316,59 +292,13 @@ async fn send<S: Store>(
                 .expect("failed to send message");
         }
     }
-    // })
-    // .await;
 
     Ok(())
 }
 
-// Note to developers, this is a good example of a function you can use as a source of inspiration
-// to process incoming messages.
-async fn process_incoming_message<S: Store>(
+async fn process_signal_message<S: Store>(
     manager: &mut Manager<S, Registered>,
-    attachments_tmp_dir: &Path,
-    notifications: bool,
-    content: &Content,
-    state: &Option<ChannelState>,
-) {
-    print_message(manager, notifications, content, state).await;
-
-    let sender = content.metadata.sender.raw_uuid();
-    if let ContentBody::DataMessage(DataMessage { attachments, .. }) = &content.body {
-        for attachment_pointer in attachments {
-            let Ok(attachment_data) = manager.get_attachment(attachment_pointer).await else {
-                warn!("failed to fetch attachment");
-                continue;
-            };
-
-            let extensions = mime_guess::get_mime_extensions_str(
-                attachment_pointer
-                    .content_type
-                    .as_deref()
-                    .unwrap_or("application/octet-stream"),
-            );
-            let extension = extensions.and_then(|e| e.first()).unwrap_or(&"bin");
-            let filename = attachment_pointer
-                .file_name
-                .clone()
-                .unwrap_or_else(|| Local::now().format("%Y-%m-%d-%H-%M-%s").to_string());
-            let file_path = attachments_tmp_dir.join(format!("presage-{filename}.{extension}",));
-            match fs::write(&file_path, &attachment_data).await {
-                Ok(_) => info!(%sender, file_path =% file_path.display(), "saved attachment"),
-                Err(error) => error!(
-                    %sender,
-                    file_path =% file_path.display(),
-                    %error,
-                    "failed to write attachment"
-                ),
-            }
-        }
-    }
-}
-
-async fn print_message<S: Store>(
-    manager: &Manager<S, Registered>,
-    notifications: bool,
+    attachments_dir: &Path,
     content: &Content,
     state: &Option<ChannelState>,
 ) {
@@ -550,15 +480,36 @@ async fn print_message<S: Store>(
         };
 
         debug!("{prefix} / {body}");
+    }
 
-        if notifications {
-            if let Err(error) = Notification::new()
-                .summary(&prefix)
-                .body(&body)
-                .icon("presage")
-                .show()
-            {
-                error!(%error, "failed to display desktop notification");
+    let sender = content.metadata.sender.raw_uuid();
+    if let ContentBody::DataMessage(DataMessage { attachments, .. }) = &content.body {
+        for attachment_pointer in attachments {
+            let Ok(attachment_data) = manager.get_attachment(attachment_pointer).await else {
+                warn!("failed to fetch attachment");
+                continue;
+            };
+
+            let extensions = mime_guess::get_mime_extensions_str(
+                attachment_pointer
+                    .content_type
+                    .as_deref()
+                    .unwrap_or("application/octet-stream"),
+            );
+            let extension = extensions.and_then(|e| e.first()).unwrap_or(&"bin");
+            let filename = attachment_pointer
+                .file_name
+                .clone()
+                .unwrap_or_else(|| Local::now().format("%Y-%m-%d-%H-%M-%s").to_string());
+            let file_path = attachments_dir.join(format!("bitpart-{filename}.{extension}",));
+            match fs::write(&file_path, &attachment_data).await {
+                Ok(_) => info!(%sender, file_path =% file_path.display(), "saved attachment"),
+                Err(error) => error!(
+                    %sender,
+                    file_path =% file_path.display(),
+                    %error,
+                    "failed to write attachment"
+                ),
             }
         }
     }
@@ -643,12 +594,11 @@ fn reply_get_text(res: &serde_json::Value) -> String {
 
 async fn receive<S: Store>(
     manager: &mut Manager<S, Registered>,
-    notifications: bool,
+    attachments_dir: &Path,
     state: Option<ChannelState>,
 ) -> Result<(), BitpartError> {
-    let attachments_tmp_dir = Builder::new().prefix("presage-attachments").tempdir()?;
     info!(
-        path =% attachments_tmp_dir.path().display(),
+        path =% attachments_dir.display(),
         "attachments will be stored"
     );
 
@@ -663,28 +613,12 @@ async fn receive<S: Store>(
             Received::QueueEmpty => debug!("done with synchronization"),
             Received::Contacts => debug!("got contacts synchronization"),
             Received::Content(content) => {
-                process_incoming_message(
-                    manager,
-                    attachments_tmp_dir.path(),
-                    notifications,
-                    &content,
-                    &state,
-                )
-                .await
+                process_signal_message(manager, attachments_dir, &content, &state).await
             }
         }
     }
 
     Ok(())
-}
-
-pub async fn receive_from<S: Store>(
-    config_store: S,
-    notifications: bool,
-    state: Option<ChannelState>,
-) -> Result<(), BitpartError> {
-    let mut manager = Manager::load_registered(config_store).await?;
-    receive(&mut manager, notifications, state).await
 }
 
 async fn upload_attachments<S: Store>(
@@ -726,51 +660,43 @@ async fn upload_attachments<S: Store>(
     Ok(attachments)
 }
 
-fn parse_base64_profile_key(s: &str) -> Result<ProfileKey, BitpartError> {
-    let bytes = BASE64_STANDARD
-        .decode(s)?
-        .try_into()
-        .map_err(|_| BitpartError::Signal("profile key of invalid length".to_owned()))?;
-    Ok(ProfileKey::create(bytes))
-}
-
 // API functions
 
-pub async fn register<S: Store>(
-    config_store: S,
-    servers: SignalServers,
-    phone_number: PhoneNumber,
-    use_voice_call: bool,
-    captcha: Url,
-    force: bool,
-    registration_rx: oneshot::Receiver<String>,
-) -> Result<String, BitpartError> {
-    let manager = Manager::register(
-        config_store,
-        RegistrationOptions {
-            signal_servers: servers,
-            phone_number,
-            use_voice_call,
-            captcha: Some(captcha.host_str().unwrap()),
-            force,
-        },
-    )
-    .await?;
+// async fn register<S: Store>(
+//     config_store: S,
+//     servers: SignalServers,
+//     phone_number: PhoneNumber,
+//     use_voice_call: bool,
+//     captcha: Url,
+//     force: bool,
+//     registration_rx: oneshot::Receiver<String>,
+// ) -> Result<String, BitpartError> {
+//     let manager = Manager::register(
+//         config_store,
+//         RegistrationOptions {
+//             signal_servers: servers,
+//             phone_number,
+//             use_voice_call,
+//             captcha: Some(captcha.host_str().unwrap()),
+//             force,
+//         },
+//     )
+//     .await?;
 
-    // ask for confirmation code here
-    println!("input confirmation code (followed by RETURN): ");
-    let confirmation_code = registration_rx.await?;
-    let registered_manager = manager.confirm_verification_code(confirmation_code).await?;
+//     // ask for confirmation code here
+//     println!("input confirmation code (followed by RETURN): ");
+//     let confirmation_code = registration_rx.await?;
+//     let registered_manager = manager.confirm_verification_code(confirmation_code).await?;
 
-    let service_ids = registered_manager
-        .registration_data()
-        .service_ids
-        .to_string();
-    println!("Account identifiers: {}", service_ids);
-    Ok(service_ids)
-}
+//     let service_ids = registered_manager
+//         .registration_data()
+//         .service_ids
+//         .to_string();
+//     println!("Account identifiers: {}", service_ids);
+//     Ok(service_ids)
+// }
 
-pub async fn link_device<S: Store>(
+async fn link_device<S: Store>(
     config_store: S,
     servers: SignalServers,
     device_name: String,
@@ -786,44 +712,7 @@ pub async fn link_device<S: Store>(
     Ok(())
 }
 
-pub async fn add_device<S: Store>(config_store: S, url: Url) -> Result<(), BitpartError> {
-    let mut manager = Manager::load_registered(config_store).await?;
-    manager.link_secondary(url).await?;
-    info!("Added new secondary device");
-    Ok(())
-}
-
-pub async fn unlink_device<S: Store>(config_store: S, device_id: i64) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    manager.unlink_secondary(device_id).await?;
-    info!("Unlinked device with id: {}", device_id);
-    Ok(())
-}
-
-pub async fn list_devices<S: Store>(config_store: S) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    let devices = manager.devices().await?;
-    let current_device_id = manager.device_id() as i64;
-
-    for device in devices {
-        let device_name = device
-            .name
-            .unwrap_or_else(|| "(no device name)".to_string());
-        let current_marker = if device.id == current_device_id {
-            "(this device)"
-        } else {
-            ""
-        };
-
-        debug!(
-            "- Device {} {}\n  Name: {}\n  Created: {}\n  Last seen: {}",
-            device.id, current_marker, device_name, device.created, device.last_seen,
-        );
-    }
-    Ok(())
-}
-
-pub async fn send_to_individual<S: Store>(
+async fn send_to_individual<S: Store>(
     config_store: S,
     uuid: Uuid,
     message: String,
@@ -840,7 +729,7 @@ pub async fn send_to_individual<S: Store>(
     Ok(send(&mut manager, Recipient::Contact(uuid), data_message).await?)
 }
 
-pub async fn send_to_group<S: Store>(
+async fn send_to_group<S: Store>(
     config_store: S,
     message: String,
     master_key: [u8; 32],
@@ -862,171 +751,7 @@ pub async fn send_to_group<S: Store>(
     Ok(send(&mut manager, Recipient::Group(master_key), data_message).await?)
 }
 
-pub async fn retrieve_profile<S: Store>(
-    config_store: S,
-    uuid: Uuid,
-    mut profile_key: Option<ProfileKey>,
-) -> Result<(), BitpartError> {
-    let mut manager = Manager::load_registered(config_store).await?;
-    if profile_key.is_none() {
-        for contact in manager
-            .store()
-            .contacts()
-            .await
-            .map_err(|e| BitpartError::Signal(e.to_string()))?
-            .filter_map(Result::ok)
-            .filter(|c| c.uuid == uuid)
-        {
-            let profilek: [u8; 32] = match (contact.profile_key).try_into() {
-                Ok(profilek) => profilek,
-                Err(_) => {
-                    return Err(BitpartError::Signal(format!(
-                        "Profile key is not 32 bytes or empty for uuid: {:?} and no alternative profile key was provided",
-                        uuid
-                    )));
-                }
-            };
-            profile_key = Some(ProfileKey::create(profilek));
-        }
-    } else {
-        info!("Retrieving profile for: {uuid:?} with profile_key");
-    }
-    let profile = match profile_key {
-        None => manager.retrieve_profile().await?,
-        Some(profile_key) => manager.retrieve_profile_by_uuid(uuid, profile_key).await?,
-    };
-    debug!("{profile:#?}");
-    Ok(())
-}
-
-pub async fn list_groups<S: Store>(config_store: S) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    for group in manager
-        .store()
-        .groups()
-        .await
-        .map_err(|e| BitpartError::Signal(e.to_string()))?
-    {
-        match group {
-            Ok((
-                group_master_key,
-                Group {
-                    title,
-                    description,
-                    revision,
-                    members,
-                    ..
-                },
-            )) => {
-                let key = hex::encode(group_master_key);
-                debug!(
-                    "{key} {title}: {description:?} / revision {revision} / {} members",
-                    members.len()
-                );
-            }
-            Err(error) => {
-                error!(%error, "failed to deserialize group");
-            }
-        };
-    }
-
-    Ok(())
-}
-
-pub async fn list_contacts<S: Store>(config_store: S) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    for Contact {
-        name,
-        uuid,
-        phone_number,
-        ..
-    } in manager
-        .store()
-        .contacts()
-        .await
-        .map_err(|e| BitpartError::Signal(e.to_string()))?
-        .flatten()
-    {
-        debug!("{uuid} / {phone_number:?} / {name}");
-    }
-    Ok(())
-}
-
-pub async fn list_sticker_packs<S: Store>(config_store: S) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    for sticker_pack in manager
-        .store()
-        .sticker_packs()
-        .await
-        .map_err(|e| BitpartError::Signal(e.to_string()))?
-    {
-        match sticker_pack {
-            Ok(sticker_pack) => {
-                debug!(
-                    "title={} author={}",
-                    sticker_pack.manifest.title, sticker_pack.manifest.author,
-                );
-                for sticker in sticker_pack.manifest.stickers {
-                    debug!(
-                        "\tid={} emoji={} content_type={} bytes={}",
-                        sticker.id,
-                        sticker.emoji.unwrap_or_default(),
-                        sticker.content_type.unwrap_or_default(),
-                        sticker.bytes.unwrap_or_default().len(),
-                    )
-                }
-            }
-            Err(error) => {
-                error!(%error, "error while deserializing sticker pack")
-            }
-        }
-    }
-    Ok(())
-}
-
-pub async fn whoami<S: Store>(config_store: S) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    println!("{:?}", &manager.whoami().await?);
-    Ok(())
-}
-
-pub async fn get_contact<S: Store>(config_store: S, uuid: &Uuid) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    match manager
-        .store()
-        .contact_by_id(uuid)
-        .await
-        .map_err(|e| BitpartError::Signal(e.to_string()))?
-    {
-        Some(contact) => println!("{contact:#?}"),
-        None => eprintln!("Could not find contact for {uuid}"),
-    }
-    Ok(())
-}
-
-pub async fn find_contact<S: Store>(
-    config_store: S,
-    uuid: Option<Uuid>,
-    phone_number: Option<PhoneNumber>,
-    name: Option<String>,
-) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    for contact in manager
-        .store()
-        .contacts()
-        .await
-        .map_err(|e| BitpartError::Signal(e.to_string()))?
-        .filter_map(Result::ok)
-        .filter(|c| uuid.map_or_else(|| true, |u| c.uuid == u))
-        .filter(|c| c.phone_number == phone_number)
-        .filter(|c| name.as_ref().map_or(true, |n| c.name.contains(n)))
-    {
-        println!("{contact:#?}");
-    }
-    Ok(())
-}
-
-pub async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), BitpartError> {
+async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), BitpartError> {
     let mut manager = Manager::load_registered(config_store).await?;
     manager.request_contacts().await?;
     let messages = manager
@@ -1044,74 +769,5 @@ pub async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), Bitp
             Received::Content(_) => print!("."),
         }
     }
-    Ok(())
-}
-
-pub async fn list_messages<S: Store>(
-    config_store: S,
-    group_master_key: Option<[u8; 32]>,
-    recipient_uuid: Option<Uuid>,
-    from: Option<u64>,
-) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-    let thread = match (group_master_key, recipient_uuid) {
-        (Some(master_key), _) => Thread::Group(master_key),
-        (_, Some(uuid)) => Thread::Contact(uuid),
-        _ => unreachable!(),
-    };
-    for msg in manager
-        .store()
-        .messages(&thread, from.unwrap_or(0)..)
-        .await
-        .map_err(|e| BitpartError::Signal(e.to_string()))?
-        .filter_map(Result::ok)
-    {
-        print_message(&manager, false, &msg, &None).await;
-    }
-
-    Ok(())
-}
-
-pub async fn stats<S: Store>(config_store: S) -> Result<(), BitpartError> {
-    let manager = Manager::load_registered(config_store).await?;
-
-    #[allow(unused)]
-    #[derive(Debug)]
-    struct Stats {
-        aci_next_pre_key_id: u32,
-        aci_next_signed_pre_keys_id: u32,
-        aci_next_kyber_pre_keys_id: u32,
-        aci_signed_pre_keys_count: usize,
-        aci_kyber_pre_keys_count: usize,
-        aci_kyber_pre_keys_count_last_resort: usize,
-        pni_next_pre_key_id: u32,
-        pni_next_signed_pre_keys_id: u32,
-        pni_next_kyber_pre_keys_id: u32,
-        pni_signed_pre_keys_count: usize,
-        pni_kyber_pre_keys_count: usize,
-        pni_kyber_pre_keys_count_last_resort: usize,
-    }
-
-    let aci = manager.store().aci_protocol_store();
-    let pni = manager.store().pni_protocol_store();
-
-    const LAST_RESORT: bool = true;
-
-    let stats = Stats {
-        aci_next_pre_key_id: aci.next_pre_key_id().await.unwrap(),
-        aci_next_signed_pre_keys_id: aci.next_signed_pre_key_id().await.unwrap(),
-        aci_next_kyber_pre_keys_id: aci.next_pq_pre_key_id().await.unwrap(),
-        aci_signed_pre_keys_count: aci.signed_pre_keys_count().await.unwrap(),
-        aci_kyber_pre_keys_count: aci.kyber_pre_keys_count(!LAST_RESORT).await.unwrap(),
-        aci_kyber_pre_keys_count_last_resort: aci.kyber_pre_keys_count(LAST_RESORT).await.unwrap(),
-        pni_next_pre_key_id: pni.next_pre_key_id().await.unwrap(),
-        pni_next_signed_pre_keys_id: pni.next_signed_pre_key_id().await.unwrap(),
-        pni_next_kyber_pre_keys_id: pni.next_pq_pre_key_id().await.unwrap(),
-        pni_signed_pre_keys_count: pni.signed_pre_keys_count().await.unwrap(),
-        pni_kyber_pre_keys_count: pni.kyber_pre_keys_count(!LAST_RESORT).await.unwrap(),
-        pni_kyber_pre_keys_count_last_resort: pni.kyber_pre_keys_count(LAST_RESORT).await.unwrap(),
-    };
-
-    println!("{stats:#?}");
     Ok(())
 }

@@ -18,10 +18,7 @@ use csml_interpreter::{
     data::{CsmlBot, CsmlResult},
     search_for_modules, validate_bot,
 };
-use presage::model::identity::OnNewIdentity;
-use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
 use sea_orm::DatabaseConnection;
-use url::Url;
 
 use crate::error::BitpartError;
 
@@ -384,19 +381,6 @@ pub async fn list_channels(
 
 pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<(), BitpartError> {
     db::channel::delete(id, bot_id, &state.db).await
-}
-
-pub async fn add_device_channel(id: &str, url: &Url, state: &ApiState) -> Result<(), BitpartError> {
-    let config_store = BitpartStore::open(
-        &id,
-        &state.db,
-        MigrationConflictStrategy::Raise,
-        OnNewIdentity::Trust,
-    )
-    .await?;
-    signal::add_device(config_store, url.to_owned())
-        .await
-        .map_err(|e| BitpartError::Api(e.to_string()))
 }
 
 #[cfg(test)]

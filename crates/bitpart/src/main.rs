@@ -94,15 +94,16 @@ async fn authenticate(
 
 #[tokio::main]
 async fn main() -> Result<(), BitpartError> {
-    let proj_dirs = ProjectDirs::from("tech", "throneless", "bitpart").unwrap();
+    let proj_dirs = ProjectDirs::from("tech", "throneless", "bitpart").ok_or(
+        BitpartError::Directory("Failed to find project directories.".to_owned()),
+    )?;
     let server: Cli = Figment::new()
         .merge(Serialized::defaults(Cli::parse()))
         .merge(FileAdapter::wrap(Toml::file(
             proj_dirs.config_dir().join("config.toml"),
         )))
         .merge(FileAdapter::wrap(Env::prefixed("BITPART_")))
-        .extract()
-        .unwrap();
+        .extract()?;
     tracing_subscriber::fmt()
         .with_max_level(server.verbose.log_level_filter().as_trace())
         .init();
@@ -123,14 +124,17 @@ async fn main() -> Result<(), BitpartError> {
     };
     for channel in channels.iter() {
         let (send, recv) = oneshot::channel();
-        let contents = signal::ChannelMessageContents::StartChannel(channel.id.to_owned());
+        let contents = signal::ChannelMessageContents::StartChannel {
+            id: channel.id.to_owned(),
+            attachments_dir: proj_dirs.cache_dir().to_path_buf(),
+        };
         let msg = signal::ChannelMessage {
             msg: contents,
             db: state.db.clone(),
             sender: send,
         };
         state.manager.send(msg);
-        let res = recv.await.unwrap();
+        let res = recv.await?;
         info!("Started channel: {}", res);
     }
 
@@ -147,13 +151,10 @@ async fn main() -> Result<(), BitpartError> {
             listener,
             app.into_make_service_with_connect_info::<SocketAddr>(),
         )
-        .await
-        .unwrap();
+        .await?;
     } else if let Ok(path) = server.bind.parse::<PathBuf>() {
         let listener = tokio::net::UnixListener::bind(path).expect("Unable to bind to address");
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
+        axum::serve(listener, app.into_make_service()).await?;
     } else {
         panic!("Unable to bind to address");
     };
