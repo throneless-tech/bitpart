@@ -199,7 +199,7 @@ impl BitpartStore {
         migration_conflict_strategy: MigrationConflictStrategy,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
-        migrate(id, database, migration_conflict_strategy).await?;
+        //migrate(id, database, migration_conflict_strategy).await?;
         Self::new(id, database, trust_new_identities).await
     }
 
