@@ -87,7 +87,7 @@ impl BotOpt {
                 apps_endpoint,
                 multibot,
             } => {
-                let bot_version = db::bot::get_latest_by_bot_id(&bot_id, db).await?;
+                let bot_version = db::bot::get_latest_by_bot_id(bot_id, db).await?;
 
                 match bot_version {
                     Some(mut bot_version) => {
@@ -107,7 +107,7 @@ impl BotOpt {
                 apps_endpoint,
                 multibot,
             } => {
-                let bot_version = db::bot::get_by_id(&version_id, db).await?;
+                let bot_version = db::bot::get_by_id(version_id, db).await?;
 
                 match bot_version {
                     Some(mut bot_version) => {

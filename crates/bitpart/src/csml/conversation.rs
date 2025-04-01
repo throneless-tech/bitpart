@@ -122,13 +122,10 @@ async fn init_context(
 ) -> Context {
     let previous_bot = get_previous_bot(&client, db).await;
 
-    let api_info = match apps_endpoint {
-        Some(value) => Some(ApiInfo {
-            client,
-            apps_endpoint: value.to_owned(),
-        }),
-        None => None,
-    };
+    let api_info = apps_endpoint.as_ref().map(|value| ApiInfo {
+        client,
+        apps_endpoint: value.to_owned(),
+    });
 
     Context {
         current: HashMap::new(),
@@ -159,12 +156,11 @@ async fn init_conversation_data<'a>(
     // Do we have a flow matching the request? If the user is requesting a flow in one way
     // or another, this takes precedence over any previously open conversation
     // and a new conversation is created with the new flow as a starting point.
-    let flow_found = utils::search_flow(event, &bot, &request.client, db)
+    let flow_found = utils::search_flow(event, bot, &request.client, db)
         .await
         .ok();
     let conversation_id =
-        get_or_create_conversation(&mut context, &bot, flow_found, &request.client, ttl, db)
-            .await?;
+        get_or_create_conversation(&mut context, bot, flow_found, &request.client, ttl, db).await?;
 
     context.metadata = get_hashmap_from_json(&request.metadata, &context.flow);
     let memories = db::memory::get_by_client(&request.client, None, None, db).await?;
@@ -220,7 +216,7 @@ fn init_bot(bot: &mut CsmlBot) -> Result<(), BitpartError> {
  * Initialize bot ast
  */
 fn set_bot_ast(bot: &mut CsmlBot) -> Result<(), BitpartError> {
-    match validate_bot(&bot) {
+    match validate_bot(bot) {
         CsmlResult {
             flows: Some(flows),
             extern_flows: Some(extern_flows),
@@ -250,7 +246,7 @@ fn set_bot_ast(bot: &mut CsmlBot) -> Result<(), BitpartError> {
                 errors
             )));
         }
-        _ => return Err(BitpartError::Interpreter(format!("empty bot"))),
+        _ => return Err(BitpartError::Interpreter("empty bot".to_string())),
     }
 
     Ok(())
@@ -377,13 +373,13 @@ async fn check_switch_bot(
         Ok((mut messages, Some(next_bot))) => {
             if let Err(err) = switch_bot(data, bot, next_bot, bot_opt, event, db).await {
                 // End no interruption delay
-                if let Some(_) = bot.no_interruption_delay {
+                if bot.no_interruption_delay.is_some() {
                     db::state::delete(&data.client, "delay", "content", db).await?;
                 }
                 return Err(err);
             };
 
-            let result = interpret::step(data, event.clone(), &bot, db).await;
+            let result = interpret::step(data, event.clone(), bot, db).await;
 
             let mut new_messages = check_switch_bot(result, data, bot, bot_opt, event, db).await?;
 
@@ -393,7 +389,7 @@ async fn check_switch_bot(
         }
         Ok((messages, None)) => {
             // End no interruption delay
-            if let Some(_) = bot.no_interruption_delay {
+            if bot.no_interruption_delay.is_some() {
                 db::state::delete(&data.client, "delay", "content", db).await?;
             }
 
@@ -401,7 +397,7 @@ async fn check_switch_bot(
         }
         Err(err) => {
             // End no interruption delay
-            if let Some(_) = bot.no_interruption_delay {
+            if bot.no_interruption_delay.is_some() {
                 db::state::delete(&data.client, "delay", "content", db).await?;
             }
 
@@ -529,12 +525,12 @@ pub async fn start(
         (false, true) => {
             let msgs = vec![serde_json::json!({"content_type": "secure"})];
 
-            db::message::create(&mut data, &msgs, 0, "RECEIVE", None, db).await?;
+            db::message::create(&data, &msgs, 0, "RECEIVE", None, db).await?;
         }
         (false, false) => {
             let msgs = vec![request.payload.to_owned()];
 
-            db::message::create(&mut data, &msgs, 0, "RECEIVE", None, db).await?;
+            db::message::create(&data, &msgs, 0, "RECEIVE", None, db).await?;
         }
         (true, _) => {}
     }

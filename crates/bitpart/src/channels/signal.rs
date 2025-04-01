@@ -97,6 +97,12 @@ pub struct SignalManager {
     inner: mpsc::UnboundedSender<ChannelMessage>,
 }
 
+impl Default for SignalManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SignalManager {
     pub fn new() -> Self {
         let (send, mut recv) = mpsc::unbounded_channel();
@@ -197,7 +203,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError
                 .await
                 .map(|url| url.to_string())
                 .map_err(|_e| BitpartError::Signal("Linking error".to_owned()))?;
-            Ok(sender.send(res).map_err(|err| BitpartError::Signal(err))?)
+            Ok(sender.send(res).map_err(BitpartError::Signal)?)
         }
         // ChannelMessageContents::RegisterChannel {
         //     id,
@@ -251,7 +257,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError
             ));
             Ok(sender
                 .send("".to_owned())
-                .map_err(|err| BitpartError::Signal(err))?)
+                .map_err(BitpartError::Signal)?)
         }
     }
 }
@@ -548,7 +554,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) {
     };
 
     let res = api::process_request(&request, &state.db).await.unwrap();
-    if let Some(ref messages) = res.get("messages") {
+    if let Some(messages) = res.get("messages") {
         for i in messages.as_array().unwrap().iter() {
             state
                 .tx
@@ -569,27 +575,27 @@ fn unescape(input: &str) -> String {
 }
 
 fn reply_get_user_id(res: &serde_json::Value, default_user_id: &str) -> String {
-    if let Some(ref payload) = res.get("payload") {
+    if let Some(payload) = res.get("payload") {
         if let Some(content) = payload.get("content") {
             if let Some(client) = content.get("client") {
                 if let Some(user_id) = client.get("user_id") {
-                    return format!("{}", unescape(&user_id.to_string()));
+                    return unescape(&user_id.to_string()).to_string();
                 }
             }
         }
     }
-    return default_user_id.to_string();
+    default_user_id.to_string()
 }
 
 fn reply_get_text(res: &serde_json::Value) -> String {
-    if let Some(ref payload) = res.get("payload") {
+    if let Some(payload) = res.get("payload") {
         if let Some(content) = payload.get("content") {
             if let Some(text) = content.get("text") {
-                return format!("{}", unescape(&text.to_string()));
+                return unescape(&text.to_string()).to_string();
             }
         }
     }
-    return "".to_owned();
+    "".to_owned()
 }
 
 async fn receive<S: Store>(
@@ -726,7 +732,7 @@ async fn send_to_individual<S: Store>(
         ..Default::default()
     };
 
-    Ok(send(&mut manager, Recipient::Contact(uuid), data_message).await?)
+    send(&mut manager, Recipient::Contact(uuid), data_message).await
 }
 
 async fn send_to_group<S: Store>(
@@ -748,7 +754,7 @@ async fn send_to_group<S: Store>(
         ..Default::default()
     };
 
-    Ok(send(&mut manager, Recipient::Group(master_key), data_message).await?)
+    send(&mut manager, Recipient::Group(master_key), data_message).await
 }
 
 async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), BitpartError> {

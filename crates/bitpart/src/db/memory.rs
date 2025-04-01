@@ -65,7 +65,7 @@ pub async fn create_many(
         };
         new_memories.push(entry);
     }
-    if new_memories.len() > 0 {
+    if !new_memories.is_empty() {
         Memory::insert_many(new_memories).exec(db).await?;
     }
     Ok(())
@@ -118,11 +118,8 @@ pub async fn delete(
         .one(db)
         .await?;
 
-    match entry {
-        Some(e) => {
-            e.delete(db).await?;
-        }
-        None => {}
+    if let Some(e) = entry {
+        e.delete(db).await?;
     }
 
     Ok(())

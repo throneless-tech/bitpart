@@ -117,11 +117,8 @@ pub async fn delete(
         .one(db)
         .await?;
 
-    match entry {
-        Some(e) => {
-            e.delete(db).await?;
-        }
-        None => {}
+    if let Some(e) = entry {
+        e.delete(db).await?;
     }
 
     Ok(())

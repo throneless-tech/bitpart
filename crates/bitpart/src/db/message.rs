@@ -32,7 +32,7 @@ pub async fn create(
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
 ) -> Result<(), BitpartError> {
-    if messages.len() == 0 {
+    if messages.is_empty() {
         return Ok(());
     }
 

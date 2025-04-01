@@ -246,7 +246,7 @@ pub async fn step(
                     &mut conversation_end,
                     &mut interaction_order,
                     &mut current_flow,
-                    &bot,
+                    bot,
                     &mut memories,
                     flow,
                     step,
@@ -266,7 +266,7 @@ pub async fn step(
                 if let Ok(InterpreterReturn::SwitchBot(s_bot)) = manage_switch_bot(
                     data,
                     &mut interaction_order,
-                    &bot,
+                    bot,
                     flow,
                     step,
                     target_bot,
@@ -321,10 +321,10 @@ pub async fn step(
     ))
 }
 
-async fn manage_switch_bot<'a>(
+async fn manage_switch_bot(
     data: &mut ConversationData,
     interaction_order: &mut i32,
-    bot: &'a CsmlBot,
+    bot: &CsmlBot,
     flow: Option<String>,
     step: Option<ContextStepInfo>,
     target_bot: String,
@@ -483,8 +483,8 @@ async fn manage_internal_goto<'a>(
                 data.context.step.get_step()
             );
 
-            update_current_context(data, &memories);
-            goto_flow(data, interaction_order, current_flow, &bot, flow, step, db).await?
+            update_current_context(data, memories);
+            goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
         }
         (Some(flow), None) => {
             debug!(
@@ -496,10 +496,10 @@ async fn manage_internal_goto<'a>(
                 data.context.step.get_step()
             );
 
-            update_current_context(data, &memories);
+            update_current_context(data, memories);
             let step = ContextStepInfo::Normal("start".to_owned());
 
-            goto_flow(data, interaction_order, current_flow, &bot, flow, step, db).await?
+            goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
         }
         (None, Some(step)) => {
             debug!(
@@ -567,7 +567,7 @@ async fn goto_flow<'a>(
 /**
  * CSML `goto step` action
  */
-async fn goto_step<'a>(
+async fn goto_step(
     data: &mut ConversationData,
     conversation_end: &mut bool,
     interaction_order: &mut i32,

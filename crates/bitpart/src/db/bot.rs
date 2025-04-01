@@ -37,15 +37,15 @@ struct SerializedCsmlBot {
     pub modules: Option<Vec<Module>>,
 }
 
-impl Into<CsmlBot> for SerializedCsmlBot {
-    fn into(self) -> CsmlBot {
+impl From<SerializedCsmlBot> for CsmlBot {
+    fn from(val: SerializedCsmlBot) -> Self {
         CsmlBot {
-            id: self.id.to_owned(),
-            name: self.name.to_owned(),
+            id: val.id.to_owned(),
+            name: val.name.to_owned(),
             apps_endpoint: None,
-            flows: self.flows.to_owned(),
+            flows: val.flows.to_owned(),
             native_components: {
-                match self.native_components.to_owned() {
+                match val.native_components.to_owned() {
                     Some(value) => match serde_json::from_str(&value) {
                         Ok(serde_json::Value::Object(map)) => Some(map),
                         _ => unreachable!(),
@@ -54,7 +54,7 @@ impl Into<CsmlBot> for SerializedCsmlBot {
                 }
             },
             custom_components: {
-                match self.custom_components.to_owned() {
+                match val.custom_components.to_owned() {
                     Some(value) => match serde_json::from_str(&value) {
                         Ok(value) => Some(value),
                         Err(_e) => unreachable!(),
@@ -62,11 +62,11 @@ impl Into<CsmlBot> for SerializedCsmlBot {
                     None => None,
                 }
             },
-            default_flow: self.default_flow.to_owned(),
+            default_flow: val.default_flow.to_owned(),
             bot_ast: None,
-            no_interruption_delay: self.no_interruption_delay,
-            env: self.env.as_ref().map(|e| serde_json::from_str(&e).unwrap()),
-            modules: self.modules.to_owned(),
+            no_interruption_delay: val.no_interruption_delay,
+            env: val.env.as_ref().map(|e| serde_json::from_str(e).unwrap()),
+            modules: val.modules.to_owned(),
             multibot: None,
         }
     }

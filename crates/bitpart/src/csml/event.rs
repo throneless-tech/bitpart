@@ -35,7 +35,7 @@ fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, Bit
                 ))
             }
         }
-        payload if payload == "payload" => {
+        "payload" => {
             if let Some(val) = metadata["payload"].as_str() {
                 Ok(val.to_string())
             } else {
@@ -44,7 +44,7 @@ fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, Bit
                 ))
             }
         }
-        text if text == "text" => {
+        "text" => {
             if let Some(val) = metadata["text"].as_str() {
                 Ok(val.to_string())
             } else {
@@ -53,7 +53,7 @@ fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, Bit
                 ))
             }
         }
-        regex if regex == "regex" => {
+        "regex" => {
             if let Some(val) = metadata["payload"].as_str() {
                 Ok(val.to_string())
             } else {
@@ -62,18 +62,13 @@ fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, Bit
                 ))
             }
         }
-        flow_trigger if flow_trigger == "flow_trigger" => {
-            match serde_json::from_value::<FlowTrigger>(metadata.clone()) {
-                Ok(_flow_trigger) => {
-                    Ok(metadata.to_string())
-                }
-                Err(_) => {
-                    Err(BitpartError::Interpreter(
-                        "invalid content for event type flow_trigger: expect flow_id and optional step_id".to_owned(),
-                    ))
-                }
-            }
-        }
+        "flow_trigger" => match serde_json::from_value::<FlowTrigger>(metadata.clone()) {
+            Ok(_) => Ok(metadata.to_string()),
+            Err(_) => Err(BitpartError::Interpreter(
+                "invalid content for event type flow_trigger: expect flow_id and optional step_id"
+                    .to_owned(),
+            )),
+        },
         content_type => Err(BitpartError::Interpreter(format!(
             "{} is not a valid content_type",
             content_type

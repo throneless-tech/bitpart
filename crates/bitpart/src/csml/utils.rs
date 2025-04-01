@@ -150,7 +150,7 @@ pub fn get_flow_by_id<'a>(f_id: &str, flows: &'a [CsmlFlow]) -> Result<&'a CsmlF
         .iter()
         .find(|&val| val.id.to_ascii_lowercase() == id || val.name.to_ascii_lowercase() == id)
     {
-        Some(ref f) => Ok(f),
+        Some(f) => Ok(f),
         None => Err(BitpartError::Interpreter(format!(
             "Flow '{}' does not exist",
             f_id
@@ -162,7 +162,7 @@ pub fn get_flow_by_id<'a>(f_id: &str, flows: &'a [CsmlFlow]) -> Result<&'a CsmlF
  * Retrieve a bot's default flow.
  * The default flow must exist!
  */
-pub fn get_default_flow<'a>(bot: &'a CsmlBot) -> Result<&'a CsmlFlow, BitpartError> {
+pub fn get_default_flow(bot: &CsmlBot) -> Result<&CsmlFlow, BitpartError> {
     match bot
         .flows
         .iter()
@@ -181,7 +181,7 @@ pub async fn clean_hold_and_restart(
 ) -> Result<(), BitpartError> {
     db::state::delete(&data.client, "hold", "position", db).await?;
     data.context.hold = None;
-    return Ok(());
+    Ok(())
 }
 
 pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String, BitpartError> {
@@ -193,32 +193,32 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
 
             let ast = match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = BASE64_STANDARD.decode(&ast).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(ast).unwrap();
                     let csml_bot: HashMap<String, Flow> =
                         bincode::deserialize(&base64decoded[..]).unwrap();
                     match csml_bot.get(&context.flow) {
                         Some(flow) => flow.to_owned(),
                         None => csml_bot
-                            .get(&get_default_flow(&bot)?.name)
+                            .get(&get_default_flow(bot)?.name)
                             .unwrap()
                             .to_owned(),
                     }
                 }
-                None => return Err(BitpartError::Interpreter(format!("not valid ast"))),
+                None => return Err(BitpartError::Interpreter("not valid ast".to_string())),
             };
 
-            get_step(step, &flow, &ast)
+            get_step(step, flow, &ast)
         }
         ContextStepInfo::UnknownFlow(step) => {
             let flow = &get_flow_by_id(&context.flow, &bot.flows)?.content;
 
             match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = BASE64_STANDARD.decode(&ast).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(ast).unwrap();
                     let csml_bot: HashMap<String, Flow> =
                         bincode::deserialize(&base64decoded[..]).unwrap();
 
-                    let default_flow = csml_bot.get(&get_default_flow(&bot)?.name).unwrap();
+                    let default_flow = csml_bot.get(&get_default_flow(bot)?.name).unwrap();
 
                     match csml_bot.get(&context.flow) {
                         Some(target_flow) => {
@@ -240,18 +240,18 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
                                         let inserted_raw_flow =
                                             &get_flow_by_id(&insert.from_flow, &bot.flows)?.content;
 
-                                        get_step(step, &inserted_raw_flow, &inserted_step_flow)
+                                        get_step(step, inserted_raw_flow, inserted_step_flow)
                                     }
-                                    None => get_step(step, &flow, &default_flow),
+                                    None => get_step(step, flow, default_flow),
                                 }
                             } else {
-                                get_step(step, &flow, &target_flow)
+                                get_step(step, flow, target_flow)
                             }
                         }
-                        None => get_step(step, &flow, &default_flow),
+                        None => get_step(step, flow, default_flow),
                     }
                 }
-                None => return Err(BitpartError::Interpreter(format!("not valid ast"))),
+                None => return Err(BitpartError::Interpreter("not valid ast".to_string())),
             }
         }
         ContextStepInfo::InsertedStep {
@@ -262,22 +262,22 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String,
 
             let ast = match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = BASE64_STANDARD.decode(&ast).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(ast).unwrap();
                     let csml_bot: HashMap<String, Flow> =
                         bincode::deserialize(&base64decoded[..]).unwrap();
 
                     match csml_bot.get(inserted_flow) {
                         Some(flow) => flow.to_owned(),
                         None => csml_bot
-                            .get(&get_default_flow(&bot)?.name)
+                            .get(&get_default_flow(bot)?.name)
                             .unwrap()
                             .to_owned(),
                     }
                 }
-                None => return Err(BitpartError::Interpreter(format!("not valid ast"))),
+                None => return Err(BitpartError::Interpreter("not valid ast".to_string())),
             };
 
-            get_step(step, &flow, &ast)
+            get_step(step, flow, &ast)
         }
     };
 
@@ -294,12 +294,12 @@ pub fn get_ttl_duration_value(event: Option<&Event>) -> Option<chrono::Duration>
     }
 
     if let Ok(ttl) = env::var("TTL_DURATION") {
-        if let Some(ttl) = ttl.parse::<i64>().ok() {
+        if let Ok(ttl) = ttl.parse::<i64>() {
             return Some(chrono::Duration::days(ttl));
         }
     }
 
-    return None;
+    None
 }
 
 pub fn get_low_data_mode_value(event: &Event) -> bool {
@@ -313,7 +313,7 @@ pub fn get_low_data_mode_value(event: &Event) -> bool {
         }
     }
 
-    return false;
+    false
 }
 
 pub async fn search_flow<'a>(
@@ -324,7 +324,7 @@ pub async fn search_flow<'a>(
 ) -> Result<(&'a CsmlFlow, String), BitpartError> {
     match event {
         event if event.content_type == "flow_trigger" => {
-            db::state::delete(&client, "hold", "position", db).await?;
+            db::state::delete(client, "hold", "position", db).await?;
 
             let flow_trigger: FlowTrigger = serde_json::from_str(&event.content_value)?;
 
@@ -345,7 +345,7 @@ pub async fn search_flow<'a>(
             for flow in bot.flows.iter() {
                 let contains_command = flow.commands.iter().any(|cmd| {
                     if let Ok(action) = Regex::new(&event.content_value) {
-                        action.is_match(&cmd)
+                        action.is_match(cmd)
                     } else {
                         false
                     }
@@ -357,14 +357,14 @@ pub async fn search_flow<'a>(
             }
 
             // gen_range will panic if range is empty
-            let random = if random_flows.len() != 0 {
+            let random = if !random_flows.is_empty() {
                 thread_rng().gen_range(0..random_flows.len())
             } else {
                 0
             };
             match random_flows.get(random) {
                 Some(flow) => {
-                    db::state::delete(&client, "hold", "position", db).await?;
+                    db::state::delete(client, "hold", "position", db).await?;
                     Ok((flow, "start".to_owned()))
                 }
                 None => Err(BitpartError::Interpreter(format!(
@@ -380,7 +380,7 @@ pub async fn search_flow<'a>(
                 let contains_command = flow
                     .commands
                     .iter()
-                    .any(|cmd| &cmd.as_str().to_lowercase() == &event.content_value.to_lowercase());
+                    .any(|cmd| cmd.as_str().to_lowercase() == event.content_value.to_lowercase());
 
                 if contains_command {
                     random_flows.push(flow)
@@ -388,14 +388,14 @@ pub async fn search_flow<'a>(
             }
 
             // gen_range will panic if range is empty
-            let random = if random_flows.len() != 0 {
+            let random = if !random_flows.is_empty() {
                 thread_rng().gen_range(0..random_flows.len())
             } else {
                 0
             };
             match random_flows.get(random) {
                 Some(flow) => {
-                    db::state::delete(&client, "hold", "position", db).await?;
+                    db::state::delete(client, "hold", "position", db).await?;
                     Ok((flow, "start".to_owned()))
                 }
                 None => Err(BitpartError::Interpreter(format!(

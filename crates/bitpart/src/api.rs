@@ -67,7 +67,7 @@ pub async fn list_bots(
 }
 
 pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>, BitpartError> {
-    if let Some(bot) = db::bot::get_latest_by_bot_id(&id.to_string(), &state.db).await? {
+    if let Some(bot) = db::bot::get_latest_by_bot_id(id, &state.db).await? {
         Ok(Some(bot))
     } else {
         Ok(None)
@@ -75,7 +75,7 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>, 
 }
 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<(), BitpartError> {
-    db::bot::delete_by_bot_id(&id.to_string(), &state.db).await
+    db::bot::delete_by_bot_id(id, &state.db).await
 }
 
 pub async fn get_bot_versions(
@@ -374,7 +374,7 @@ pub async fn list_channels(
     state: &ApiState,
 ) -> Result<Option<Vec<channel::Model>>, BitpartError> {
     match db::channel::list(limit, offset, &state.db).await {
-        Ok(v) if v.len() > 0 => Ok(Some(v)),
+        Ok(v) if !v.is_empty() => Ok(Some(v)),
         _ => Ok(None),
     }
 }
