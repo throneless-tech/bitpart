@@ -1,0 +1,2 @@
+[tool.commitizen]
+version = "1.0.0-alpha.1"  # This should be your current semver version
