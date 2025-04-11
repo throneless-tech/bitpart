@@ -17,8 +17,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::{collections::BTreeMap, sync::Arc};
-
 use base64::prelude::*;
 use presage::{
     libsignal_service::{
@@ -32,13 +30,9 @@ use presage::{
 use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
 
 use sea_orm::DatabaseConnection;
-use serde::{
-    Deserialize, Deserializer, Serialize,
-    de::DeserializeOwned,
-    ser::{SerializeMap, Serializer},
-};
+use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
-use tokio::sync::{Mutex, MutexGuard};
+use std::str;
 
 mod content;
 mod db;
@@ -55,83 +49,11 @@ const SLED_TREE_STATE: &str = "state";
 
 const SLED_KEY_REGISTRATION: &str = "registration";
 
-// In-memory stand-in for Sled
-#[derive(Debug, Deserialize)]
-struct DoubleMap {
-    #[serde(flatten, deserialize_with = "from_string_keys")]
-    pub trees: BTreeMap<Vec<u8>, BTreeMap<Vec<u8>, Vec<u8>>>,
-}
-
-fn from_string_keys<'de, D>(
-    deserializer: D,
-) -> Result<BTreeMap<Vec<u8>, BTreeMap<Vec<u8>, Vec<u8>>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let mut new_map = DoubleMap::new();
-    let m: BTreeMap<String, Vec<u8>> = Deserialize::deserialize(deserializer)?;
-
-    for (k, v) in m {
-        let s = k.split(":").collect::<Vec<&str>>();
-        new_map
-            .open_tree(s[0])
-            .unwrap()
-            .insert(s[1].as_bytes().to_vec(), v);
-    }
-
-    Ok(new_map.trees)
-}
-
-impl Serialize for DoubleMap {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut map = serializer.serialize_map(Some(self.trees.len()))?;
-        for (k, v) in self.trees.iter() {
-            let outer_key = String::from_utf8_lossy(k.as_ref());
-            for (k, v) in v.iter() {
-                let inner_key = String::from_utf8_lossy(k.as_ref());
-                let key = format!("{outer_key}:{inner_key}");
-                map.serialize_entry(&key, &v)?;
-            }
-        }
-        map.end()
-    }
-}
-
-impl DoubleMap {
-    fn new() -> Self {
-        DoubleMap {
-            trees: BTreeMap::new(),
-        }
-    }
-
-    fn open_tree<V: AsRef<[u8]>>(
-        &mut self,
-        tree: V,
-    ) -> Result<&mut BTreeMap<Vec<u8>, Vec<u8>>, BitpartStoreError> {
-        Ok(self
-            .trees
-            .entry(tree.as_ref().to_vec())
-            .or_insert(BTreeMap::new()))
-    }
-
-    fn drop_tree<V: AsRef<[u8]>>(&mut self, tree: V) -> Result<bool, BitpartStoreError> {
-        Ok(self.trees.remove(tree.as_ref()).is_some())
-    }
-
-    fn tree_names(&self) -> Vec<Vec<u8>> {
-        self.trees.keys().map(|k| k.clone()).collect()
-    }
-}
-
 #[derive(Clone)]
 pub struct BitpartStore {
     id: String, // database ID
 
-    db_handle: DatabaseConnection,
-    db: Arc<Mutex<DoubleMap>>,
+    db: DatabaseConnection,
 
     /// Whether to trust new identities automatically (for instance, when a somebody's phone has changed)
     trust_new_identities: OnNewIdentity,
@@ -154,65 +76,28 @@ pub enum MigrationConflictStrategy {
 
 impl BitpartStore {
     #[allow(unused_variables)]
-    async fn new(
+    pub async fn open(
         id: &str,
         database: &DatabaseConnection,
+        _migration_conflict_strategy: MigrationConflictStrategy,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
         let store = db::channel::get_by_id(id, database).await?;
-        let state: DoubleMap = match serde_json::from_str(&store.state) {
-            Ok(state) => state,
-            Err(_) => DoubleMap::new(),
-        };
         Ok(BitpartStore {
             id: id.to_owned(),
-            db_handle: database.clone(),
-            db: Arc::new(Mutex::new(state)),
+            db: database.clone(),
             trust_new_identities,
         })
     }
 
-    pub async fn flush(&self) -> Result<usize, BitpartStoreError> {
-        let state = serde_json::to_string(&*self.read().await).unwrap();
-        db::channel::set_by_id(&self.id, &state, &self.db_handle).await?;
-        Ok(0)
-    }
-
-    pub async fn open(
-        id: &str,
-        database: &DatabaseConnection,
-        migration_conflict_strategy: MigrationConflictStrategy,
-        trust_new_identities: OnNewIdentity,
-    ) -> Result<Self, BitpartStoreError> {
-        Self::open_with_passphrase(
-            id,
-            database,
-            migration_conflict_strategy,
-            trust_new_identities,
-        )
-        .await
-    }
-
-    pub async fn open_with_passphrase(
-        id: &str,
-        database: &DatabaseConnection,
-        migration_conflict_strategy: MigrationConflictStrategy,
-        trust_new_identities: OnNewIdentity,
-    ) -> Result<Self, BitpartStoreError> {
-        //migrate(id, database, migration_conflict_strategy).await?;
-        Self::new(id, database, trust_new_identities).await
-    }
-
     #[cfg(test)]
     async fn temporary() -> Result<Self, BitpartStoreError> {
-        let db_handle = sea_orm::Database::connect("sqlite::memory:").await?;
-        db_handle
-            .execute_unprepared(
-                "CREATE TABLE channel (
+        let db = sea_orm::Database::connect("sqlite::memory:").await?;
+        db.execute_unprepared(
+            "CREATE TABLE channel (
                     id TEXT PRIMARY KEY,
                     bot_id TEXT,
                     channel_id TEXT,
-                    state TEXT,
                     created_at TEXT,
                     updated_at TEXT
                 );
@@ -220,34 +105,40 @@ impl BitpartStore {
                     id,
                     bot_id,
                     channel_id,
-                    state,
                     created_at,
                     updated_at
                 ) VALUES(
                     'test',
                     'bot_id',
                     'signal',
-                    '{}',
                     '1678295210',
                     '1678295210'
-                );",
-            )
-            .await
-            .unwrap();
+                );
+                CREATE TABLE channel_state (
+                    id TEXT PRIMARY KEY,
+                    channel_id TEXT,
+                    tree TEXT,
+                    key TEXT,
+                    value TEXT,
+                    created_at TEXT,
+                    updated_at TEXT
+                );
+                CREATE TRIGGER channel_state_updated_at
+                AFTER UPDATE ON channel_state
+                FOR EACH ROW
+                BEGIN
+                    UPDATE channel_state
+                    SET updated_at = (datetime('now','localtime'))
+                    WHERE id = NEW.id;
+                END;",
+        )
+        .await
+        .unwrap();
         Ok(Self {
             id: "test".to_owned(),
-            db_handle,
-            db: Arc::new(Mutex::new(DoubleMap::new())),
+            db,
             trust_new_identities: OnNewIdentity::Reject,
         })
-    }
-
-    async fn read(&self) -> MutexGuard<DoubleMap> {
-        self.db.lock().await
-    }
-
-    async fn write(&self) -> MutexGuard<DoubleMap> {
-        self.db.lock().await
     }
 
     pub async fn get<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
@@ -255,8 +146,9 @@ impl BitpartStore {
         K: AsRef<[u8]>,
         V: DeserializeOwned,
     {
-        if let Some(value) = self.read().await.open_tree(tree)?.get(key.as_ref()) {
-            Ok(Some(serde_json::from_slice(value)?))
+        let key = str::from_utf8(key.as_ref())?;
+        if let Some(value) = db::channel_state::get(&self.id, tree, key, &self.db).await? {
+            Ok(Some(serde_json::from_str(&value)?))
         } else {
             Ok(None)
         }
@@ -266,13 +158,10 @@ impl BitpartStore {
         &'a self,
         tree: &str,
     ) -> Result<impl Iterator<Item = Result<V, BitpartStoreError>> + 'a, BitpartStoreError> {
-        Ok(self
-            .read()
-            .await
-            .open_tree(tree)?
-            .clone()
+        Ok(db::channel_state::get_all(&self.id, tree, &self.db)
+            .await?
             .into_iter()
-            .map(move |(_, value)| Ok(serde_json::from_slice::<V>(&value)?)))
+            .map(move |(_, value)| Ok(serde_json::from_str::<V>(&value)?)))
     }
 
     async fn insert<K, V>(&self, tree: &str, key: K, value: V) -> Result<bool, BitpartStoreError>
@@ -280,22 +169,31 @@ impl BitpartStore {
         K: AsRef<[u8]>,
         V: Serialize,
     {
-        let replaced = self
-            .write()
-            .await
-            .open_tree(tree)?
-            .insert(key.as_ref().to_owned(), serde_json::to_vec(&value)?);
-        self.flush().await?;
-        Ok(replaced.is_some())
+        let key = str::from_utf8(key.as_ref())?;
+        let replaced = db::channel_state::set(
+            &self.id,
+            tree,
+            key,
+            serde_json::to_string(&value)?,
+            &self.db,
+        )
+        .await?;
+
+        Ok(replaced)
     }
 
     async fn remove<K>(&self, tree: &str, key: K) -> Result<bool, BitpartStoreError>
     where
         K: AsRef<[u8]>,
     {
-        let removed = self.write().await.open_tree(tree)?.remove(key.as_ref());
-        self.flush().await?;
-        Ok(removed.is_some())
+        let key = str::from_utf8(key.as_ref())?;
+        let removed = db::channel_state::remove(&self.id, tree, key, &self.db).await?;
+        Ok(removed > 0)
+    }
+
+    async fn remove_all(&self, tree: &str) -> Result<bool, BitpartStoreError> {
+        let removed = db::channel_state::remove_all(&self.id, tree, &self.db).await?;
+        Ok(removed > 0)
     }
 
     fn profile_key_for_uuid(&self, uuid: Uuid, key: ProfileKey) -> String {
@@ -380,14 +278,7 @@ impl StateStore for BitpartStore {
 
     async fn clear_registration(&mut self) -> Result<(), BitpartStoreError> {
         // drop registration data (includes identity keys)
-        {
-            let mut db = self.write().await;
-            db.open_tree("default")?
-                .remove(SLED_KEY_REGISTRATION.as_bytes());
-            db.drop_tree(SLED_TREE_STATE)?;
-        }
-
-        self.flush().await?;
+        db::channel_state::remove_all(&self.id, SLED_TREE_STATE, &self.db).await?;
         // drop all saved profile (+avatards) and profile keys
         self.clear_profiles().await?;
 

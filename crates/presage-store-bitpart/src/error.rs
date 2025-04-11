@@ -19,6 +19,7 @@
 
 use presage::{libsignal_service::protocol::SignalProtocolError, store::StoreError};
 use sea_orm::DbErr;
+use std::str;
 use tracing::error;
 
 #[derive(Debug, thiserror::Error)]
@@ -43,6 +44,8 @@ pub enum BitpartStoreError {
     NoUuid,
     #[error("Unsupported message content")]
     UnsupportedContent,
+    #[error("string encoding error: {0}")]
+    Utf8(#[from] str::Utf8Error),
 }
 
 impl StoreError for BitpartStoreError {}

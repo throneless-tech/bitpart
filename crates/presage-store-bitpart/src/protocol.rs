@@ -39,7 +39,7 @@ use presage::{
 };
 use tracing::{error, trace, warn};
 
-use crate::{BitpartStore, BitpartStoreError, OnNewIdentity};
+use crate::{BitpartStore, BitpartStoreError, OnNewIdentity, db};
 
 #[derive(Clone)]
 pub struct BitpartProtocolStore<T: BitpartTrees> {
@@ -67,15 +67,15 @@ impl BitpartProtocolStore<PniBitpartStore> {
 
 impl<T: BitpartTrees> BitpartProtocolStore<T> {
     async fn next_key_id(&self, tree: &str) -> Result<u32, SignalProtocolError> {
-        Ok(self
-            .store
-            .read()
-            .await
-            .open_tree(tree)?
-            .keys()
-            .last()
-            .and_then(|data| Some(u32::from_be_bytes(data[..4].try_into().ok()?)))
-            .map_or(0, |id| id + 1))
+        Ok(
+            db::channel_state::get_all(&self.store.id, tree, &self.store.db)
+                .await?
+                .into_iter()
+                .map(|(k, _)| k.into_bytes())
+                .last()
+                .and_then(|data| Some(u32::from_be_bytes(data.try_into().ok()?)))
+                .map_or(0, |id| id + 1),
+        )
     }
 }
 
@@ -186,13 +186,12 @@ impl BitpartPreKeyId for KyberPreKeyId {}
 
 impl<T: BitpartTrees> BitpartProtocolStore<T> {
     pub(crate) async fn clear(&self, clear_sessions: bool) -> Result<(), BitpartStoreError> {
-        let mut db = self.store.write().await;
-        db.drop_tree(T::pre_keys())?;
-        db.drop_tree(T::sender_keys())?;
-        db.drop_tree(T::signed_pre_keys())?;
-        db.drop_tree(T::kyber_pre_keys())?;
+        self.store.remove_all(T::pre_keys()).await?;
+        self.store.remove_all(T::sender_keys()).await?;
+        self.store.remove_all(T::signed_pre_keys()).await?;
+        self.store.remove_all(T::kyber_pre_keys()).await?;
         if clear_sessions {
-            db.drop_tree(T::sessions())?;
+            self.store.remove_all(T::sessions()).await?;
         }
         Ok(())
     }
@@ -256,36 +255,35 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
     }
 
     async fn signed_pre_keys_count(&self) -> Result<usize, SignalProtocolError> {
-        Ok(self
-            .store
-            .read()
-            .await
-            .open_tree(T::signed_pre_keys())
-            .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("signed_pre_keys_count", "sled error".into())
-            })?
-            .keys()
-            .count())
+        Ok(
+            db::channel_state::get_all(&self.store.id, T::signed_pre_keys(), &self.store.db)
+                .await
+                .map_err(|error| {
+                    error!(%error, "sled error");
+                    SignalProtocolError::InvalidState("signed_pre_keys_count", "sled error".into())
+                })?
+                .into_iter()
+                .count(),
+        )
     }
 
     /// number of kyber pre-keys we currently have in store
     async fn kyber_pre_keys_count(&self, last_resort: bool) -> Result<usize, SignalProtocolError> {
-        Ok(self
-            .store
-            .read()
-            .await
-            .open_tree(if last_resort {
-                T::kyber_pre_keys_last_resort()
-            } else {
-                T::kyber_pre_keys()
-            })
-            .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("save_signed_pre_key", "sled error".into())
-            })?
-            .keys()
-            .count())
+        let tree = if last_resort {
+            T::kyber_pre_keys_last_resort()
+        } else {
+            T::kyber_pre_keys()
+        };
+        Ok(
+            db::channel_state::get_all(&self.store.id, tree, &self.store.db)
+                .await
+                .map_err(|error| {
+                    error!(%error, "sled error");
+                    SignalProtocolError::InvalidState("save_signed_pre_key", "sled error".into())
+                })?
+                .into_iter()
+                .count(),
+        )
     }
 }
 
@@ -485,48 +483,45 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
     ) -> Result<Vec<u32>, SignalProtocolError> {
         let session_prefix = format!("{}.", address.raw_uuid());
         trace!(session_prefix, "get_sub_device_sessions");
-        let session_ids: Vec<u32> = self
-            .store
-            .read()
-            .await
-            .open_tree(T::sessions())?
-            .iter()
-            .filter_map(|(key, _)| {
-                let key_str = String::from_utf8_lossy(&key);
-                if !key_str.starts_with(&session_prefix) {
-                    return None;
-                };
-                let device_id = key_str.strip_prefix(&session_prefix)?;
-                device_id.parse().ok()
-            })
-            .filter(|d| *d != DEFAULT_DEVICE_ID)
-            .collect();
+        let session_ids: Vec<u32> =
+            db::channel_state::get_all(&self.store.id, T::sessions(), &self.store.db)
+                .await?
+                .iter()
+                .filter_map(|(key, _)| {
+                    if !key.starts_with(&session_prefix) {
+                        return None;
+                    };
+                    let device_id = key.strip_prefix(&session_prefix)?;
+                    device_id.parse().ok()
+                })
+                .filter(|d| *d != DEFAULT_DEVICE_ID)
+                .collect();
         Ok(session_ids)
     }
 
     async fn delete_session(&self, address: &ProtocolAddress) -> Result<(), SignalProtocolError> {
         trace!(%address, "deleting session");
-        self.store
-            .write()
-            .await
-            .open_tree(T::sessions())?
-            .remove(&Vec::from(address.to_string()))
-            .ok_or_else(|| SignalProtocolError::SessionNotFound(address.clone()))?;
+        db::channel_state::remove(
+            &self.store.id,
+            T::sessions(),
+            &address.to_string(),
+            &self.store.db,
+        )
+        .await?;
+
         Ok(())
     }
 
     async fn delete_all_sessions(&self, address: &ServiceId) -> Result<usize, SignalProtocolError> {
-        let mut db = self.store.write().await;
-        let sessions_tree = db.open_tree(T::sessions())?;
+        let len = db::channel_state::remove_like(
+            &self.store.id,
+            T::sessions(),
+            &address.raw_uuid().to_string(),
+            &self.store.db,
+        )
+        .await?;
 
-        sessions_tree.retain(|key, _| {
-            let key_str = String::from_utf8_lossy(&key);
-            !key_str.starts_with(&address.raw_uuid().to_string())
-        });
-
-        let len = sessions_tree.len();
-        sessions_tree.clear();
-        Ok(len)
+        Ok(len as usize)
     }
 }
 

@@ -255,9 +255,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError
                 manager,
                 tx,
             ));
-            Ok(sender
-                .send("".to_owned())
-                .map_err(BitpartError::Signal)?)
+            Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
         }
     }
 }
