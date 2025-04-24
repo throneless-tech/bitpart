@@ -152,11 +152,10 @@ async fn main() -> Result<(), BitpartError> {
             app.into_make_service_with_connect_info::<SocketAddr>(),
         )
         .await?;
-    } else if let Ok(path) = server.bind.parse::<PathBuf>() {
+    } else {
+        let Ok(path) = server.bind.parse::<PathBuf>();
         let listener = tokio::net::UnixListener::bind(path).expect("Unable to bind to address");
         axum::serve(listener, app.into_make_service()).await?;
-    } else {
-        panic!("Unable to bind to address");
     };
 
     Ok(())

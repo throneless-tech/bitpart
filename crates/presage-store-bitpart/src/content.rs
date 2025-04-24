@@ -37,14 +37,14 @@ use tracing::{debug, trace};
 
 use crate::{BitpartStore, BitpartStoreError, db, protobuf::ContentProto};
 
-const SLED_TREE_PROFILE_AVATARS: &str = "profile_avatars";
-const SLED_TREE_PROFILE_KEYS: &str = "profile_keys";
-const SLED_TREE_STICKER_PACKS: &str = "sticker_packs";
-const SLED_TREE_CONTACTS: &str = "contacts";
-const SLED_TREE_GROUP_AVATARS: &str = "group_avatars";
-const SLED_TREE_GROUPS: &str = "groups";
-const SLED_TREE_PROFILES: &str = "profiles";
-const SLED_TREE_THREADS_PREFIX: &str = "threads";
+const BITPART_TREE_PROFILE_AVATARS: &str = "profile_avatars";
+const BITPART_TREE_PROFILE_KEYS: &str = "profile_keys";
+const BITPART_TREE_STICKER_PACKS: &str = "sticker_packs";
+const BITPART_TREE_CONTACTS: &str = "contacts";
+const BITPART_TREE_GROUP_AVATARS: &str = "group_avatars";
+const BITPART_TREE_GROUPS: &str = "groups";
+const BITPART_TREE_PROFILES: &str = "profiles";
+const BITPART_TREE_THREADS_PREFIX: &str = "threads";
 
 impl ContentsStore for BitpartStore {
     type ContentsStoreError = BitpartStoreError;
@@ -56,22 +56,22 @@ impl ContentsStore for BitpartStore {
 
     async fn clear_profiles(&mut self) -> Result<(), Self::ContentsStoreError> {
         {
-            self.remove_all(SLED_TREE_PROFILES).await?;
-            self.remove_all(SLED_TREE_PROFILE_KEYS).await?;
-            self.remove_all(SLED_TREE_PROFILE_AVATARS).await?;
+            self.remove_all(BITPART_TREE_PROFILES).await?;
+            self.remove_all(BITPART_TREE_PROFILE_KEYS).await?;
+            self.remove_all(BITPART_TREE_PROFILE_AVATARS).await?;
         }
         Ok(())
     }
 
     async fn clear_contents(&mut self) -> Result<(), Self::ContentsStoreError> {
         {
-            self.remove_all(SLED_TREE_CONTACTS).await?;
-            self.remove_all(SLED_TREE_GROUPS).await?;
+            self.remove_all(BITPART_TREE_CONTACTS).await?;
+            self.remove_all(BITPART_TREE_GROUPS).await?;
 
             for tree in db::channel_state::get_trees(&self.id, &self.db)
                 .await?
                 .into_iter()
-                .filter(|n| n.starts_with(SLED_TREE_THREADS_PREFIX))
+                .filter(|n| n.starts_with(BITPART_TREE_THREADS_PREFIX))
             {
                 self.remove_all(&tree).await?;
             }
@@ -81,12 +81,12 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn clear_contacts(&mut self) -> Result<(), BitpartStoreError> {
-        self.remove_all(SLED_TREE_CONTACTS).await?;
+        self.remove_all(BITPART_TREE_CONTACTS).await?;
         Ok(())
     }
 
     async fn save_contact(&mut self, contact: &Contact) -> Result<(), BitpartStoreError> {
-        self.insert(SLED_TREE_CONTACTS, contact.uuid, contact)
+        self.insert(BITPART_TREE_CONTACTS, contact.uuid, contact)
             .await?;
         debug!("saved contact");
         Ok(())
@@ -94,7 +94,7 @@ impl ContentsStore for BitpartStore {
 
     async fn contacts(&self) -> Result<Self::ContactsIter, BitpartStoreError> {
         Ok(BitpartContactsIter {
-            data: db::channel_state::get_all(&self.id, SLED_TREE_CONTACTS, &self.db)
+            data: db::channel_state::get_all(&self.id, BITPART_TREE_CONTACTS, &self.db)
                 .await?
                 .into_iter()
                 .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
@@ -104,19 +104,19 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn contact_by_id(&self, id: &Uuid) -> Result<Option<Contact>, BitpartStoreError> {
-        self.get(SLED_TREE_CONTACTS, id).await
+        self.get(BITPART_TREE_CONTACTS, id).await
     }
 
     /// Groups
 
     async fn clear_groups(&mut self) -> Result<(), BitpartStoreError> {
-        self.remove_all(SLED_TREE_GROUPS).await?;
+        self.remove_all(BITPART_TREE_GROUPS).await?;
         Ok(())
     }
 
     async fn groups(&self) -> Result<Self::GroupsIter, BitpartStoreError> {
         Ok(BitpartGroupsIter {
-            data: db::channel_state::get_all(&self.id, SLED_TREE_GROUPS, &self.db)
+            data: db::channel_state::get_all(&self.id, BITPART_TREE_GROUPS, &self.db)
                 .await?
                 .into_iter()
                 .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
@@ -129,7 +129,7 @@ impl ContentsStore for BitpartStore {
         &self,
         master_key_bytes: GroupMasterKeyBytes,
     ) -> Result<Option<Group>, BitpartStoreError> {
-        self.get(SLED_TREE_GROUPS, master_key_bytes).await
+        self.get(BITPART_TREE_GROUPS, master_key_bytes).await
     }
 
     async fn save_group(
@@ -137,7 +137,7 @@ impl ContentsStore for BitpartStore {
         master_key: GroupMasterKeyBytes,
         group: impl Into<Group>,
     ) -> Result<(), BitpartStoreError> {
-        self.insert(SLED_TREE_GROUPS, master_key, group.into())
+        self.insert(BITPART_TREE_GROUPS, master_key, group.into())
             .await?;
         Ok(())
     }
@@ -146,7 +146,7 @@ impl ContentsStore for BitpartStore {
         &self,
         master_key_bytes: GroupMasterKeyBytes,
     ) -> Result<Option<AvatarBytes>, BitpartStoreError> {
-        self.get(SLED_TREE_GROUP_AVATARS, master_key_bytes).await
+        self.get(BITPART_TREE_GROUP_AVATARS, master_key_bytes).await
     }
 
     async fn save_group_avatar(
@@ -154,7 +154,7 @@ impl ContentsStore for BitpartStore {
         master_key: GroupMasterKeyBytes,
         avatar: &AvatarBytes,
     ) -> Result<(), BitpartStoreError> {
-        self.insert(SLED_TREE_GROUP_AVATARS, master_key, avatar)
+        self.insert(BITPART_TREE_GROUP_AVATARS, master_key, avatar)
             .await?;
         Ok(())
     }
@@ -163,7 +163,7 @@ impl ContentsStore for BitpartStore {
 
     async fn clear_messages(&mut self) -> Result<(), BitpartStoreError> {
         for name in db::channel_state::get_trees(&self.id, &self.db).await? {
-            if name.starts_with(SLED_TREE_THREADS_PREFIX) {
+            if name.starts_with(BITPART_TREE_THREADS_PREFIX) {
                 db::channel_state::remove_all(&self.id, &name, &self.db).await?;
             }
         }
@@ -211,7 +211,6 @@ impl ContentsStore for BitpartStore {
         thread: &Thread,
         timestamp: u64,
     ) -> Result<Option<Content>, BitpartStoreError> {
-        // Big-Endian needed, otherwise wrong ordering in sled.
         let val: Option<Vec<u8>> = self
             .get(&messages_thread_tree_name(thread), timestamp.to_be_bytes())
             .await?;
@@ -230,21 +229,42 @@ impl ContentsStore for BitpartStore {
         thread: &Thread,
         range: impl RangeBounds<u64>,
     ) -> Result<Self::MessagesIter, BitpartStoreError> {
-        let tree_thread =
-            db::channel_state::get_all(&self.id, &messages_thread_tree_name(thread), &self.db)
-                .await?;
+        let mut tree_thread: Vec<(u64, Vec<u8>)> = self
+            .get_all(&messages_thread_tree_name(thread))
+            .await?
+            .into_iter()
+            .map(|(k, v)| (u64::from_be_bytes(k), v))
+            .collect();
+        tree_thread.sort();
         debug!(%thread, count = tree_thread.len(), "loading message tree");
 
         let range = match (range.start_bound(), range.end_bound()) {
-            (Bound::Included(start), Bound::Unbounded) => &tree_thread[*start as usize..],
+            (Bound::Included(start), Bound::Unbounded) => {
+                &tree_thread[tree_thread
+                    .iter()
+                    .position(|(k, _)| k >= start)
+                    .unwrap_or(tree_thread.len())..]
+            }
             (Bound::Included(start), Bound::Excluded(end)) => {
-                &tree_thread[*start as usize..*end as usize]
+                &tree_thread[tree_thread
+                    .iter()
+                    .position(|(k, _)| k >= start)
+                    .unwrap_or(tree_thread.len())
+                    ..tree_thread.iter().rposition(|(k, _)| k <= end).unwrap_or(0)]
             }
             (Bound::Included(start), Bound::Included(end)) => {
-                &tree_thread[*start as usize..=*end as usize]
+                &tree_thread[tree_thread
+                    .iter()
+                    .position(|(k, _)| k >= start)
+                    .unwrap_or(tree_thread.len())
+                    ..=tree_thread.iter().rposition(|(k, _)| k <= end).unwrap_or(0)]
             }
-            (Bound::Unbounded, Bound::Included(end)) => &tree_thread[..=*end as usize],
-            (Bound::Unbounded, Bound::Excluded(end)) => &tree_thread[..*end as usize],
+            (Bound::Unbounded, Bound::Included(end)) => {
+                &tree_thread[..=tree_thread.iter().rposition(|(k, _)| k <= end).unwrap_or(0)]
+            }
+            (Bound::Unbounded, Bound::Excluded(end)) => {
+                &tree_thread[..tree_thread.iter().rposition(|(k, _)| k <= end).unwrap_or(0)]
+            }
             (Bound::Unbounded, Bound::Unbounded) => &tree_thread,
             (Bound::Excluded(_), _) => {
                 unreachable!("range that excludes the initial value")
@@ -254,7 +274,7 @@ impl ContentsStore for BitpartStore {
         let iter = Vec::from_iter(
             range
                 .iter()
-                .map(|(k, v)| (k.clone().into_bytes(), v.clone().into_bytes())),
+                .map(|(k, v)| (k.clone().to_be_bytes().into(), v.clone())),
         );
         let end = if iter.len() > 0 { iter.len() - 1 } else { 0 };
 
@@ -272,7 +292,7 @@ impl ContentsStore for BitpartStore {
     ) -> Result<bool, BitpartStoreError> {
         db::channel_state::set(
             &self.id,
-            SLED_TREE_PROFILE_KEYS,
+            BITPART_TREE_PROFILE_KEYS,
             &uuid.to_string(),
             String::from_utf8_lossy(&key.get_bytes()),
             &self.db,
@@ -282,7 +302,7 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn profile_key(&self, uuid: &Uuid) -> Result<Option<ProfileKey>, BitpartStoreError> {
-        self.get(SLED_TREE_PROFILE_KEYS, uuid.as_bytes()).await
+        self.get(BITPART_TREE_PROFILE_KEYS, uuid.as_bytes()).await
     }
 
     async fn save_profile(
@@ -292,7 +312,7 @@ impl ContentsStore for BitpartStore {
         profile: Profile,
     ) -> Result<(), BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
-        self.insert(SLED_TREE_PROFILES, key, profile).await?;
+        self.insert(BITPART_TREE_PROFILES, key, profile).await?;
         Ok(())
     }
 
@@ -302,7 +322,7 @@ impl ContentsStore for BitpartStore {
         key: ProfileKey,
     ) -> Result<Option<Profile>, BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
-        self.get(SLED_TREE_PROFILES, key).await
+        self.get(BITPART_TREE_PROFILES, key).await
     }
 
     async fn save_profile_avatar(
@@ -312,7 +332,8 @@ impl ContentsStore for BitpartStore {
         avatar: &AvatarBytes,
     ) -> Result<(), BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
-        self.insert(SLED_TREE_PROFILE_AVATARS, key, avatar).await?;
+        self.insert(BITPART_TREE_PROFILE_AVATARS, key, avatar)
+            .await?;
         Ok(())
     }
 
@@ -322,26 +343,26 @@ impl ContentsStore for BitpartStore {
         key: ProfileKey,
     ) -> Result<Option<AvatarBytes>, BitpartStoreError> {
         let key = self.profile_key_for_uuid(uuid, key);
-        self.get(SLED_TREE_PROFILE_AVATARS, key).await
+        self.get(BITPART_TREE_PROFILE_AVATARS, key).await
     }
 
     async fn add_sticker_pack(&mut self, pack: &StickerPack) -> Result<(), BitpartStoreError> {
-        self.insert(SLED_TREE_STICKER_PACKS, pack.id.clone(), pack)
+        self.insert(BITPART_TREE_STICKER_PACKS, pack.id.clone(), pack)
             .await?;
         Ok(())
     }
 
     async fn remove_sticker_pack(&mut self, id: &[u8]) -> Result<bool, BitpartStoreError> {
-        self.remove(SLED_TREE_STICKER_PACKS, id).await
+        self.remove(BITPART_TREE_STICKER_PACKS, id).await
     }
 
     async fn sticker_pack(&self, id: &[u8]) -> Result<Option<StickerPack>, BitpartStoreError> {
-        self.get(SLED_TREE_STICKER_PACKS, id).await
+        self.get(BITPART_TREE_STICKER_PACKS, id).await
     }
 
     async fn sticker_packs(&self) -> Result<Self::StickerPacksIter, BitpartStoreError> {
         Ok(BitpartStickerPacksIter {
-            data: db::channel_state::get_all(&self.id, SLED_TREE_STICKER_PACKS, &self.db)
+            data: db::channel_state::get_all(&self.id, BITPART_TREE_STICKER_PACKS, &self.db)
                 .await?
                 .into_iter()
                 .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
@@ -426,20 +447,13 @@ pub struct BitpartMessagesIter {
 }
 
 impl BitpartMessagesIter {
-    fn decrypt_value<T: DeserializeOwned>(&self, value: &[u8]) -> Result<T, BitpartStoreError> {
-        Ok(serde_json::from_slice(value)?)
-    }
-}
-
-impl BitpartMessagesIter {
     fn decode(
         &self,
         elem: Result<(&Vec<u8>, &Vec<u8>), BitpartStoreError>,
     ) -> Option<Result<Content, BitpartStoreError>> {
         elem.map_err(BitpartStoreError::from)
-            .and_then(|(_, value)| self.decrypt_value(&value).map_err(BitpartStoreError::from))
-            .and_then(|data: Vec<u8>| {
-                ContentProto::decode(&data[..]).map_err(BitpartStoreError::from)
+            .and_then(|(_, value)| {
+                ContentProto::decode(&value[..]).map_err(BitpartStoreError::from)
             })
             .map_or_else(|e| Some(Err(e)), |p| Some(p.try_into()))
     }
@@ -469,14 +483,14 @@ fn messages_thread_tree_name(t: &Thread) -> String {
     use base64::prelude::*;
     let key = match t {
         Thread::Contact(uuid) => {
-            format!("{SLED_TREE_THREADS_PREFIX}:contact:{uuid}")
+            format!("{BITPART_TREE_THREADS_PREFIX}:contact:{uuid}")
         }
         Thread::Group(group_id) => format!(
-            "{SLED_TREE_THREADS_PREFIX}:group:{}",
+            "{BITPART_TREE_THREADS_PREFIX}:group:{}",
             BASE64_STANDARD.encode(group_id)
         ),
     };
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
-    format!("{SLED_TREE_THREADS_PREFIX}:{:x}", hasher.finalize())
+    format!("{BITPART_TREE_THREADS_PREFIX}:{:x}", hasher.finalize())
 }

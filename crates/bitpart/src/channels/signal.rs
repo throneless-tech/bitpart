@@ -19,20 +19,19 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 use std::time::UNIX_EPOCH;
 
 use chrono::Local;
 use csml_interpreter::data::Client;
 use futures::StreamExt;
 use futures::{channel::oneshot, pin_mut};
-use mime_guess::mime::APPLICATION_OCTET_STREAM;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::Reaction;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto::data_message::Quote;
 use presage::libsignal_service::proto::sync_message::Sent;
 use presage::libsignal_service::protocol::ServiceId;
-use presage::libsignal_service::sender::AttachmentSpec;
 use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
 use presage::model::identity::OnNewIdentity;
 use presage::model::messages::Received;
@@ -47,16 +46,16 @@ use presage::{
     manager::Registered,
     store::{Store, Thread},
 };
-use presage_store_bitpart::{BitpartStore, MigrationConflictStrategy};
+use presage_store_bitpart::BitpartStore;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::str::FromStr;
 use tokio::{
     fs,
     runtime::Builder as TokioBuilder,
     sync::{mpsc, oneshot as tokio_oneshot},
     task::LocalSet,
+    time,
 };
 use tracing::warn;
 use tracing::{debug, error, info};
@@ -69,17 +68,14 @@ use crate::csml::event::SerializedEvent;
 use crate::db;
 use crate::error::BitpartError;
 
+const SYNC_INTERVAL: u64 = 300000;
+
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
     LinkChannel {
         id: String,
         device_name: String,
     },
-    // RegisterChannel {
-    //     id: String,
-    //     phone_number: String,
-    //     captcha: String,
-    // },
     StartChannel {
         id: String,
         attachments_dir: PathBuf,
@@ -136,7 +132,7 @@ impl SignalManager {
 pub struct ChannelState {
     id: String,
     db: DatabaseConnection,
-    tx: mpsc::Sender<(String, String)>,
+    tx: mpsc::Sender<(Recipient, String)>,
 }
 
 async fn start_channel_recv(
@@ -144,7 +140,7 @@ async fn start_channel_recv(
     attachments_dir: PathBuf,
     db: DatabaseConnection,
     mut manager: Manager<BitpartStore, Registered>,
-    tx: mpsc::Sender<(String, String)>,
+    tx: mpsc::Sender<(Recipient, String)>,
 ) -> Result<(), BitpartError> {
     let channel = db::channel::get_by_id(&id, &db)
         .await?
@@ -159,38 +155,53 @@ async fn start_channel_recv(
 
 async fn start_channel_send(
     mut manager: Manager<BitpartStore, Registered>,
-    mut rx: mpsc::Receiver<(String, String)>,
+    mut rx: mpsc::Receiver<(Recipient, String)>,
 ) -> Result<(), BitpartError> {
     while let Some((recipient, msg)) = rx.recv().await {
-        let attachments = upload_attachments(vec![PathBuf::from("/tmp")], &manager).await?;
-        let data_message = DataMessage {
-            body: Some(msg),
-            attachments,
-            ..Default::default()
-        };
+        match recipient {
+            Recipient::Contact(_) => {
+                let data_message = DataMessage {
+                    body: Some(msg),
+                    ..Default::default()
+                };
 
-        send(
-            &mut manager,
-            Recipient::Contact(Uuid::from_str(&recipient).unwrap()),
-            data_message,
-        )
-        .await
-        .unwrap();
+                send(&mut manager, recipient, data_message).await?
+            }
+            Recipient::Group(group) => {
+                let data_message = DataMessage {
+                    body: Some(msg),
+                    group_v2: Some(GroupContextV2 {
+                        master_key: Some(group.to_vec()),
+                        revision: Some(0),
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                };
+
+                send(&mut manager, recipient, data_message).await?
+            }
+        }
     }
     Ok(())
+}
+
+async fn start_channel_sync(
+    mut manager: Manager<BitpartStore, Registered>,
+) -> Result<(), BitpartError> {
+    let mut interval = time::interval(Duration::from_millis(SYNC_INTERVAL));
+    loop {
+        interval.tick().await;
+        if let Err(err) = request_contacts_sync(&mut manager).await {
+            warn!("Contact sync error: {:?}", err);
+        };
+    }
 }
 
 async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError> {
     let ChannelMessage { msg, db, sender } = msg;
     match msg {
         ChannelMessageContents::LinkChannel { id, device_name } => {
-            let config_store = BitpartStore::open(
-                &id,
-                &db,
-                MigrationConflictStrategy::Raise,
-                OnNewIdentity::Trust,
-            )
-            .await?;
+            let config_store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
             let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
             tokio::task::spawn_local(link_device(
                 config_store,
@@ -205,56 +216,22 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError
                 .map_err(|_e| BitpartError::Signal("Linking error".to_owned()))?;
             Ok(sender.send(res).map_err(BitpartError::Signal)?)
         }
-        // ChannelMessageContents::RegisterChannel {
-        //     id,
-        //     phone_number,
-        //     captcha,
-        // } => {
-        //     let config_store = BitpartStore::open(
-        //         &id,
-        //         &db,
-        //         MigrationConflictStrategy::Raise,
-        //         OnNewIdentity::Trust,
-        //     )
-        //     .await?;
-        //     let (_registration_tx, registration_rx) = oneshot::channel();
-        //     register(
-        //         config_store,
-        //         SignalServers::Production,
-        //         PhoneNumber::from_str(&phone_number).unwrap(),
-        //         false,
-        //         Url::parse(&captcha).unwrap(),
-        //         false,
-        //         registration_rx,
-        //     )
-        //     .await
-        //     .unwrap();
-        //     //tokio::task::spawn_local(start_channel(id.clone(), db.clone()));
-        //     Ok(sender
-        //         .send("".to_owned())
-        //         .map_err(|err| BitpartError::Signal(err))?)
-        // }
         ChannelMessageContents::StartChannel {
             id,
             attachments_dir,
         } => {
             let (tx, rx) = mpsc::channel(100);
-            let store = BitpartStore::open(
-                &id,
-                &db,
-                MigrationConflictStrategy::Raise,
-                OnNewIdentity::Trust,
-            )
-            .await?;
+            let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
             let manager = Manager::load_registered(store).await.unwrap();
             tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
             tokio::task::spawn_local(start_channel_recv(
                 id,
                 attachments_dir,
                 db.clone(),
-                manager,
+                manager.clone(),
                 tx,
             ));
+            tokio::task::spawn_local(start_channel_sync(manager));
             Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
         }
     }
@@ -305,11 +282,8 @@ async fn process_signal_message<S: Store>(
     attachments_dir: &Path,
     content: &Content,
     state: &Option<ChannelState>,
-) {
-    let Ok(thread) = Thread::try_from(content) else {
-        warn!("failed to derive thread from content");
-        return;
-    };
+) -> Result<(), BitpartError> {
+    let thread = Thread::try_from(content)?;
 
     async fn format_data_message<S: Store>(
         thread: &Thread,
@@ -459,7 +433,9 @@ async fn process_signal_message<S: Store>(
             Msg::Replyable(Thread::Contact(sender), body) => {
                 let contact = format_contact(sender, manager).await;
                 if let Some(state) = state {
-                    reply(sender.to_string(), body.clone(), state).await
+                    if let Err(err) = reply(sender.to_string(), body.clone(), state).await {
+                        warn!("Problem with replying to message: {:?}", err);
+                    }
                 }
                 (format!("From {contact} @ {ts}: "), body)
             }
@@ -517,9 +493,10 @@ async fn process_signal_message<S: Store>(
             }
         }
     }
+    Ok(())
 }
 
-async fn reply(user_id: String, body: String, state: &ChannelState) {
+async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<(), BitpartError> {
     let payload = json!({
         "content_type": "text",
         "content": {
@@ -551,16 +528,21 @@ async fn reply(user_id: String, body: String, state: &ChannelState) {
         event,
     };
 
-    let res = api::process_request(&request, &state.db).await.unwrap();
+    let res = api::process_request(&request, &state.db).await?;
     if let Some(messages) = res.get("messages") {
         for i in messages.as_array().unwrap().iter() {
             state
                 .tx
-                .send((reply_get_user_id(i, &user_id), reply_get_text(i)))
+                .send((
+                    try_user_id_to_recipient(&reply_get_user_id(i, &user_id))?,
+                    reply_get_text(i),
+                ))
                 .await
                 .unwrap();
         }
     }
+
+    Ok(())
 }
 
 fn unescape(input: &str) -> String {
@@ -570,6 +552,16 @@ fn unescape(input: &str) -> String {
         .replace("\\t", "\t")
         .replace("\\\"", "\"")
         .replace("\\\\", "\\")
+}
+
+fn try_user_id_to_recipient(user_id: &str) -> Result<Recipient, BitpartError> {
+    match Uuid::try_parse(user_id) {
+        Ok(uuid) => Ok(Recipient::Contact(uuid)),
+        Err(_) => {
+            let key: [u8; 32] = user_id.as_bytes().try_into()?;
+            Ok(Recipient::Group(key))
+        }
+    }
 }
 
 fn reply_get_user_id(res: &serde_json::Value, default_user_id: &str) -> String {
@@ -617,7 +609,11 @@ async fn receive<S: Store>(
             Received::QueueEmpty => debug!("done with synchronization"),
             Received::Contacts => debug!("got contacts synchronization"),
             Received::Content(content) => {
-                process_signal_message(manager, attachments_dir, &content, &state).await
+                if let Err(err) =
+                    process_signal_message(manager, attachments_dir, &content, &state).await
+                {
+                    warn!("Failed to extract message thread: {:?}", err);
+                }
             }
         }
     }
@@ -625,80 +621,7 @@ async fn receive<S: Store>(
     Ok(())
 }
 
-async fn upload_attachments<S: Store>(
-    attachment_filepath: Vec<PathBuf>,
-    manager: &Manager<S, Registered>,
-) -> Result<Vec<presage::proto::AttachmentPointer>, BitpartError> {
-    let attachment_specs: Vec<_> = attachment_filepath
-        .into_iter()
-        .filter_map(|path| {
-            let data = std::fs::read(&path).ok()?;
-            Some((
-                AttachmentSpec {
-                    content_type: mime_guess::from_path(&path)
-                        .first()
-                        .unwrap_or(APPLICATION_OCTET_STREAM)
-                        .to_string(),
-                    length: data.len(),
-                    file_name: path.file_name().map(|s| s.to_string_lossy().to_string()),
-                    preview: None,
-                    voice_note: None,
-                    borderless: None,
-                    width: None,
-                    height: None,
-                    caption: None,
-                    blur_hash: None,
-                },
-                data,
-            ))
-        })
-        .collect();
-
-    let attachments: Result<Vec<_>, _> = manager
-        .upload_attachments(attachment_specs)
-        .await?
-        .into_iter()
-        .collect();
-
-    let attachments = attachments?;
-    Ok(attachments)
-}
-
 // API functions
-
-// async fn register<S: Store>(
-//     config_store: S,
-//     servers: SignalServers,
-//     phone_number: PhoneNumber,
-//     use_voice_call: bool,
-//     captcha: Url,
-//     force: bool,
-//     registration_rx: oneshot::Receiver<String>,
-// ) -> Result<String, BitpartError> {
-//     let manager = Manager::register(
-//         config_store,
-//         RegistrationOptions {
-//             signal_servers: servers,
-//             phone_number,
-//             use_voice_call,
-//             captcha: Some(captcha.host_str().unwrap()),
-//             force,
-//         },
-//     )
-//     .await?;
-
-//     // ask for confirmation code here
-//     println!("input confirmation code (followed by RETURN): ");
-//     let confirmation_code = registration_rx.await?;
-//     let registered_manager = manager.confirm_verification_code(confirmation_code).await?;
-
-//     let service_ids = registered_manager
-//         .registration_data()
-//         .service_ids
-//         .to_string();
-//     println!("Account identifiers: {}", service_ids);
-//     Ok(service_ids)
-// }
 
 async fn link_device<S: Store>(
     config_store: S,
@@ -716,47 +639,9 @@ async fn link_device<S: Store>(
     Ok(())
 }
 
-async fn send_to_individual<S: Store>(
-    config_store: S,
-    uuid: Uuid,
-    message: String,
-    attachment_filepath: Vec<PathBuf>,
+async fn request_contacts_sync(
+    manager: &mut Manager<BitpartStore, Registered>,
 ) -> Result<(), BitpartError> {
-    let mut manager = Manager::load_registered(config_store).await?;
-    let attachments = upload_attachments(attachment_filepath, &manager).await?;
-    let data_message = DataMessage {
-        body: Some(message),
-        attachments,
-        ..Default::default()
-    };
-
-    send(&mut manager, Recipient::Contact(uuid), data_message).await
-}
-
-async fn send_to_group<S: Store>(
-    config_store: S,
-    message: String,
-    master_key: [u8; 32],
-    attachment_filepath: Vec<PathBuf>,
-) -> Result<(), BitpartError> {
-    let mut manager = Manager::load_registered(config_store).await?;
-    let attachments = upload_attachments(attachment_filepath, &manager).await?;
-    let data_message = DataMessage {
-        body: Some(message),
-        attachments,
-        group_v2: Some(GroupContextV2 {
-            master_key: Some(master_key.to_vec()),
-            revision: Some(0),
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-
-    send(&mut manager, Recipient::Group(master_key), data_message).await
-}
-
-async fn request_contacts_sync<S: Store>(config_store: S) -> Result<(), BitpartError> {
-    let mut manager = Manager::load_registered(config_store).await?;
     manager.request_contacts().await?;
     let messages = manager
         .receive_messages()

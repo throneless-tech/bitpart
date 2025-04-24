@@ -21,9 +21,10 @@ use presage;
 use presage_store_bitpart::BitpartStoreError;
 use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
-use std::io;
+use std::{array, io};
 use thiserror::Error;
 use tokio;
+use uuid;
 
 #[derive(Debug, Error)]
 pub enum BitpartError {
@@ -61,6 +62,10 @@ pub enum BitpartError {
     WebsocketClose,
     #[error("Channel Canceled error: `{0}`")]
     ChannelCanceled(#[from] futures::channel::oneshot::Canceled),
+    #[error("Signal Recipient error: `{0}`")]
+    SignalRecipient(#[from] array::TryFromSliceError),
+    #[error("Signal Message error: `{0}`")]
+    SignalMessage(#[from] uuid::Error),
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartError {

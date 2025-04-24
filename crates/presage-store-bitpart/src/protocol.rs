@@ -67,15 +67,18 @@ impl BitpartProtocolStore<PniBitpartStore> {
 
 impl<T: BitpartTrees> BitpartProtocolStore<T> {
     async fn next_key_id(&self, tree: &str) -> Result<u32, SignalProtocolError> {
-        Ok(
-            db::channel_state::get_all(&self.store.id, tree, &self.store.db)
-                .await?
-                .into_iter()
-                .map(|(k, _)| k.into_bytes())
-                .last()
-                .and_then(|data| Some(u32::from_be_bytes(data.try_into().ok()?)))
-                .map_or(0, |id| id + 1),
-        )
+        let mut keys = db::channel_state::get_all(&self.store.id, tree, &self.store.db)
+            .await?
+            .into_iter()
+            .map(|(key, _)| {
+                Some(u32::from_be_bytes(
+                    serde_json::from_str::<[u8; 4]>(&key).ok()?,
+                ))
+            })
+            .flatten()
+            .collect::<Vec<u32>>();
+        keys.sort();
+        Ok(keys.last().map_or(0, |id| id + 1))
     }
 }
 
@@ -174,7 +177,7 @@ impl BitpartTrees for PniBitpartStore {
 }
 
 pub(crate) trait BitpartPreKeyId: Into<u32> {
-    fn sled_key(self) -> [u8; 4] {
+    fn store_key(self) -> [u8; 4] {
         let idx: u32 = self.into();
         idx.to_be_bytes()
     }
@@ -204,7 +207,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeyStore for BitpartProtocolStore<T> {
     async fn get_pre_key(&self, prekey_id: PreKeyId) -> Result<PreKeyRecord, SignalProtocolError> {
         let buf: Vec<u8> = self
             .store
-            .get(T::pre_keys(), prekey_id.sled_key())
+            .get(T::pre_keys(), prekey_id.store_key())
             .await
             .ok()
             .flatten()
@@ -219,22 +222,22 @@ impl<T: BitpartTrees + Send + Sync> PreKeyStore for BitpartProtocolStore<T> {
         record: &PreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
         self.store
-            .insert(T::pre_keys(), prekey_id.sled_key(), record.serialize()?)
+            .insert(T::pre_keys(), prekey_id.store_key(), record.serialize()?)
             .await
             .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("save_pre_key", "sled error".into())
+                error!(%error, "store error");
+                SignalProtocolError::InvalidState("save_pre_key", "store error".into())
             })?;
         Ok(())
     }
 
     async fn remove_pre_key(&mut self, prekey_id: PreKeyId) -> Result<(), SignalProtocolError> {
         self.store
-            .remove(T::pre_keys(), prekey_id.sled_key())
+            .remove(T::pre_keys(), prekey_id.store_key())
             .await
             .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("remove_pre_key", "sled error".into())
+                error!(%error, "store error");
+                SignalProtocolError::InvalidState("remove_pre_key", "store error".into())
             })?;
         Ok(())
     }
@@ -259,8 +262,8 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
             db::channel_state::get_all(&self.store.id, T::signed_pre_keys(), &self.store.db)
                 .await
                 .map_err(|error| {
-                    error!(%error, "sled error");
-                    SignalProtocolError::InvalidState("signed_pre_keys_count", "sled error".into())
+                    error!(%error, "store error");
+                    SignalProtocolError::InvalidState("signed_pre_keys_count", "store error".into())
                 })?
                 .into_iter()
                 .count(),
@@ -278,8 +281,8 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
             db::channel_state::get_all(&self.store.id, tree, &self.store.db)
                 .await
                 .map_err(|error| {
-                    error!(%error, "sled error");
-                    SignalProtocolError::InvalidState("save_signed_pre_key", "sled error".into())
+                    error!(%error, "store error");
+                    SignalProtocolError::InvalidState("save_signed_pre_key", "store error".into())
                 })?
                 .into_iter()
                 .count(),
@@ -295,7 +298,7 @@ impl<T: BitpartTrees> SignedPreKeyStore for BitpartProtocolStore<T> {
     ) -> Result<SignedPreKeyRecord, SignalProtocolError> {
         let buf: Vec<u8> = self
             .store
-            .get(T::signed_pre_keys(), signed_prekey_id.sled_key())
+            .get(T::signed_pre_keys(), signed_prekey_id.store_key())
             .await
             .ok()
             .flatten()
@@ -311,13 +314,13 @@ impl<T: BitpartTrees> SignedPreKeyStore for BitpartProtocolStore<T> {
         self.store
             .insert(
                 T::signed_pre_keys(),
-                signed_prekey_id.sled_key(),
+                signed_prekey_id.store_key(),
                 record.serialize()?,
             )
             .await
             .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("save_signed_pre_key", "sled error".into())
+                error!(%error, "store error");
+                SignalProtocolError::InvalidState("save_signed_pre_key", "store error".into())
             })?;
         Ok(())
     }
@@ -331,7 +334,7 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
     ) -> Result<KyberPreKeyRecord, SignalProtocolError> {
         let buf: Vec<u8> = self
             .store
-            .get(T::kyber_pre_keys(), kyber_prekey_id.sled_key())
+            .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
             .await
             .ok()
             .flatten()
@@ -347,13 +350,13 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         self.store
             .insert(
                 T::kyber_pre_keys(),
-                kyber_prekey_id.sled_key(),
+                kyber_prekey_id.store_key(),
                 record.serialize()?,
             )
             .await
             .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("save_kyber_pre_key", "sled error".into())
+                error!(%error, "store error");
+                SignalProtocolError::InvalidState("save_kyber_pre_key", "store error".into())
             })?;
         Ok(())
     }
@@ -364,11 +367,11 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
     ) -> Result<(), SignalProtocolError> {
         let removed = self
             .store
-            .remove(T::kyber_pre_keys(), kyber_prekey_id.sled_key())
+            .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
             .await
             .map_err(|error| {
-                error!(%error, "sled error");
-                SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "sled error".into())
+                error!(%error, "store error");
+                SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "store error".into())
             })?;
         if removed {
             trace!(%kyber_prekey_id, "removed kyber pre-key");
@@ -388,15 +391,15 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
         self.store
             .insert(
                 T::kyber_pre_keys_last_resort(),
-                kyber_prekey_id.sled_key(),
+                kyber_prekey_id.store_key(),
                 record.serialize()?,
             )
             .await
             .map_err(|error| {
-                error!(%error, "sled error");
+                error!(%error, "store error");
                 SignalProtocolError::InvalidState(
                     "store_last_resort_kyber_pre_key",
-                    "sled error".into(),
+                    "store error".into(),
                 )
             })?;
         Ok(())
@@ -419,10 +422,10 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<(), SignalProtocolError> {
         self.store
-            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.sled_key())
+            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.store_key())
             .await?;
         self.store
-            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.sled_key())
+            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.store_key())
             .await?;
         Ok(())
     }
@@ -873,6 +876,7 @@ mod tests {
                 return TestResult::discard();
             }
         }
+
         if keys.iter().copied().max().map(|id| id + 1).unwrap_or(0)
             != store.next_pre_key_id().await.unwrap()
         {

@@ -54,6 +54,7 @@ pub async fn get_all(
         .column(channel_state::Column::Value)
         .filter(channel_state::Column::ChannelId.eq(channel_id))
         .filter(channel_state::Column::Tree.eq(tree))
+        // .order_by_asc(channel_state::Column::Key)
         .into_tuple()
         .all(db)
         .await?;

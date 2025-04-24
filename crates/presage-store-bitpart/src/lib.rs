@@ -45,9 +45,9 @@ pub use error::BitpartStoreError;
 #[cfg(test)]
 use sea_orm::ConnectionTrait;
 
-const SLED_TREE_STATE: &str = "state";
+const BITPART_TREE_STATE: &str = "state";
 
-const SLED_KEY_REGISTRATION: &str = "registration";
+const BITPART_KEY_REGISTRATION: &str = "registration";
 
 #[derive(Clone)]
 pub struct BitpartStore {
@@ -59,30 +59,12 @@ pub struct BitpartStore {
     trust_new_identities: OnNewIdentity,
 }
 
-/// Sometimes Migrations can't proceed without having to drop existing
-/// data. This allows you to configure, how these cases should be handled.
-#[derive(Default, PartialEq, Eq, Clone, Debug)]
-pub enum MigrationConflictStrategy {
-    /// Just drop the data, we don't care that we have to register or link again
-    // Drop,
-    /// Raise a `Error::MigrationConflict` error with the path to the
-    /// DB in question. The caller then has to take care about what they want
-    /// to do and try again after.
-    #[default]
-    Raise,
-    // / _Default_: The _entire_ database is backed up under, before the databases are dropped.
-    // BackupAndDrop,
-}
-
 impl BitpartStore {
-    #[allow(unused_variables)]
     pub async fn open(
         id: &str,
         database: &DatabaseConnection,
-        _migration_conflict_strategy: MigrationConflictStrategy,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
-        let store = db::channel::get_by_id(id, database).await?;
         Ok(BitpartStore {
             id: id.to_owned(),
             db: database.clone(),
@@ -120,8 +102,8 @@ impl BitpartStore {
                     tree TEXT,
                     key TEXT,
                     value TEXT,
-                    created_at TEXT,
-                    updated_at TEXT
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TRIGGER channel_state_updated_at
                 AFTER UPDATE ON channel_state
@@ -146,12 +128,30 @@ impl BitpartStore {
         K: AsRef<[u8]>,
         V: DeserializeOwned,
     {
-        let key = str::from_utf8(key.as_ref())?;
-        if let Some(value) = db::channel_state::get(&self.id, tree, key, &self.db).await? {
+        let key = serde_json::to_string(key.as_ref())?;
+        if let Some(value) = db::channel_state::get(&self.id, tree, &key, &self.db).await? {
             Ok(Some(serde_json::from_str(&value)?))
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn get_all<K, V>(&self, tree: &str) -> Result<Vec<(K, V)>, BitpartStoreError>
+    where
+        K: AsRef<[u8]> + DeserializeOwned + std::fmt::Debug,
+        V: DeserializeOwned + std::fmt::Debug,
+    {
+        Ok(db::channel_state::get_all(&self.id, tree, &self.db)
+            .await?
+            .into_iter()
+            .map(move |(key, value)| {
+                Ok::<(K, V), serde_json::Error>((
+                    serde_json::from_str::<K>(&key)?,
+                    serde_json::from_str::<V>(&value)?,
+                ))
+            })
+            .flatten()
+            .collect())
     }
 
     pub async fn iter<'a, V: DeserializeOwned + 'a>(
@@ -169,11 +169,11 @@ impl BitpartStore {
         K: AsRef<[u8]>,
         V: Serialize,
     {
-        let key = str::from_utf8(key.as_ref())?;
+        let key = serde_json::to_string(key.as_ref())?;
         let replaced = db::channel_state::set(
             &self.id,
             tree,
-            key,
+            &key,
             serde_json::to_string(&value)?,
             &self.db,
         )
@@ -186,8 +186,8 @@ impl BitpartStore {
     where
         K: AsRef<[u8]>,
     {
-        let key = str::from_utf8(key.as_ref())?;
-        let removed = db::channel_state::remove(&self.id, tree, key, &self.db).await?;
+        let key = serde_json::to_string(key.as_ref())?;
+        let removed = db::channel_state::remove(&self.id, tree, &key, &self.db).await?;
         Ok(removed > 0)
     }
 
@@ -207,7 +207,8 @@ impl BitpartStore {
     async fn get_identity_key_pair<T: BitpartTrees>(
         &self,
     ) -> Result<Option<IdentityKeyPair>, BitpartStoreError> {
-        let key_base64: Option<String> = self.get(SLED_TREE_STATE, T::identity_keypair()).await?;
+        let key_base64: Option<String> =
+            self.get(BITPART_TREE_STATE, T::identity_keypair()).await?;
         let Some(key_base64) = key_base64 else {
             return Ok(None);
         };
@@ -223,25 +224,17 @@ impl BitpartStore {
     ) -> Result<(), BitpartStoreError> {
         let key_bytes = key_pair.serialize();
         let key_base64 = BASE64_STANDARD.encode(key_bytes);
-        self.insert(SLED_TREE_STATE, T::identity_keypair(), key_base64)
+        self.insert(BITPART_TREE_STATE, T::identity_keypair(), key_base64)
             .await?;
         Ok(())
     }
-}
-
-async fn migrate(
-    _id: &str,
-    _database: &DatabaseConnection,
-    _migration_conflict_strategy: MigrationConflictStrategy,
-) -> Result<(), BitpartStoreError> {
-    todo!("No migrations yet!");
 }
 
 impl StateStore for BitpartStore {
     type StateStoreError = BitpartStoreError;
 
     async fn load_registration_data(&self) -> Result<Option<RegistrationData>, BitpartStoreError> {
-        self.get(SLED_TREE_STATE, SLED_KEY_REGISTRATION).await
+        self.get(BITPART_TREE_STATE, BITPART_KEY_REGISTRATION).await
     }
 
     async fn set_aci_identity_key_pair(
@@ -264,7 +257,7 @@ impl StateStore for BitpartStore {
         &mut self,
         state: &RegistrationData,
     ) -> Result<(), BitpartStoreError> {
-        self.insert(SLED_TREE_STATE, SLED_KEY_REGISTRATION, state)
+        self.insert(BITPART_TREE_STATE, BITPART_KEY_REGISTRATION, state)
             .await?;
         Ok(())
     }
@@ -278,7 +271,7 @@ impl StateStore for BitpartStore {
 
     async fn clear_registration(&mut self) -> Result<(), BitpartStoreError> {
         // drop registration data (includes identity keys)
-        db::channel_state::remove_all(&self.id, SLED_TREE_STATE, &self.db).await?;
+        db::channel_state::remove_all(&self.id, BITPART_TREE_STATE, &self.db).await?;
         // drop all saved profile (+avatards) and profile keys
         self.clear_profiles().await?;
 
@@ -390,7 +383,9 @@ mod tests {
         if pre_key_id > next_pre_key_id {
             std::mem::swap(&mut pre_key_id, &mut next_pre_key_id);
         }
-        assert!(PreKeyId::from(pre_key_id).sled_key() <= PreKeyId::from(next_pre_key_id).sled_key())
+        assert!(
+            PreKeyId::from(pre_key_id).store_key() <= PreKeyId::from(next_pre_key_id).store_key()
+        )
     }
 
     #[quickcheck_async::tokio]

@@ -26,7 +26,7 @@ use tracing::error;
 pub enum BitpartStoreError {
     #[error("database migration is not supported")]
     MigrationConflict,
-    #[error("data store error: {0}")]
+    #[error("database error: {0}")]
     Db(#[from] DbErr),
     #[error("data store error: {0}")]
     Store(String),
