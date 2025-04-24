@@ -18,7 +18,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #[allow(clippy::derive_partial_eq_without_eq)]
-
 mod textsecure {
     include!(concat!(env!("OUT_DIR"), "/textsecure.rs"));
 }

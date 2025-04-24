@@ -461,6 +461,7 @@ async fn manage_switch_bot(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn manage_internal_goto<'a>(
     data: &mut ConversationData,
     conversation_end: &mut bool,

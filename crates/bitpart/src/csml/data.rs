@@ -62,7 +62,7 @@ pub struct ConversationData {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub(super) enum BotOpt {
     #[serde(rename = "bot")]
-    CsmlBot(CsmlBot),
+    CsmlBot(Box<CsmlBot>),
     #[serde(rename = "version_id")]
     Id {
         version_id: String,
@@ -79,7 +79,7 @@ pub(super) enum BotOpt {
 }
 
 impl BotOpt {
-    pub async fn search_bot(&self, db: &DatabaseConnection) -> Result<CsmlBot, BitpartError> {
+    pub async fn search_bot(&self, db: &DatabaseConnection) -> Result<Box<CsmlBot>, BitpartError> {
         match self {
             BotOpt::CsmlBot(csml_bot) => Ok(csml_bot.to_owned()),
             BotOpt::BotId {
@@ -93,7 +93,7 @@ impl BotOpt {
                     Some(mut bot_version) => {
                         bot_version.bot.apps_endpoint = apps_endpoint.to_owned();
                         bot_version.bot.multibot = multibot.to_owned();
-                        Ok(bot_version.bot)
+                        Ok(Box::new(bot_version.bot))
                     }
                     None => Err(BitpartError::Interpreter(format!(
                         "bot ({}) not found in db",
@@ -113,7 +113,7 @@ impl BotOpt {
                     Some(mut bot_version) => {
                         bot_version.bot.apps_endpoint = apps_endpoint.to_owned();
                         bot_version.bot.multibot = multibot.to_owned();
-                        Ok(bot_version.bot)
+                        Ok(Box::new(bot_version.bot))
                     }
                     None => Err(BitpartError::Interpreter(format!(
                         "bot version ({}) not found in db",
@@ -149,7 +149,7 @@ impl TryInto<BotOpt> for Request {
             } => {
                 csml_bot.multibot = multibot;
 
-                Ok(BotOpt::CsmlBot(csml_bot))
+                Ok(BotOpt::CsmlBot(Box::new(csml_bot)))
             }
 
             // version id
@@ -198,7 +198,7 @@ impl TryInto<BotOpt> for &Request {
                 let mut csml_bot = csml_bot.to_owned();
                 csml_bot.multibot = multibot.to_owned();
 
-                Ok(BotOpt::CsmlBot(csml_bot))
+                Ok(BotOpt::CsmlBot(Box::new(csml_bot)))
             }
 
             // version id

@@ -47,7 +47,7 @@ struct Response {
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "message_type", content = "data")]
 enum SocketMessage {
-    CreateBot(CsmlBot),
+    CreateBot(Box<CsmlBot>),
     ReadBot { id: String },
     DeleteBot { id: String },
     ListBots(Option<Paginate>),
@@ -56,12 +56,7 @@ enum SocketMessage {
     ListChannels(Option<Paginate>),
     DeleteChannel { id: String, bot_id: String },
     LinkChannel { id: String, device_name: String },
-    // RegisterChannel {
-    //     id: String,
-    //     phone_number: String,
-    //     captcha: String,
-    // },
-    ChatRequest(Request),
+    ChatRequest(Box<Request>),
     Response(Response),
     Error(Response),
 }
@@ -133,7 +128,7 @@ async fn process_message(
             debug!(">>> {who} sent str: {t:?}");
             let contents: SocketMessage = serde_json::from_slice(t.as_bytes())?;
             match contents {
-                SocketMessage::CreateBot(bot) => match api::create_bot(bot, state).await {
+                SocketMessage::CreateBot(bot) => match api::create_bot(*bot, state).await {
                     Ok(res) => wrap_response("CreateBot", &res),
                     Err(err) => wrap_error("CreateBot", &err.to_string()),
                 },
@@ -210,28 +205,6 @@ async fn process_message(
                         Err(err) => wrap_error("LinkChannel", &err.to_string()),
                     }
                 }
-                // SocketMessage::RegisterChannel {
-                //     id,
-                //     phone_number,
-                //     captcha,
-                // } => {
-                //     let (send, recv) = oneshot::channel();
-                //     let contents = signal::ChannelMessageContents::RegisterChannel {
-                //         id,
-                //         phone_number,
-                //         captcha,
-                //     };
-                //     let msg = signal::ChannelMessage {
-                //         msg: contents,
-                //         db: state.db.clone(),
-                //         sender: send,
-                //     };
-                //     state.manager.send(msg);
-                //     match recv.await {
-                //         Ok(res) => wrap_response("RegisterChannel", &res),
-                //         Err(err) => wrap_error("RegisterChannel", &err.to_string()),
-                //     }
-                // }
                 _ => Ok(wrap_error(
                     "SocketMessage",
                     &"Invalid SocketMessage".to_owned(),

@@ -279,7 +279,7 @@ async fn switch_bot(
     new_bot.custom_components = bot.custom_components.take();
     new_bot.native_components = bot.native_components.take();
 
-    *bot = new_bot;
+    *bot = *new_bot;
 
     set_bot_ast(bot)?;
 

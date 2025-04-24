@@ -107,7 +107,7 @@ impl ContentsStore for BitpartStore {
         self.get(BITPART_TREE_CONTACTS, id).await
     }
 
-    /// Groups
+    // Groups
 
     async fn clear_groups(&mut self) -> Result<(), BitpartStoreError> {
         self.remove_all(BITPART_TREE_GROUPS).await?;
@@ -159,7 +159,7 @@ impl ContentsStore for BitpartStore {
         Ok(())
     }
 
-    /// Messages
+    // Messages
 
     async fn clear_messages(&mut self) -> Result<(), BitpartStoreError> {
         for name in db::channel_state::get_trees(&self.id, &self.db).await? {
@@ -274,9 +274,9 @@ impl ContentsStore for BitpartStore {
         let iter = Vec::from_iter(
             range
                 .iter()
-                .map(|(k, v)| (k.clone().to_be_bytes().into(), v.clone())),
+                .map(|(k, v)| ((*k).to_be_bytes().into(), v.clone())),
         );
-        let end = if iter.len() > 0 { iter.len() - 1 } else { 0 };
+        let end = if !iter.is_empty() { iter.len() - 1 } else { 0 };
 
         Ok(BitpartMessagesIter {
             start: 0,
@@ -389,7 +389,7 @@ impl Iterator for BitpartContactsIter {
     fn next(&mut self) -> Option<Self::Item> {
         let (_, value) = self.data.get(self.index)?;
         self.index += 1;
-        self.decrypt_value(&value).into()
+        self.decrypt_value(value).into()
     }
 }
 
@@ -410,7 +410,7 @@ impl Iterator for BitpartGroupsIter {
     fn next(&mut self) -> Option<Self::Item> {
         let (key, value) = self.data.get(self.index)?;
         self.index += 1;
-        let group = self.decrypt_value(&value).ok()?;
+        let group = self.decrypt_value(value).ok()?;
         let group_master_key_bytes: Result<[u8; 32], _> = key
             .to_owned()
             .try_into()
@@ -436,7 +436,7 @@ impl Iterator for BitpartStickerPacksIter {
     fn next(&mut self) -> Option<Self::Item> {
         let (_, value) = self.data.get(self.index)?;
         self.index += 1;
-        self.decrypt_value(&value).into()
+        self.decrypt_value(value).into()
     }
 }
 
@@ -451,11 +451,10 @@ impl BitpartMessagesIter {
         &self,
         elem: Result<(&Vec<u8>, &Vec<u8>), BitpartStoreError>,
     ) -> Option<Result<Content, BitpartStoreError>> {
-        elem.map_err(BitpartStoreError::from)
-            .and_then(|(_, value)| {
-                ContentProto::decode(&value[..]).map_err(BitpartStoreError::from)
-            })
-            .map_or_else(|e| Some(Err(e)), |p| Some(p.try_into()))
+        elem.and_then(|(_, value)| {
+            ContentProto::decode(&value[..]).map_err(BitpartStoreError::from)
+        })
+        .map_or_else(|e| Some(Err(e)), |p| Some(p.try_into()))
     }
 }
 

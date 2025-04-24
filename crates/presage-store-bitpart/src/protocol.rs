@@ -70,12 +70,11 @@ impl<T: BitpartTrees> BitpartProtocolStore<T> {
         let mut keys = db::channel_state::get_all(&self.store.id, tree, &self.store.db)
             .await?
             .into_iter()
-            .map(|(key, _)| {
+            .filter_map(|(key, _)| {
                 Some(u32::from_be_bytes(
                     serde_json::from_str::<[u8; 4]>(&key).ok()?,
                 ))
             })
-            .flatten()
             .collect::<Vec<u32>>();
         keys.sort();
         Ok(keys.last().map_or(0, |id| id + 1))
@@ -265,8 +264,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
                     error!(%error, "store error");
                     SignalProtocolError::InvalidState("signed_pre_keys_count", "store error".into())
                 })?
-                .into_iter()
-                .count(),
+                .len(),
         )
     }
 
@@ -284,8 +282,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
                     error!(%error, "store error");
                     SignalProtocolError::InvalidState("save_signed_pre_key", "store error".into())
                 })?
-                .into_iter()
-                .count(),
+                .len(),
         )
     }
 }

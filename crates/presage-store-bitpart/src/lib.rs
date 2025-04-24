@@ -144,13 +144,12 @@ impl BitpartStore {
         Ok(db::channel_state::get_all(&self.id, tree, &self.db)
             .await?
             .into_iter()
-            .map(move |(key, value)| {
+            .flat_map(move |(key, value)| {
                 Ok::<(K, V), serde_json::Error>((
                     serde_json::from_str::<K>(&key)?,
                     serde_json::from_str::<V>(&value)?,
                 ))
             })
-            .flatten()
             .collect())
     }
 
