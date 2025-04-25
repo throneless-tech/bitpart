@@ -23,7 +23,6 @@ hex = "0.4.3"
 libsqlite3-sys = { version = "0.26.0", features = ["bundled-sqlcipher"] }
 md-5 = "0.10.6"
 mime_guess = "2.0.5"
-notify-rust = "4.11.3"
 presage = { git = "https://github.com/whisperfish/presage", rev = "473c70db3048ec871f6cef1faf6a97d0fdb9c082" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"

@@ -16,7 +16,6 @@
 
 use super::entities::{prelude::*, *};
 use sea_orm::*;
-use serde_json::Value;
 use uuid;
 
 use crate::error::BitpartError;
@@ -25,18 +24,24 @@ pub async fn create(
     channel_id: &str,
     bot_id: &str,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
-    let model = channel::ActiveModel {
-        id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
-        bot_id: ActiveValue::Set(bot_id.to_owned()),
-        channel_id: ActiveValue::Set(channel_id.to_owned()),
-        state: ActiveValue::Set("".to_owned()),
-        ..Default::default()
+) -> Result<String, BitpartError> {
+    let Some(existing) = Channel::find()
+        .filter(channel::Column::BotId.eq(bot_id))
+        .filter(channel::Column::ChannelId.eq(channel_id))
+        .one(db)
+        .await?
+    else {
+        let id = uuid::Uuid::new_v4().to_string();
+        let entry = channel::ActiveModel {
+            id: ActiveValue::Set(id.clone()),
+            bot_id: ActiveValue::Set(bot_id.to_owned()),
+            channel_id: ActiveValue::Set(channel_id.to_owned()),
+            ..Default::default()
+        };
+        entry.insert(db).await?;
+        return Ok(id);
     };
-
-    model.insert(db).await?;
-
-    Ok(())
+    Ok(existing.id)
 }
 
 pub async fn list(
@@ -77,35 +82,6 @@ pub async fn get_by_id(
     Ok(entries)
 }
 
-pub async fn set(
-    bot_id: &str,
-    channel_id: &str,
-    state: &Value,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
-    let Some(existing) = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id))
-        .filter(channel::Column::ChannelId.eq(channel_id))
-        .one(db)
-        .await?
-    else {
-        let entry = channel::ActiveModel {
-            id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
-            bot_id: ActiveValue::Set(bot_id.to_owned()),
-            channel_id: ActiveValue::Set(channel_id.to_owned()),
-            state: ActiveValue::Set(state.to_string()),
-            ..Default::default()
-        };
-        entry.insert(db).await?;
-        return Ok(());
-    };
-
-    let mut existing: channel::ActiveModel = existing.into();
-    existing.state = ActiveValue::Set(state.to_string());
-    existing.update(db).await?;
-    Ok(())
-}
-
 pub async fn delete(
     channel_id: &str,
     bot_id: &str,
@@ -114,6 +90,19 @@ pub async fn delete(
     let entry = Channel::find()
         .filter(channel::Column::BotId.eq(bot_id.to_owned()))
         .filter(channel::Column::ChannelId.eq(channel_id.to_owned()))
+        .one(db)
+        .await?;
+
+    if let Some(e) = entry {
+        e.delete(db).await?;
+    }
+
+    Ok(())
+}
+
+pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+    let entry = Channel::find()
+        .filter(channel::Column::BotId.eq(bot_id.to_owned()))
         .one(db)
         .await?;
 

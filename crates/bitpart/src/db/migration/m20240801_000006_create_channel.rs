@@ -14,7 +14,6 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(Channel::Id).uuid().not_null().primary_key())
                     .col(ColumnDef::new(Channel::BotId).string().not_null())
                     .col(ColumnDef::new(Channel::ChannelId).string().not_null())
-                    .col(ColumnDef::new(Channel::State).string().not_null())
                     .col(
                         ColumnDef::new(Channel::CreatedAt)
                             .date_time()
@@ -62,7 +61,6 @@ enum Channel {
     Id,
     BotId,
     ChannelId,
-    State,
     CreatedAt,
     UpdatedAt,
 }

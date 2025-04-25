@@ -78,7 +78,7 @@ pub async fn set_status_by_client(
     Ok(())
 }
 
-pub async fn get_latest_by_client(
+pub async fn get_latest_open_by_client(
     client: &Client,
     db: &DatabaseConnection,
 ) -> Result<Option<conversation::Model>, BitpartError> {
@@ -86,6 +86,7 @@ pub async fn get_latest_by_client(
         .filter(conversation::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(conversation::Column::ChannelId.eq(client.channel_id.to_owned()))
         .filter(conversation::Column::UserId.eq(client.user_id.to_owned()))
+        .filter(conversation::Column::Status.eq("OPEN".to_owned()))
         .order_by(conversation::Column::CreatedAt, Order::Desc)
         .one(db)
         .await?;
@@ -111,7 +112,7 @@ pub async fn get_by_client(
     Ok(entry)
 }
 
-pub async fn get_by_bot_id(
+pub async fn get_open_by_bot_id(
     bot_id: &str,
     limit: Option<u64>,
     offset: Option<u64>,
@@ -119,6 +120,7 @@ pub async fn get_by_bot_id(
 ) -> Result<Vec<conversation::Model>, BitpartError> {
     let entry = Conversation::find()
         .filter(conversation::Column::BotId.eq(bot_id.to_owned()))
+        .filter(conversation::Column::Status.eq("OPEN".to_owned()))
         .limit(limit)
         .offset(offset)
         .all(db)

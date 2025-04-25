@@ -120,7 +120,7 @@ pub async fn step(
                     user_id = data.client.user_id.to_string(),
                     channel_id = data.client.channel_id.to_string(),
                     flow = data.context.flow.to_string(),
-                    "sending message {:?}",
+                    "shouting message {:?}",
                     msg
                 );
 
@@ -129,7 +129,8 @@ pub async fn step(
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
 
                 let convos =
-                    db::conversation::get_by_bot_id(&data.client.bot_id, None, None, db).await?;
+                    db::conversation::get_open_by_bot_id(&data.client.bot_id, None, None, db)
+                        .await?;
 
                 for c in convos.iter() {
                     let mut msg_copy = msg.clone();
@@ -142,6 +143,57 @@ pub async fn step(
 
                     data.messages.push(msg_copy);
                 }
+            }
+            MSG::Whisper(msg) => {
+                info!(flow = data.context.flow.to_string(), "sending message");
+                debug!(
+                    bot_id = data.client.bot_id.to_string(),
+                    user_id = data.client.user_id.to_string(),
+                    channel_id = data.client.channel_id.to_string(),
+                    flow = data.context.flow.to_string(),
+                    "whispering message {:?}",
+                    msg
+                );
+
+                debug!("CONTEXT {:?}", data.context);
+
+                send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
+
+                let clients = db::memory::get_by_memory("_whisperable", db)
+                    .await?
+                    .into_iter()
+                    .map(|mem| Client {
+                        bot_id: mem.bot_id,
+                        channel_id: mem.channel_id,
+                        user_id: mem.user_id,
+                    });
+
+                for c in clients {
+                    let mut msg_copy = msg.clone();
+                    if let Value::Object(ref mut content) = msg_copy.content {
+                        content.insert(
+                            "client".to_owned(),
+                            serde_json::json!({ "bot_id": c.bot_id, "user_id": c.user_id, "channel_id": c.channel_id }),
+                        );
+                    };
+
+                    data.messages.push(msg_copy);
+                }
+            }
+            MSG::Delete => {
+                info!(flow = data.context.flow.to_string(), "sending message");
+                debug!(
+                    bot_id = data.client.bot_id.to_string(),
+                    user_id = data.client.user_id.to_string(),
+                    channel_id = data.client.channel_id.to_string(),
+                    flow = data.context.flow.to_string(),
+                    "deleting client",
+                );
+
+                debug!("CONTEXT {:?}", data.context);
+
+                db::conversation::delete_by_client(&data.client, db).await?;
+                db::memory::delete_by_client(&data.client, db).await?;
             }
             MSG::Log {
                 flow,

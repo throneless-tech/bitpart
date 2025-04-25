@@ -16,6 +16,7 @@
 
 pub use super::bot::Entity as Bot;
 pub use super::channel::Entity as Channel;
+pub use super::channel_state::Entity as ChannelState;
 pub use super::conversation::Entity as Conversation;
 pub use super::memory::Entity as Memory;
 pub use super::message::Entity as Message;

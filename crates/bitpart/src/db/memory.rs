@@ -105,6 +105,18 @@ pub async fn get_by_client(
     Ok(entry)
 }
 
+pub async fn get_by_memory(
+    key: &str,
+    db: &DatabaseConnection,
+) -> Result<Vec<memory::Model>, BitpartError> {
+    let entry = Memory::find()
+        .filter(memory::Column::Key.eq(key))
+        .all(db)
+        .await?;
+
+    Ok(entry)
+}
+
 pub async fn delete(
     client: &Client,
     key: &str,

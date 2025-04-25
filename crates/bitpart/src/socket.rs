@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use crate::channels::signal;
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{ConnectInfo, State},
@@ -22,7 +21,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
-use tokio::sync::oneshot;
 use tracing::{debug, error};
 
 use crate::api::ApiState;
@@ -48,14 +46,27 @@ struct Response {
 #[serde(tag = "message_type", content = "data")]
 enum SocketMessage {
     CreateBot(Box<CsmlBot>),
-    ReadBot { id: String },
-    DeleteBot { id: String },
+    ReadBot {
+        id: String,
+    },
+    DeleteBot {
+        id: String,
+    },
     ListBots(Option<Paginate>),
-    CreateChannel { id: String, bot_id: String },
-    ReadChannel { id: String, bot_id: String },
+    ReadChannel {
+        id: String,
+        bot_id: String,
+    },
     ListChannels(Option<Paginate>),
-    DeleteChannel { id: String, bot_id: String },
-    LinkChannel { id: String, device_name: String },
+    DeleteChannel {
+        id: String,
+        bot_id: String,
+    },
+    LinkChannel {
+        id: String,
+        bot_id: String,
+        device_name: String,
+    },
     ChatRequest(Box<Request>),
     Response(Response),
     Error(Response),
@@ -153,12 +164,6 @@ async fn process_message(
                         }
                     }
                 }
-                SocketMessage::CreateChannel { id, bot_id } => {
-                    match api::create_channel(&id, &bot_id, state).await {
-                        Ok(res) => wrap_response("CreateChannel", &res),
-                        Err(err) => wrap_error("CreateChannel", &err.to_string()),
-                    }
-                }
                 SocketMessage::ReadChannel { id, bot_id } => {
                     match api::read_channel(&id, &bot_id, state).await {
                         Ok(res) => wrap_response("ReadChannel", &res),
@@ -191,20 +196,14 @@ async fn process_message(
                         Err(err) => wrap_error("ChatRequest", &err.to_string()),
                     }
                 }
-                SocketMessage::LinkChannel { id, device_name } => {
-                    let (send, recv) = oneshot::channel();
-                    let contents = signal::ChannelMessageContents::LinkChannel { id, device_name };
-                    let msg = signal::ChannelMessage {
-                        msg: contents,
-                        db: state.db.clone(),
-                        sender: send,
-                    };
-                    state.manager.send(msg);
-                    match recv.await {
-                        Ok(res) => wrap_response("LinkChannel", &res),
-                        Err(err) => wrap_error("LinkChannel", &err.to_string()),
-                    }
-                }
+                SocketMessage::LinkChannel {
+                    id,
+                    bot_id,
+                    device_name,
+                } => match api::link_channel(&id, &bot_id, &device_name, state).await {
+                    Ok(res) => wrap_response("LinkChannel", &res),
+                    Err(err) => wrap_error("LinkChannel", &err.to_string()),
+                },
                 _ => Ok(wrap_error(
                     "SocketMessage",
                     &"Invalid SocketMessage".to_owned(),

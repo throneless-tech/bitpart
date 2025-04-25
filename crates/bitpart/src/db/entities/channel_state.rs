@@ -21,25 +21,31 @@ use sea_orm::entity::prelude::*;
 use serde::Serialize;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize)]
-#[sea_orm(table_name = "channel")]
+#[sea_orm(table_name = "channel_state")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: String,
-    pub bot_id: String,
     pub channel_id: String,
+    pub tree: String,
+    pub key: String,
+    pub value: String,
     pub updated_at: String,
     pub created_at: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::channel_state::Entity")]
-    ChannelState,
+    #[sea_orm(
+        belongs_to = "super::channel::Entity",
+        from = "Column::ChannelId",
+        to = "super::channel::Column::Id"
+    )]
+    Channel,
 }
 
-impl Related<super::channel_state::Entity> for Entity {
+impl Related<super::channel::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::ChannelState.def()
+        Relation::Channel.def()
     }
 }
 

@@ -19,6 +19,7 @@ use csml_interpreter::{
     search_for_modules, validate_bot,
 };
 use sea_orm::DatabaseConnection;
+use tokio::sync::oneshot;
 
 use crate::error::BitpartError;
 
@@ -355,8 +356,26 @@ mod test_request {
 /*
 Channels
 */
-pub async fn create_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<(), BitpartError> {
-    db::channel::create(id, bot_id, &state.db).await
+pub async fn link_channel(
+    id: &str,
+    bot_id: &str,
+    device_name: &str,
+    state: &ApiState,
+) -> Result<String, BitpartError> {
+    let db_id = db::channel::create(id, bot_id, &state.db).await?;
+    let (send, recv) = oneshot::channel();
+    let contents = signal::ChannelMessageContents::LinkChannel {
+        id: db_id,
+        device_name: device_name.to_owned(),
+    };
+    let msg = signal::ChannelMessage {
+        msg: contents,
+        db: state.db.clone(),
+        sender: send,
+    };
+    state.manager.send(msg);
+
+    Ok(recv.await?)
 }
 
 pub async fn read_channel(

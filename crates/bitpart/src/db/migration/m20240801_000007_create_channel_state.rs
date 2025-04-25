@@ -11,7 +11,12 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(ChannelState::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(ChannelState::Id).uuid().not_null().primary_key())
+                    .col(
+                        ColumnDef::new(ChannelState::Id)
+                            .uuid()
+                            .not_null()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(ChannelState::ChannelId).string().not_null())
                     .col(ColumnDef::new(ChannelState::Tree).string().not_null())
                     .col(ColumnDef::new(ChannelState::Key).string().not_null())

@@ -74,7 +74,7 @@ async fn get_or_create_conversation<'a>(
     ttl: Option<chrono::Duration>,
     db: &DatabaseConnection,
 ) -> Result<String, BitpartError> {
-    match db::conversation::get_latest_by_client(client, db).await? {
+    match db::conversation::get_latest_open_by_client(client, db).await? {
         Some(conversation) => {
             match flow_found {
                 Some((flow, step)) => {
