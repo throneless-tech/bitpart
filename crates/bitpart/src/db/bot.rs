@@ -98,7 +98,6 @@ pub async fn list(
     db: &DatabaseConnection,
 ) -> Result<Vec<String>, BitpartError> {
     let entries = Bot::find()
-        .column(bot::Column::Id)
         .column(bot::Column::BotId)
         .group_by(bot::Column::BotId)
         .order_by(bot::Column::CreatedAt, Order::Desc)
@@ -118,7 +117,7 @@ pub async fn get(
 ) -> Result<Vec<BotVersion>, BitpartError> {
     let entries = Bot::find()
         .filter(bot::Column::BotId.eq(bot_id))
-        .order_by(bot::Column::CreatedAt, Order::Desc)
+        .order_by(bot::Column::UpdatedAt, Order::Desc)
         .limit(limit)
         .offset(offset)
         .all(db)
@@ -153,6 +152,32 @@ pub async fn get_by_id(
             }))
         }
         None => Ok(None),
+    }
+}
+
+pub async fn touch(
+    id: &str,
+    version_id: &str,
+    db: &DatabaseConnection,
+) -> Result<Option<BotVersion>, BitpartError> {
+    if let Some(entry) = Bot::find()
+        .filter(bot::Column::Id.eq(version_id))
+        .filter(bot::Column::BotId.eq(id))
+        .one(db)
+        .await?
+    {
+        let bot: SerializedCsmlBot = serde_json::from_str(&entry.bot)?;
+
+        let entry: bot::ActiveModel = entry.into();
+        entry.update(db).await?;
+
+        Ok(Some(BotVersion {
+            version_id: bot.id.to_string(),
+            bot: bot.into(),
+            engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
+        }))
+    } else {
+        Ok(None)
     }
 }
 

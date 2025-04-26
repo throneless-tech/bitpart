@@ -96,6 +96,24 @@ pub async fn get_bot_version(
     db::bot::get_by_id(id, &state.db).await
 }
 
+pub async fn touch_bot_version(
+    id: &str,
+    version_id: &str,
+    state: &ApiState,
+) -> Result<Option<BotVersion>, BitpartError> {
+    db::bot::touch(id, version_id, &state.db).await
+}
+
+pub async fn get_bot_diff(
+    version_a: &str,
+    version_b: &str,
+    state: &ApiState,
+) -> Result<(Option<BotVersion>, Option<BotVersion>), BitpartError> {
+    let a = db::bot::get_by_id(version_a, &state.db).await?;
+    let b = db::bot::get_by_id(version_b, &state.db).await?;
+    Ok((a, b))
+}
+
 pub async fn delete_bot_version(id: &str, state: &ApiState) -> Result<(), BitpartError> {
     db::bot::delete_by_id(id, &state.db).await
 }
@@ -195,7 +213,7 @@ mod test_bot {
             .send_json(&json!({
                 "message_type": "DeleteBot",
                 "data": {
-                    "id": "bot_id"
+                    "id": "bot_id",
                 }
             }))
             .await;
@@ -205,7 +223,7 @@ mod test_bot {
                 "message_type": "Response",
                 "data": {
                     "response_type": "DeleteBot",
-                    "response": "null"
+                    "response": serde_json::Value::Null
                 }
             }))
             .await;
@@ -224,7 +242,7 @@ mod test_bot {
                 "message_type": "Response",
                 "data": {
                     "response_type": "ReadBot",
-                    "response": "null"
+                    "response": serde_json::Value::Null
                 }
             }))
             .await
@@ -357,6 +375,15 @@ mod test_request {
 /*
 Channels
 */
+
+pub async fn create_channel(
+    id: &str,
+    bot_id: &str,
+    state: &ApiState,
+) -> Result<String, BitpartError> {
+    db::channel::create(id, bot_id, &state.db).await
+}
+
 pub async fn link_channel(
     id: &str,
     bot_id: &str,
@@ -401,4 +428,234 @@ pub async fn list_channels(
 
 pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<(), BitpartError> {
     db::channel::delete(id, bot_id, &state.db).await
+}
+
+#[cfg(test)]
+mod test_channel {
+    use crate::utils::get_test_socket;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn it_should_create_a_channel() {
+        let mut socket = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "name": "test",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("Hello").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateChannel",
+                "data": {
+                    "id": "test",
+                    "bot_id": "bot_id",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("CreateChannel").await;
+    }
+
+    #[tokio::test]
+    async fn it_should_get_a_channel() {
+        let mut socket = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "name": "test",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("Hello").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateChannel",
+                "data": {
+                    "id": "test",
+                    "bot_id": "bot_id",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("CreateChannel").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "ReadChannel",
+                "data": {
+                    "id": "test",
+                    "bot_id": "bot_id",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("test").await
+    }
+
+    #[tokio::test]
+    async fn it_should_delete_a_channel() {
+        let mut socket = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "name": "test",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("Hello").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateChannel",
+                "data": {
+                    "id": "test",
+                    "bot_id": "bot_id",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("CreateChannel").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "DeleteChannel",
+                "data": {
+                    "id": "test",
+                    "bot_id": "bot_id",
+                }
+            }))
+            .await;
+
+        socket
+            .assert_receive_json(&json!({
+                "message_type": "Response",
+                "data": {
+                    "response_type": "DeleteChannel",
+                    "response": serde_json::Value::Null
+                }
+            }))
+            .await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "ReadChannel",
+                "data": {
+                    "id": "test",
+                    "bot_id": "bot_id"
+                }
+            }))
+            .await;
+
+        socket
+            .assert_receive_json(&json!({
+                "message_type": "Response",
+                "data": {
+                    "response_type": "ReadChannel",
+                    "response": serde_json::Value::Null
+                }
+            }))
+            .await
+    }
+
+    #[tokio::test]
+    async fn it_should_get_multiple_channels() {
+        let mut socket = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "name": "test",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("Hello").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateChannel",
+                "data": {
+                    "id": "test",
+                    "bot_id": "bot_id",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("CreateChannel").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateChannel",
+                "data": {
+                    "id": "test2",
+                    "bot_id": "bot_id",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("CreateChannel").await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "ListChannels",
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("test2").await
+    }
 }

@@ -49,10 +49,26 @@ enum SocketMessage<S: Serialize> {
     ReadBot {
         id: String,
     },
+    BotVersions {
+        id: String,
+        options: Option<Paginate>,
+    },
+    RollbackBot {
+        id: String,
+        version_id: String,
+    },
+    DiffBot {
+        version_a: String,
+        version_b: String,
+    },
     DeleteBot {
         id: String,
     },
     ListBots(Option<Paginate>),
+    CreateChannel {
+        id: String,
+        bot_id: String,
+    },
     ReadChannel {
         id: String,
         bot_id: String,
@@ -147,6 +163,34 @@ async fn process_message(
                     Ok(res) => wrap_response("ReadBot", &res),
                     Err(err) => wrap_error("ReadBot", &err.to_string()),
                 },
+                SocketMessage::BotVersions { id, options } => {
+                    if let Some(paginate) = options {
+                        match api::get_bot_versions(&id, paginate.limit, paginate.offset, state)
+                            .await
+                        {
+                            Ok(res) => wrap_response("BotVersions", &res),
+                            Err(err) => wrap_error("BotVersions", &err.to_string()),
+                        }
+                    } else {
+                        match api::get_bot_versions(&id, None, None, state).await {
+                            Ok(res) => wrap_response("BotVersions", &res),
+                            Err(err) => wrap_error("BotVersions", &err.to_string()),
+                        }
+                    }
+                }
+                SocketMessage::RollbackBot { id, version_id } => {
+                    match api::touch_bot_version(&id, &version_id, state).await {
+                        Ok(res) => wrap_response("RollbackBot", &res),
+                        Err(err) => wrap_error("RollbackBot", &err.to_string()),
+                    }
+                }
+                SocketMessage::DiffBot {
+                    version_a,
+                    version_b,
+                } => match api::get_bot_diff(&version_a, &version_b, state).await {
+                    Ok(res) => wrap_response("DiffBot", &res),
+                    Err(err) => wrap_error("DiffBot", &err.to_string()),
+                },
                 SocketMessage::DeleteBot { id } => match api::delete_bot(&id, state).await {
                     Ok(res) => wrap_response("DeleteBot", &res),
                     Err(err) => wrap_error("DeleteBot", &err.to_string()),
@@ -162,6 +206,12 @@ async fn process_message(
                             Ok(res) => wrap_response("ListBots", &res),
                             Err(err) => wrap_error("ListBots", &err.to_string()),
                         }
+                    }
+                }
+                SocketMessage::CreateChannel { id, bot_id } => {
+                    match api::create_channel(&id, &bot_id, state).await {
+                        Ok(res) => wrap_response("CreateChannel", &res),
+                        Err(err) => wrap_error("CreateChannel", &err.to_string()),
                     }
                 }
                 SocketMessage::ReadChannel { id, bot_id } => {
