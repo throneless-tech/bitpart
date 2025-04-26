@@ -72,18 +72,6 @@ enum Commands {
         path: Vec<PathBuf>,
     },
 
-    /// add channel
-    #[command(arg_required_else_help = true)]
-    ChannelAdd {
-        /// Channel ID
-        #[arg(short, long)]
-        id: String,
-
-        /// Bot ID
-        #[arg(short, long)]
-        bot_id: String,
-    },
-
     /// describe channel
     #[command(arg_required_else_help = true)]
     ChannelDescribe {
@@ -118,6 +106,10 @@ enum Commands {
         /// Channel ID
         #[arg(short, long)]
         id: String,
+
+        /// Bot ID
+        #[arg(short, long)]
+        bot_id: String,
 
         /// Device name
         #[arg(short, long)]
@@ -267,18 +259,6 @@ async fn main() -> Result<()> {
             send(&mut sender, &req).await?;
             hangup(&mut sender).await?;
         }
-        Commands::ChannelAdd { id, bot_id } => {
-            let req = json!({"message_type": "CreateChannel",
-                    "data" : {
-                    "id": id,
-                    "bot_id": bot_id,
-                    }
-            });
-            debug!("Request: {:?}", req.to_string());
-
-            send(&mut sender, &req).await?;
-            hangup(&mut sender).await?;
-        }
         Commands::ChannelDescribe { id, bot_id } => {
             let req = json!({"message_type": "ReadChannel", "data" : {
                 "id": id,
@@ -307,10 +287,15 @@ async fn main() -> Result<()> {
             send(&mut sender, &req).await?;
             hangup(&mut sender).await?;
         }
-        Commands::ChannelLink { id, device_name } => {
+        Commands::ChannelLink {
+            id,
+            bot_id,
+            device_name,
+        } => {
             let req = json!({"message_type": "LinkChannel",
                 "data" : {
                 "id": id,
+                "bot_id": bot_id,
                 "device_name": device_name
             }});
             debug!("Request: {:?}", req.to_string());
@@ -318,29 +303,6 @@ async fn main() -> Result<()> {
             send(&mut sender, &req).await?;
             hangup(&mut sender).await?;
         }
-        // Commands::ChannelRegister {
-        //     id,
-        //     phone_number,
-        //     captcha,
-        // } => {
-        //     let req = json!({"message_type" : "RegisterChannel",
-        //         "data" : {
-        //         "id": id,
-        //         "phone_number": phone_number,
-        //         "captcha": captcha,
-        //     }});
-        //     println!("Request: {:?}", req.to_string());
-
-        //     //we can ping the server for start
-        //     sender
-        //         .send(Message::Text(serde_json::to_string(&req).unwrap().into()))
-        //         .await
-        //         .expect("Can not send!");
-        //     sender
-        //         .send(Message::Close(None))
-        //         .await
-        //         .expect("Failed to send close message.");
-        // }
         Commands::Delete { id } => {
             let req = json!({"message_type": "DeleteBot",
                 "data" : {
@@ -412,7 +374,7 @@ async fn main() -> Result<()> {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(t) => {
-                    println!("{}", t.as_str())
+                    println!("{}", t)
                 }
                 _ => println!("Unrecognized message"),
             }

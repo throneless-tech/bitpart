@@ -37,14 +37,14 @@ struct Paginate {
 }
 
 #[derive(Serialize, Deserialize)]
-struct Response {
+struct Response<S: Serialize> {
     pub response_type: String,
-    pub response: String,
+    pub response: S,
 }
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "message_type", content = "data")]
-enum SocketMessage {
+enum SocketMessage<S: Serialize> {
     CreateBot(Box<CsmlBot>),
     ReadBot {
         id: String,
@@ -68,8 +68,8 @@ enum SocketMessage {
         device_name: String,
     },
     ChatRequest(Box<Request>),
-    Response(Response),
-    Error(Response),
+    Response(Response<S>),
+    Error(Response<S>),
 }
 
 pub async fn handler(
@@ -110,7 +110,7 @@ fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Messa
     Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Error(Response {
             response_type: response_type.to_owned(),
-            response: serde_json::to_string(res)?,
+            response: res,
         }))?
         .into(),
     )))
@@ -123,7 +123,7 @@ fn wrap_response<S: Serialize>(
     Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Response(Response {
             response_type: response_type.to_owned(),
-            response: serde_json::to_string(res)?,
+            response: res,
         }))?
         .into(),
     )))
@@ -137,7 +137,7 @@ async fn process_message(
     match msg {
         Message::Text(t) => {
             debug!(">>> {who} sent str: {t:?}");
-            let contents: SocketMessage = serde_json::from_slice(t.as_bytes())?;
+            let contents: SocketMessage<String> = serde_json::from_slice(t.as_bytes())?;
             match contents {
                 SocketMessage::CreateBot(bot) => match api::create_bot(*bot, state).await {
                     Ok(res) => wrap_response("CreateBot", &res),

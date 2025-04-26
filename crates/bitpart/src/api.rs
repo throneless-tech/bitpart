@@ -76,7 +76,8 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>, 
 }
 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<(), BitpartError> {
-    db::bot::delete_by_bot_id(id, &state.db).await
+    db::bot::delete_by_bot_id(id, &state.db).await?;
+    db::channel::delete_by_bot_id(id, &state.db).await
 }
 
 pub async fn get_bot_versions(
