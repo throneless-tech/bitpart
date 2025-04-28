@@ -34,7 +34,7 @@ use crate::{
 pub struct ApiState {
     pub db: DatabaseConnection,
     pub auth: String,
-    pub manager: signal::SignalManager,
+    pub manager: Box<signal::SignalManager>,
 }
 
 /*

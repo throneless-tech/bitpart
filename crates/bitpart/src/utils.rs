@@ -39,7 +39,7 @@ pub async fn get_test_socket() -> TestWebSocket {
     let state = ApiState {
         db,
         auth: "test".into(),
-        manager: signal::SignalManager::new(),
+        manager: Box::new(signal::SignalManager::new()),
     };
 
     let app = Router::new()

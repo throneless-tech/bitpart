@@ -17,6 +17,7 @@
 use base64;
 use figment;
 use hex;
+use opentelemetry_otlp;
 use presage;
 use presage_store_bitpart::BitpartStoreError;
 use sea_orm::DbErr;
@@ -66,6 +67,8 @@ pub enum BitpartError {
     SignalRecipient(#[from] array::TryFromSliceError),
     #[error("Signal Message error: `{0}`")]
     SignalMessage(#[from] uuid::Error),
+    #[error("OpenTelemetry build error: `{0}`")]
+    OpenTelemetry(#[from] opentelemetry_otlp::ExporterBuildError),
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartError {
