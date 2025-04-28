@@ -302,19 +302,19 @@ pub fn get_ttl_duration_value(event: Option<&Event>) -> Option<chrono::Duration>
     None
 }
 
-pub fn get_low_data_mode_value(event: &Event) -> bool {
-    if let Some(low_data) = event.low_data_mode {
-        return low_data;
-    }
+// pub fn get_low_data_mode_value(event: &Event) -> bool {
+//     if let Some(low_data) = event.low_data_mode {
+//         return low_data;
+//     }
 
-    if let Ok(low_data) = env::var("LOW_DATA_MODE") {
-        if let Ok(low_data) = low_data.parse::<bool>() {
-            return low_data;
-        }
-    }
+//     if let Ok(low_data) = env::var("LOW_DATA_MODE") {
+//         if let Ok(low_data) = low_data.parse::<bool>() {
+//             return low_data;
+//         }
+//     }
 
-    false
-}
+//     false
+// }
 
 pub async fn search_flow<'a>(
     event: &Event,

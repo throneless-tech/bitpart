@@ -151,7 +151,7 @@ async fn init_conversation_data<'a>(
     let mut context =
         init_context(default_flow, request.client.clone(), &bot.apps_endpoint, db).await;
     let ttl = utils::get_ttl_duration_value(Some(event));
-    let low_data = utils::get_low_data_mode_value(event);
+    // let low_data = utils::get_low_data_mode_value(event); // We're always in low_data mode
 
     // Do we have a flow matching the request? If the user is requesting a flow in one way
     // or another, this takes precedence over any previously open conversation
@@ -182,7 +182,7 @@ async fn init_conversation_data<'a>(
         client: request.client.clone(),
         messages: vec![],
         ttl,
-        low_data,
+        low_data: true,
     };
 
     let flow = data.context.flow.to_owned();
