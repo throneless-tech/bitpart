@@ -39,11 +39,9 @@ use figment::{
 };
 use figment_file_provider_adapter::FileAdapter;
 use opentelemetry::trace::TracerProvider;
-use opentelemetry_otlp::WithHttpConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracer};
 use sea_orm::{ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::sync::oneshot;
@@ -67,48 +65,48 @@ struct Cli {
 
     /// API authentication token
     #[arg(short, long)]
-    auth: String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    auth: Option<String>,
 
     /// IP address and port to bind to
     #[arg(short, long)]
-    bind: String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    bind: Option<String>,
 
     /// Path to sqlcipher database file
     #[arg(short, long)]
-    database: String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    database: Option<String>,
 
     /// Database encryption key
     #[arg(short, long)]
-    key: String,
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    key: Option<String>,
 
-    /// OpenTelemetry traces endpoint
-    #[arg(long)]
-    otel_traces_endpoint: String,
-
-    /// OpenTelemetry metrics endpoint
-    #[arg(long)]
-    otel_metrics_endpoint: String,
-
-    /// OpenTelemetry trace headers
-    #[arg(long, value_delimiter = ',', value_parser = parse_key_val::<String, String>)]
-    otel_traces_headers: Vec<(String, String)>,
-
-    /// OpenTelemetry metrics headers
-    #[arg(long, value_delimiter = ',', value_parser = parse_key_val::<String, String>)]
-    otel_metrics_headers: Vec<(String, String)>,
+    /// Enable Opentelemetry
+    #[arg(short, long)]
+    opentelemetry: bool,
 }
 
-fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
-where
-    T: std::str::FromStr,
-    T::Err: Error + Send + Sync + 'static,
-    U: std::str::FromStr,
-    U::Err: Error + Send + Sync + 'static,
-{
-    let pos = s
-        .find('=')
-        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
-    Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
+#[derive(Debug, Serialize, Deserialize)]
+struct Config {
+    /// Verbosity
+    verbose: Verbosity,
+
+    /// API authentication token
+    auth: String,
+
+    /// IP address and port to bind to
+    bind: String,
+
+    /// Path to sqlcipher database file
+    database: String,
+
+    /// Database encryption key
+    key: String,
+
+    /// Enable Opentelemetry
+    opentelemetry: bool,
 }
 
 async fn authenticate(
@@ -127,20 +125,8 @@ async fn authenticate(
     }
 }
 
-fn telemetry_tracer_init(config: &Cli) -> Result<SdkTracer, BitpartError> {
-    let otlp_exporter = if !config.otel_traces_headers.is_empty() {
-        opentelemetry_otlp::SpanExporter::builder()
-            .with_http()
-            .with_headers(
-                config
-                    .otel_traces_headers
-                    .iter()
-                    .map(|(k, v)| (k.to_owned(), v.to_owned()))
-                    .collect(),
-            )
-    } else {
-        opentelemetry_otlp::SpanExporter::builder().with_http()
-    };
+fn telemetry_tracer_init() -> Result<SdkTracer, BitpartError> {
+    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder().with_http();
 
     let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
         .with_batch_exporter(otlp_exporter.build()?)
@@ -149,20 +135,8 @@ fn telemetry_tracer_init(config: &Cli) -> Result<SdkTracer, BitpartError> {
     Ok(tracer_provider.tracer("bitpart_tracer"))
 }
 
-fn telemetry_meter_init(config: &Cli) -> Result<SdkMeterProvider, BitpartError> {
-    let metric_exporter = if !config.otel_metrics_headers.is_empty() {
-        opentelemetry_otlp::MetricExporter::builder()
-            .with_http()
-            .with_headers(
-                config
-                    .otel_metrics_headers
-                    .iter()
-                    .map(|(k, v)| (k.to_owned(), v.to_owned()))
-                    .collect(),
-            )
-    } else {
-        opentelemetry_otlp::MetricExporter::builder().with_http()
-    };
+fn telemetry_meter_init() -> Result<SdkMeterProvider, BitpartError> {
+    let metric_exporter = opentelemetry_otlp::MetricExporter::builder().with_http();
 
     let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_periodic_exporter(metric_exporter.build()?)
@@ -179,47 +153,27 @@ async fn main() -> Result<(), BitpartError> {
     )?;
 
     // Merge the configuration from CLI, environment, files, container secrets
-    let server: Cli = Figment::new()
-        .merge(Serialized::defaults(Cli::parse()))
+    let server: Config = Figment::new()
         .merge(FileAdapter::wrap(Toml::file(
             proj_dirs.config_dir().join("config.toml"),
         )))
         .merge(FileAdapter::wrap(Env::prefixed("BITPART_")))
+        .merge(Serialized::defaults(Cli::parse()))
         .extract()?;
 
     // Setup logging and telemetry
-    match (
-        !server.otel_traces_endpoint.is_empty(),
-        !server.otel_metrics_endpoint.is_empty(),
-    ) {
-        (false, false) => {
-            tracing_subscriber::registry()
-                .with(server.verbose.log_level_filter().as_trace())
-                .with(tracing_subscriber::fmt::layer())
-                .init();
-        }
-        (true, false) => {
-            tracing_subscriber::registry()
-                .with(server.verbose.log_level_filter().as_trace())
-                .with(tracing_subscriber::fmt::layer())
-                .with(tracing_opentelemetry::layer().with_tracer(telemetry_tracer_init(&server)?))
-                .init();
-        }
-        (false, true) => {
-            tracing_subscriber::registry()
-                .with(server.verbose.log_level_filter().as_trace())
-                .with(tracing_subscriber::fmt::layer())
-                .with(MetricsLayer::new(telemetry_meter_init(&server)?))
-                .init();
-        }
-        (true, true) => {
-            tracing_subscriber::registry()
-                .with(server.verbose.log_level_filter().as_trace())
-                .with(tracing_subscriber::fmt::layer())
-                .with(tracing_opentelemetry::layer().with_tracer(telemetry_tracer_init(&server)?))
-                .with(MetricsLayer::new(telemetry_meter_init(&server)?))
-                .init();
-        }
+    if server.opentelemetry {
+        tracing_subscriber::registry()
+            .with(server.verbose.log_level_filter().as_trace())
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_opentelemetry::layer().with_tracer(telemetry_tracer_init()?))
+            .with(MetricsLayer::new(telemetry_meter_init()?))
+            .init();
+    } else {
+        tracing_subscriber::registry()
+            .with(server.verbose.log_level_filter().as_trace())
+            .with(tracing_subscriber::fmt::layer())
+            .init();
     }
 
     // Initialize database
@@ -270,6 +224,7 @@ async fn main() -> Result<(), BitpartError> {
         .await?;
     } else {
         let Ok(path) = server.bind.parse::<PathBuf>();
+        let _ = tokio::fs::remove_file(&path).await;
         let listener = tokio::net::UnixListener::bind(path).expect("Unable to bind to address");
         axum::serve(listener, app.into_make_service()).await?;
     };
