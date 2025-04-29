@@ -138,32 +138,37 @@ Enhancement suggestions are tracked as [GitHub issues](https://github.com/throne
 - **Explain why this enhancement would be useful** to most Bitpart users. You may also want to point out the other projects that solved it better and which could serve as inspiration.
 
 <!-- You might want to create an issue template for enhancement suggestions that can be used as a guide and that defines the structure of the information to be included. If you do so, reference it here in the description. -->
-
+<!-- TODO
 ### Your First Code Contribution
 
-<!-- TODO
+
 include Setup of env, IDE and typical getting started instructions?
 
 -->
 
+<!-- TODO
 ### Improving The Documentation
 
-<!-- TODO
 Updating, improving and correcting the documentation
 
 -->
 
 ## Styleguides
 
+### Lints
+
+All code must pass the `cargo fmt` and `cargo clippy` lints as configured in the repository in order to be included in Bitpart.
+
 ### Commit Messages
 
+All commit messages must adhere to the [Conventional Commits](https://www.conventionalcommits.org) standard in order to be accepted.
 <!-- TODO
 
 -->
-
+<!--
 ## Join The Project Team
 
-<!-- TODO -->
+ TODO -->
 
 <!-- omit in toc -->
 
