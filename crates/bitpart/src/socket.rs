@@ -19,74 +19,16 @@ use axum::{
     extract::{ConnectInfo, State},
     response::IntoResponse,
 };
-use serde::{Deserialize, Serialize};
+use bitpart_common::{
+    error::{BitpartError, Result},
+    socket::{Response, SocketMessage},
+};
+use serde::Serialize;
 use std::net::SocketAddr;
 use tracing::{debug, error};
 
-use crate::api::ApiState;
-use crate::error::BitpartError;
-use csml_interpreter::data::CsmlBot;
-
 use crate::api;
-use crate::csml::data::Request;
-
-#[derive(Serialize, Deserialize)]
-struct Paginate {
-    pub limit: Option<u64>,
-    pub offset: Option<u64>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Response<S: Serialize> {
-    pub response_type: String,
-    pub response: S,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(tag = "message_type", content = "data")]
-enum SocketMessage<S: Serialize> {
-    CreateBot(Box<CsmlBot>),
-    ReadBot {
-        id: String,
-    },
-    BotVersions {
-        id: String,
-        options: Option<Paginate>,
-    },
-    RollbackBot {
-        id: String,
-        version_id: String,
-    },
-    DiffBot {
-        version_a: String,
-        version_b: String,
-    },
-    DeleteBot {
-        id: String,
-    },
-    ListBots(Option<Paginate>),
-    CreateChannel {
-        id: String,
-        bot_id: String,
-    },
-    ReadChannel {
-        id: String,
-        bot_id: String,
-    },
-    ListChannels(Option<Paginate>),
-    DeleteChannel {
-        id: String,
-        bot_id: String,
-    },
-    LinkChannel {
-        id: String,
-        bot_id: String,
-        device_name: String,
-    },
-    ChatRequest(Box<Request>),
-    Response(Response<S>),
-    Error(Response<S>),
-}
+use crate::api::ApiState;
 
 pub async fn handler(
     ws: WebSocketUpgrade,
@@ -122,7 +64,7 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: ApiState) 
     }
 }
 
-fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Message>, BitpartError> {
+fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Message>> {
     Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Error(Response {
             response_type: response_type.to_owned(),
@@ -132,10 +74,7 @@ fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Messa
     )))
 }
 
-fn wrap_response<S: Serialize>(
-    response_type: &str,
-    res: &S,
-) -> Result<Option<Message>, BitpartError> {
+fn wrap_response<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Message>> {
     Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Response(Response {
             response_type: response_type.to_owned(),
@@ -149,7 +88,7 @@ async fn process_message(
     msg: Message,
     who: SocketAddr,
     state: &ApiState,
-) -> Result<Option<Message>, BitpartError> {
+) -> Result<Option<Message>> {
     match msg {
         Message::Text(t) => {
             debug!(">>> {who} sent str: {t:?}");

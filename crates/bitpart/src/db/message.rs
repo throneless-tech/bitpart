@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitpart_common::error::Result;
 use chrono::NaiveDateTime;
 use csml_interpreter::data::Client;
 use sea_orm::*;
@@ -22,7 +23,6 @@ use uuid;
 
 use super::entities::{prelude::*, *};
 use crate::csml::data::ConversationData;
-use crate::error::BitpartError;
 
 pub async fn create(
     data: &ConversationData,
@@ -31,7 +31,7 @@ pub async fn create(
     direction: &str,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     if messages.is_empty() {
         return Ok(());
     }
@@ -61,10 +61,7 @@ pub async fn create(
     Ok(())
 }
 
-pub async fn delete_by_client(
-    client: &Client,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+pub async fn delete_by_client(client: &Client, db: &DatabaseConnection) -> Result<()> {
     let conversations = super::conversation::get_by_client(client, None, None, db).await?;
     for convo in conversations {
         Message::delete_many()
@@ -80,7 +77,7 @@ pub async fn get_by_client(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<message::Model>, BitpartError> {
+) -> Result<Vec<message::Model>> {
     let mut messages = vec![];
     let conversations = super::conversation::get_by_client(client, limit, offset, db).await?;
     for convo in conversations {

@@ -7,11 +7,14 @@ license = "AGPL-3.0-only"
 
 [dependencies]
 anyhow = "1.0.97"
+bitpart-common = { path = "../bitpart-common" }
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = "3.0.2"
 ctrlc = "3.4.5"
 futures-util = "0.3.31"
 http = "1.2.0"
+qr2term = "0.3.3"
+serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.132"
 similar = "2.7.0"
 tokio = { version = "1.43.0", features = ["full"] }
@@ -19,6 +22,8 @@ tokio-tungstenite = { version = "0.26.1", features = ["url"] }
 tracing = "0.1.41"
 tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+unescaper = "0.1.5"
 url = "2.5.4"
+uuid = { version = "1.16.0", features = ["v4"] }
 
 [dev-dependencies]

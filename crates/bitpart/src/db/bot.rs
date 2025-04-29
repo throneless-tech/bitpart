@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitpart_common::error::Result;
 use csml_interpreter::data::{CsmlBot, CsmlFlow, Module};
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,6 @@ use uuid;
 
 use super::entities::{prelude::*, *};
 use crate::csml::data::BotVersion;
-use crate::error::BitpartError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SerializedCsmlBot {
@@ -72,7 +72,7 @@ impl From<SerializedCsmlBot> for CsmlBot {
     }
 }
 
-pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion, BitpartError> {
+pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion> {
     let model = bot::ActiveModel {
         id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
         bot_id: ActiveValue::Set(bot.id.to_owned()),
@@ -96,7 +96,7 @@ pub async fn list(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<String>, BitpartError> {
+) -> Result<Vec<String>> {
     let entries = Bot::find()
         .column(bot::Column::BotId)
         .group_by(bot::Column::BotId)
@@ -114,7 +114,7 @@ pub async fn get(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<BotVersion>, BitpartError> {
+) -> Result<Vec<BotVersion>> {
     let entries = Bot::find()
         .filter(bot::Column::BotId.eq(bot_id))
         .order_by(bot::Column::UpdatedAt, Order::Desc)
@@ -128,7 +128,7 @@ pub async fn get(
         .map(|e| {
             let bot: SerializedCsmlBot = serde_json::from_str(&e.bot).unwrap();
             BotVersion {
-                version_id: bot.id.to_string(),
+                version_id: e.id.to_string(),
                 bot: bot.into(),
                 engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
             }
@@ -136,10 +136,7 @@ pub async fn get(
         .collect())
 }
 
-pub async fn get_by_id(
-    id: &str,
-    db: &DatabaseConnection,
-) -> Result<Option<BotVersion>, BitpartError> {
+pub async fn get_by_id(id: &str, db: &DatabaseConnection) -> Result<Option<BotVersion>> {
     let entry = Bot::find_by_id(id).one(db).await?;
     match entry {
         Some(e) => {
@@ -159,20 +156,21 @@ pub async fn touch(
     id: &str,
     version_id: &str,
     db: &DatabaseConnection,
-) -> Result<Option<BotVersion>, BitpartError> {
+) -> Result<Option<BotVersion>> {
     if let Some(entry) = Bot::find()
         .filter(bot::Column::Id.eq(version_id))
         .filter(bot::Column::BotId.eq(id))
         .one(db)
         .await?
     {
+        let version_id = entry.id.clone();
         let bot: SerializedCsmlBot = serde_json::from_str(&entry.bot)?;
 
         let entry: bot::ActiveModel = entry.into();
         entry.update(db).await?;
 
         Ok(Some(BotVersion {
-            version_id: bot.id.to_string(),
+            version_id,
             bot: bot.into(),
             engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
         }))
@@ -184,7 +182,7 @@ pub async fn touch(
 pub async fn get_latest_by_bot_id(
     bot_id: &str,
     db: &DatabaseConnection,
-) -> Result<Option<BotVersion>, BitpartError> {
+) -> Result<Option<BotVersion>> {
     let entry = Bot::find()
         .filter(bot::Column::BotId.eq(bot_id))
         .order_by(bot::Column::UpdatedAt, Order::Desc)
@@ -205,7 +203,7 @@ pub async fn get_latest_by_bot_id(
     }
 }
 
-pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
     Bot::delete_many()
         .filter(bot::Column::BotId.eq(bot_id))
         .exec(db)
@@ -213,7 +211,7 @@ pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(
     Ok(())
 }
 
-pub async fn delete_by_id(id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn delete_by_id(id: &str, db: &DatabaseConnection) -> Result<()> {
     Bot::delete_by_id(id).exec(db).await?;
     Ok(())
 }

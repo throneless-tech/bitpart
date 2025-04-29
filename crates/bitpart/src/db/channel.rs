@@ -14,17 +14,13 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use super::entities::{prelude::*, *};
+use bitpart_common::error::Result;
 use sea_orm::*;
 use uuid;
 
-use crate::error::BitpartError;
+use super::entities::{prelude::*, *};
 
-pub async fn create(
-    channel_id: &str,
-    bot_id: &str,
-    db: &DatabaseConnection,
-) -> Result<String, BitpartError> {
+pub async fn create(channel_id: &str, bot_id: &str, db: &DatabaseConnection) -> Result<String> {
     let Some(existing) = Channel::find()
         .filter(channel::Column::BotId.eq(bot_id))
         .filter(channel::Column::ChannelId.eq(channel_id))
@@ -48,7 +44,7 @@ pub async fn list(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<channel::Model>, BitpartError> {
+) -> Result<Vec<channel::Model>> {
     let entries = Channel::find()
         .order_by(channel::Column::CreatedAt, Order::Desc)
         .limit(limit)
@@ -63,7 +59,7 @@ pub async fn get(
     channel_id: &str,
     bot_id: &str,
     db: &DatabaseConnection,
-) -> Result<Option<channel::Model>, BitpartError> {
+) -> Result<Option<channel::Model>> {
     let entries = Channel::find()
         .filter(channel::Column::BotId.eq(bot_id))
         .filter(channel::Column::ChannelId.eq(channel_id))
@@ -73,20 +69,13 @@ pub async fn get(
     Ok(entries)
 }
 
-pub async fn get_by_id(
-    id: &str,
-    db: &DatabaseConnection,
-) -> Result<Option<channel::Model>, BitpartError> {
+pub async fn get_by_id(id: &str, db: &DatabaseConnection) -> Result<Option<channel::Model>> {
     let entries = Channel::find_by_id(id).one(db).await?;
 
     Ok(entries)
 }
 
-pub async fn delete(
-    channel_id: &str,
-    bot_id: &str,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+pub async fn delete(channel_id: &str, bot_id: &str, db: &DatabaseConnection) -> Result<()> {
     let entry = Channel::find()
         .filter(channel::Column::BotId.eq(bot_id.to_owned()))
         .filter(channel::Column::ChannelId.eq(channel_id.to_owned()))
@@ -100,7 +89,7 @@ pub async fn delete(
     Ok(())
 }
 
-pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
     let entry = Channel::find()
         .filter(channel::Column::BotId.eq(bot_id.to_owned()))
         .one(db)
@@ -113,7 +102,7 @@ pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(
     Ok(())
 }
 
-pub async fn delete_by_id(id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn delete_by_id(id: &str, db: &DatabaseConnection) -> Result<()> {
     Channel::delete_by_id(id).exec(db).await?;
     Ok(())
 }

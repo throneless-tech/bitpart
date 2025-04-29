@@ -3,6 +3,7 @@ resolver = "2"
 members = [
   "crates/bitpart",
   "crates/bitpart-cli",
+  "crates/bitpart-common",
   "crates/presage-store-bitpart",
 ]
 

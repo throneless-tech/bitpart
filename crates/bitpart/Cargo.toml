@@ -11,6 +11,7 @@ async-recursion = "1.1.1"
 axum = { version = "0.8.0", features = ["http2", "macros", "ws"] }
 base64 = "0.22.1"
 bincode = "1.3.3"
+bitpart-common = { path = "../bitpart-common" }
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = { git = "https://github.com/joshka/clap-verbosity-flag", branch = "jm/serde", features = ["serde"] } # TODO Revisit when PR is merged

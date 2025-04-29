@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitpart_common::error::Result;
 use chrono::Utc;
 use csml_interpreter::csml_logs::LogLvl;
 use csml_interpreter::data::{
@@ -37,7 +38,6 @@ use super::utils::{
     update_current_context,
 };
 use crate::db;
-use crate::error::BitpartError;
 
 #[derive(Debug, Clone)]
 enum InterpreterReturn {
@@ -51,7 +51,7 @@ pub async fn step(
     event: Event,
     bot: &CsmlBot,
     db: &DatabaseConnection,
-) -> Result<(Map<String, Value>, Option<SwitchBot>), BitpartError> {
+) -> Result<(Map<String, Value>, Option<SwitchBot>)> {
     let mut current_flow: &CsmlFlow = get_flow_by_id(&data.context.flow, &bot.flows)?;
     let mut interaction_order = 0;
     let mut conversation_end = false;
@@ -381,7 +381,7 @@ async fn manage_switch_bot(
     step: Option<ContextStepInfo>,
     target_bot: String,
     db: &DatabaseConnection,
-) -> Result<InterpreterReturn, BitpartError> {
+) -> Result<InterpreterReturn> {
     // check if we are allow to switch to 'target_bot'
 
     let next_bot = if let Some(multibot) = &bot.multibot {
@@ -524,7 +524,7 @@ async fn manage_internal_goto<'a>(
     flow: Option<String>,
     step: Option<ContextStepInfo>,
     db: &DatabaseConnection,
-) -> Result<InterpreterReturn, BitpartError> {
+) -> Result<InterpreterReturn> {
     match (flow, step) {
         (Some(flow), Some(step)) => {
             debug!(
@@ -599,7 +599,7 @@ async fn goto_flow<'a>(
     nextflow: String,
     nextstep: ContextStepInfo,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     *current_flow = get_flow_by_id(&nextflow, &bot.flows)?;
     data.context.flow = nextflow;
     data.context.step = nextstep;
@@ -626,7 +626,7 @@ async fn goto_step(
     interaction_order: &mut i32,
     nextstep: ContextStepInfo,
     db: &DatabaseConnection,
-) -> Result<bool, BitpartError> {
+) -> Result<bool> {
     if nextstep.is_step("end") {
         *conversation_end = true;
 

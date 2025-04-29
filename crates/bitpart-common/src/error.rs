@@ -16,6 +16,7 @@
 
 use base64;
 use figment;
+use futures;
 use hex;
 use opentelemetry_otlp;
 use presage;
@@ -76,3 +77,5 @@ impl<S: std::error::Error> From<presage::Error<S>> for BitpartError {
         Self::PresageStore
     }
 }
+
+pub type Result<T> = std::result::Result<T, BitpartError>;

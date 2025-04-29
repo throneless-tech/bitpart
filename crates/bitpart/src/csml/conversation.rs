@@ -19,6 +19,10 @@
 
 use async_recursion::async_recursion;
 use base64::prelude::*;
+use bitpart_common::{
+    csml::{BotOpt, Request, SerializedEvent},
+    error::{BitpartError, Result},
+};
 use chrono::Utc;
 use csml_interpreter::data::{
     ApiInfo, Client, Context, CsmlBot, CsmlFlow, CsmlResult, Event, Hold, IndexInfo, Message,
@@ -31,12 +35,10 @@ use sea_orm::*;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-use super::data::{BotOpt, ConversationData, Request, SwitchBot};
-use super::event::SerializedEvent;
+use super::data::{ConversationData, SwitchBot, search_bot};
 use super::interpret;
 use super::utils;
 use crate::db;
-use crate::error::BitpartError;
 
 async fn create_new_conversation<'a>(
     context: &mut Context,
@@ -45,7 +47,7 @@ async fn create_new_conversation<'a>(
     client: &Client,
     ttl: Option<chrono::Duration>,
     db: &DatabaseConnection,
-) -> Result<String, BitpartError> {
+) -> Result<String> {
     let (flow, step) = match flow_found {
         Some((flow, step)) => (flow, step),
         None => (utils::get_default_flow(bot)?, "start".to_owned()),
@@ -73,7 +75,7 @@ async fn get_or_create_conversation<'a>(
     client: &Client,
     ttl: Option<chrono::Duration>,
     db: &DatabaseConnection,
-) -> Result<String, BitpartError> {
+) -> Result<String> {
     match db::conversation::get_latest_open_by_client(client, db).await? {
         Some(conversation) => {
             match flow_found {
@@ -144,7 +146,7 @@ async fn init_conversation_data<'a>(
     request: &'a SerializedEvent,
     bot: &'a CsmlBot,
     db: &DatabaseConnection,
-) -> Result<ConversationData, BitpartError> {
+) -> Result<ConversationData> {
     // Create a new interaction. An interaction is basically each request,
     // initiated from the bot or the user.
 
@@ -198,7 +200,7 @@ async fn init_conversation_data<'a>(
 /**
  * Initialize the bot
  */
-fn init_bot(bot: &mut CsmlBot) -> Result<(), BitpartError> {
+fn init_bot(bot: &mut CsmlBot) -> Result<()> {
     // load native components into the bot
     bot.native_components = match load_components() {
         Ok(components) => Some(components),
@@ -215,7 +217,7 @@ fn init_bot(bot: &mut CsmlBot) -> Result<(), BitpartError> {
 /**
  * Initialize bot ast
  */
-fn set_bot_ast(bot: &mut CsmlBot) -> Result<(), BitpartError> {
+fn set_bot_ast(bot: &mut CsmlBot) -> Result<()> {
     match validate_bot(bot) {
         CsmlResult {
             flows: Some(flows),
@@ -259,7 +261,7 @@ async fn switch_bot(
     bot_opt: &mut BotOpt,
     event: &mut Event,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     // update data info with new bot |ex| client bot_id, create new conversation
     *bot_opt = match next_bot.version_id {
         Some(version_id) => BotOpt::Id {
@@ -275,7 +277,7 @@ async fn switch_bot(
         },
     };
 
-    let mut new_bot = bot_opt.search_bot(db).await?;
+    let mut new_bot = search_bot(bot_opt, db).await?;
     new_bot.custom_components = bot.custom_components.take();
     new_bot.native_components = bot.native_components.take();
 
@@ -356,19 +358,16 @@ async fn switch_bot(
 
 #[async_recursion]
 async fn check_switch_bot(
-    result: Result<
-        (
-            serde_json::Map<String, serde_json::Value>,
-            Option<SwitchBot>,
-        ),
-        BitpartError,
-    >,
+    result: Result<(
+        serde_json::Map<String, serde_json::Value>,
+        Option<SwitchBot>,
+    )>,
     data: &mut ConversationData,
     bot: &mut CsmlBot,
     bot_opt: &mut BotOpt,
     event: &mut Event,
     db: &DatabaseConnection,
-) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
+) -> Result<serde_json::Map<String, serde_json::Value>> {
     match result {
         Ok((mut messages, Some(next_bot))) => {
             if let Err(err) = switch_bot(data, bot, next_bot, bot_opt, event, db).await {
@@ -411,7 +410,7 @@ async fn check_for_hold(
     bot: &CsmlBot,
     event: &mut Event,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     match db::state::get(&data.client, "hold", "position", db).await {
         // user is currently on hold
         Ok(hold) => {
@@ -462,7 +461,7 @@ async fn check_for_hold(
 pub async fn start(
     body: &Request,
     db: &DatabaseConnection,
-) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
+) -> Result<serde_json::Map<String, serde_json::Value>> {
     let mut request = body.event.to_owned();
 
     let mut bot_opt: BotOpt = match body.try_into() {
@@ -478,7 +477,7 @@ pub async fn start(
 
     let mut formatted_event = Event::try_from(&request)?;
 
-    let mut bot = bot_opt.search_bot(db).await?;
+    let mut bot = search_bot(&bot_opt, db).await?;
     init_bot(&mut bot)?;
 
     let mut data = init_conversation_data(

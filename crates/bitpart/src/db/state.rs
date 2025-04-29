@@ -14,20 +14,20 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitpart_common::error::{BitpartError, Result};
 use chrono::NaiveDateTime;
 use csml_interpreter::data::Client;
 use sea_orm::*;
 use serde_json::Value;
 
 use super::entities::{prelude::*, *};
-use crate::error::BitpartError;
 
 pub async fn get(
     client: &Client,
     r#type: &str,
     key: &str,
     db: &DatabaseConnection,
-) -> Result<Value, BitpartError> {
+) -> Result<Value> {
     let Some(entry) = State::find()
         .filter(state::Column::BotId.eq(&client.bot_id))
         .filter(state::Column::ChannelId.eq(&client.channel_id))
@@ -42,10 +42,7 @@ pub async fn get(
     Ok(serde_json::from_str(&entry.value).unwrap())
 }
 
-pub async fn get_by_client(
-    client: &Client,
-    db: &DatabaseConnection,
-) -> Result<Vec<Value>, BitpartError> {
+pub async fn get_by_client(client: &Client, db: &DatabaseConnection) -> Result<Vec<Value>> {
     let entries = State::find()
         .filter(state::Column::BotId.eq(&client.bot_id))
         .filter(state::Column::ChannelId.eq(&client.channel_id))
@@ -62,7 +59,7 @@ pub async fn set(
     value: &Value,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     let Some(existing) = State::find()
         .filter(state::Column::BotId.eq(&client.bot_id))
         .filter(state::Column::ChannelId.eq(&client.channel_id))
@@ -99,7 +96,7 @@ pub async fn delete(
     r#type: &str,
     key: &str,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     let entry = State::find()
         .filter(state::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(state::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -116,10 +113,7 @@ pub async fn delete(
     Ok(())
 }
 
-pub async fn delete_by_client(
-    client: &Client,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+pub async fn delete_by_client(client: &Client, db: &DatabaseConnection) -> Result<()> {
     State::delete_many()
         .filter(state::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(state::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -129,7 +123,7 @@ pub async fn delete_by_client(
     Ok(())
 }
 
-pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
     State::delete_many()
         .filter(state::Column::BotId.eq(bot_id))
         .exec(db)

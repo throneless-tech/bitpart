@@ -18,7 +18,6 @@ pub mod api;
 mod channels;
 mod csml;
 pub mod db;
-pub mod error;
 mod socket;
 mod utils;
 
@@ -30,6 +29,7 @@ use axum::{
     response::Response,
     routing::any,
 };
+use bitpart_common::error::{BitpartError, Result};
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use directories::ProjectDirs;
@@ -53,7 +53,6 @@ use tracing_subscriber::prelude::*;
 use api::ApiState;
 use channels::signal;
 use db::migration::migrate;
-use error::BitpartError;
 
 /// Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders.
 #[derive(Debug, Parser, Serialize, Deserialize)]
@@ -113,7 +112,7 @@ async fn authenticate(
     State(state): State<ApiState>,
     req: Request,
     next: Next,
-) -> Result<Response, StatusCode> {
+) -> std::result::Result<Response, StatusCode> {
     let auth_header = req
         .headers()
         .get(header::AUTHORIZATION)
@@ -125,7 +124,7 @@ async fn authenticate(
     }
 }
 
-fn telemetry_tracer_init() -> Result<SdkTracer, BitpartError> {
+fn telemetry_tracer_init() -> Result<SdkTracer> {
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder().with_http();
 
     let tracer_provider = opentelemetry_sdk::trace::SdkTracerProvider::builder()
@@ -135,7 +134,7 @@ fn telemetry_tracer_init() -> Result<SdkTracer, BitpartError> {
     Ok(tracer_provider.tracer("bitpart_tracer"))
 }
 
-fn telemetry_meter_init() -> Result<SdkMeterProvider, BitpartError> {
+fn telemetry_meter_init() -> Result<SdkMeterProvider> {
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder().with_http();
 
     let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
@@ -146,7 +145,7 @@ fn telemetry_meter_init() -> Result<SdkMeterProvider, BitpartError> {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), BitpartError> {
+async fn main() -> Result<()> {
     // Set project directories
     let proj_dirs = ProjectDirs::from("tech", "throneless", "bitpart").ok_or(
         BitpartError::Directory("Failed to find project directories.".to_owned()),

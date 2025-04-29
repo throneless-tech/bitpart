@@ -1,0 +1,25 @@
+[package]
+name = "bitpart-common"
+version = "1.0.0-alpha.1"
+authors = ["Josh King <josh@throneless.tech>"]
+edition = "2024"
+license = "AGPL-3.0-only"
+
+[dependencies]
+anyhow = "1.0"
+base64 = "0.22.1"
+csml_interpreter = { git = "https://github.com/throneless-tech/csml-engine", branch = "bitpart" }
+figment = "0.10.19"
+futures = "0.3.31"
+hex = "0.4.3"
+opentelemetry-otlp = "0.29.0"
+presage = { git = "https://github.com/whisperfish/presage", rev = "473c70db3048ec871f6cef1faf6a97d0fdb9c082" }
+presage-store-bitpart= { path = "../presage-store-bitpart" }
+sea-orm = "~1.0"
+serde = { version = "1.0.204", features = ["derive"] }
+serde_json = "1.0.132"
+thiserror = "2.0.12"
+tokio = "1.44.2"
+uuid = "1.16.0"
+
+[dev-dependencies]

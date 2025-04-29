@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitpart_common::error::Result;
 use chrono::NaiveDateTime;
 use csml_interpreter::data::{Client, Memory as CsmlMemory};
 use sea_orm::*;
@@ -21,7 +22,6 @@ use std::collections::HashMap;
 use uuid;
 
 use super::entities::{prelude::*, *};
-use crate::error::BitpartError;
 
 pub async fn create(
     client: &Client,
@@ -29,7 +29,7 @@ pub async fn create(
     value: &str,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     let entry = memory::ActiveModel {
         id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
         bot_id: ActiveValue::Set(client.bot_id.to_owned()),
@@ -49,7 +49,7 @@ pub async fn create_many(
     memories: &HashMap<String, CsmlMemory>,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     let mut new_memories = vec![];
 
     for (key, value) in memories.iter() {
@@ -75,7 +75,7 @@ pub async fn get(
     client: &Client,
     key: &str,
     db: &DatabaseConnection,
-) -> Result<Option<memory::Model>, BitpartError> {
+) -> Result<Option<memory::Model>> {
     let entry = Memory::find()
         .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -92,7 +92,7 @@ pub async fn get_by_client(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<memory::Model>, BitpartError> {
+) -> Result<Vec<memory::Model>> {
     let entry = Memory::find()
         .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -105,10 +105,7 @@ pub async fn get_by_client(
     Ok(entry)
 }
 
-pub async fn get_by_memory(
-    key: &str,
-    db: &DatabaseConnection,
-) -> Result<Vec<memory::Model>, BitpartError> {
+pub async fn get_by_memory(key: &str, db: &DatabaseConnection) -> Result<Vec<memory::Model>> {
     let entry = Memory::find()
         .filter(memory::Column::Key.eq(key))
         .all(db)
@@ -117,11 +114,7 @@ pub async fn get_by_memory(
     Ok(entry)
 }
 
-pub async fn delete(
-    client: &Client,
-    key: &str,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+pub async fn delete(client: &Client, key: &str, db: &DatabaseConnection) -> Result<()> {
     let entry = Memory::find()
         .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -137,10 +130,7 @@ pub async fn delete(
     Ok(())
 }
 
-pub async fn delete_by_client(
-    client: &Client,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+pub async fn delete_by_client(client: &Client, db: &DatabaseConnection) -> Result<()> {
     Memory::delete_many()
         .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -150,7 +140,7 @@ pub async fn delete_by_client(
     Ok(())
 }
 
-pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
     Memory::delete_many()
         .filter(memory::Column::BotId.eq(bot_id.to_owned()))
         .exec(db)

@@ -14,6 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitpart_common::error::Result;
 use chrono::NaiveDateTime;
 use csml_interpreter::data::Client;
 use sea_orm::*;
@@ -21,7 +22,6 @@ use sea_query::Expr;
 use uuid;
 
 use super::entities::{prelude::*, *};
-use crate::error::BitpartError;
 
 pub async fn create(
     flow_id: &str,
@@ -29,7 +29,7 @@ pub async fn create(
     client: &Client,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
-) -> Result<String, BitpartError> {
+) -> Result<String> {
     let id = uuid::Uuid::new_v4().to_string();
     let entry = conversation::ActiveModel {
         id: ActiveValue::Set(id.clone()),
@@ -46,11 +46,7 @@ pub async fn create(
     Ok(id)
 }
 
-pub async fn set_status_by_id(
-    id: &str,
-    status: &str,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+pub async fn set_status_by_id(id: &str, status: &str, db: &DatabaseConnection) -> Result<()> {
     let entry = Conversation::find_by_id(id).one(db).await?;
     match entry {
         Some(e) => {
@@ -67,7 +63,7 @@ pub async fn set_status_by_client(
     client: &Client,
     status: &str,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     Conversation::update_many()
         .col_expr(conversation::Column::Status, Expr::value(status.to_owned()))
         .filter(conversation::Column::BotId.eq(client.bot_id.to_owned()))
@@ -81,7 +77,7 @@ pub async fn set_status_by_client(
 pub async fn get_latest_open_by_client(
     client: &Client,
     db: &DatabaseConnection,
-) -> Result<Option<conversation::Model>, BitpartError> {
+) -> Result<Option<conversation::Model>> {
     let entry = Conversation::find()
         .filter(conversation::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(conversation::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -99,7 +95,7 @@ pub async fn get_by_client(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<conversation::Model>, BitpartError> {
+) -> Result<Vec<conversation::Model>> {
     let entry = Conversation::find()
         .filter(conversation::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(conversation::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -117,7 +113,7 @@ pub async fn get_open_by_bot_id(
     limit: Option<u64>,
     offset: Option<u64>,
     db: &DatabaseConnection,
-) -> Result<Vec<conversation::Model>, BitpartError> {
+) -> Result<Vec<conversation::Model>> {
     let entry = Conversation::find()
         .filter(conversation::Column::BotId.eq(bot_id.to_owned()))
         .filter(conversation::Column::Status.eq("OPEN".to_owned()))
@@ -134,7 +130,7 @@ pub async fn update(
     flow_id: Option<String>,
     step_id: Option<String>,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     match (flow_id, step_id) {
         (Some(flow_id), Some(step_id)) => {
             if let Some(entry) = Conversation::find_by_id(id).one(db).await? {
@@ -163,10 +159,7 @@ pub async fn update(
     Ok(())
 }
 
-pub async fn delete_by_client(
-    client: &Client,
-    db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+pub async fn delete_by_client(client: &Client, db: &DatabaseConnection) -> Result<()> {
     Conversation::delete_many()
         .filter(conversation::Column::BotId.eq(client.bot_id.to_owned()))
         .filter(conversation::Column::ChannelId.eq(client.channel_id.to_owned()))
@@ -176,7 +169,7 @@ pub async fn delete_by_client(
     Ok(())
 }
 
-pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
     Conversation::delete_many()
         .filter(conversation::Column::BotId.eq(bot_id.to_owned()))
         .exec(db)

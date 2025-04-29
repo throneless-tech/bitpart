@@ -17,11 +17,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::Path;
-use std::path::PathBuf;
-use std::time::Duration;
-use std::time::UNIX_EPOCH;
-
+use bitpart_common::{
+    csml::{Request, SerializedEvent},
+    error::{BitpartError, Result},
+};
 use chrono::Local;
 use csml_interpreter::data::Client;
 use futures::StreamExt;
@@ -50,6 +49,8 @@ use presage_store_bitpart::BitpartStore;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, UNIX_EPOCH};
 use tokio::{
     fs,
     runtime::Builder as TokioBuilder,
@@ -63,10 +64,7 @@ use url::Url;
 use uuid;
 
 use crate::api;
-use crate::csml::data::Request;
-use crate::csml::event::SerializedEvent;
 use crate::db;
-use crate::error::BitpartError;
 
 const SYNC_INTERVAL: u64 = 300000;
 
@@ -141,7 +139,7 @@ async fn start_channel_recv(
     db: DatabaseConnection,
     mut manager: Manager<BitpartStore, Registered>,
     tx: mpsc::Sender<(Recipient, String)>,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     let channel = db::channel::get_by_id(&id, &db)
         .await?
         .ok_or_else(|| BitpartError::Signal("No such channel.".to_owned()))?;
@@ -156,7 +154,7 @@ async fn start_channel_recv(
 async fn start_channel_send(
     mut manager: Manager<BitpartStore, Registered>,
     mut rx: mpsc::Receiver<(Recipient, String)>,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     while let Some((recipient, msg)) = rx.recv().await {
         match recipient {
             Recipient::Contact(_) => {
@@ -185,9 +183,7 @@ async fn start_channel_send(
     Ok(())
 }
 
-async fn start_channel_sync(
-    mut manager: Manager<BitpartStore, Registered>,
-) -> Result<(), BitpartError> {
+async fn start_channel_sync(mut manager: Manager<BitpartStore, Registered>) -> Result<()> {
     let mut interval = time::interval(Duration::from_millis(SYNC_INTERVAL));
     loop {
         interval.tick().await;
@@ -197,7 +193,7 @@ async fn start_channel_sync(
     }
 }
 
-async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError> {
+async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
     let ChannelMessage { msg, db, sender } = msg;
     match msg {
         ChannelMessageContents::LinkChannel { id, device_name } => {
@@ -222,17 +218,21 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<(), BitpartError
         } => {
             let (tx, rx) = mpsc::channel(100);
             let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
-            let manager = Manager::load_registered(store).await.unwrap();
-            tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
-            tokio::task::spawn_local(start_channel_recv(
-                id,
-                attachments_dir,
-                db.clone(),
-                manager.clone(),
-                tx,
-            ));
-            tokio::task::spawn_local(start_channel_sync(manager));
-            Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
+            if let Ok(manager) = Manager::load_registered(store).await {
+                tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
+                tokio::task::spawn_local(start_channel_recv(
+                    id,
+                    attachments_dir,
+                    db.clone(),
+                    manager.clone(),
+                    tx,
+                ));
+                tokio::task::spawn_local(start_channel_sync(manager));
+                Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
+            } else {
+                warn!("Skipping startup of unregistered channel");
+                Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
+            }
         }
     }
 }
@@ -246,7 +246,7 @@ async fn send<S: Store>(
     manager: &mut Manager<S, Registered>,
     recipient: Recipient,
     msg: impl Into<ContentBody>,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("Time went backwards")
@@ -282,7 +282,7 @@ async fn process_signal_message<S: Store>(
     attachments_dir: &Path,
     content: &Content,
     state: &Option<ChannelState>,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     let thread = Thread::try_from(content)?;
 
     async fn format_data_message<S: Store>(
@@ -294,12 +294,12 @@ async fn process_signal_message<S: Store>(
             DataMessage {
                 quote:
                     Some(Quote {
-                        text: Some(quoted_text),
+                        text: Some(_quoted_text),
                         ..
                     }),
-                body: Some(body),
+                body: Some(_body),
                 ..
-            } => Some(format!("Answer to message \"{quoted_text}\": {body}")),
+            } => Some("Answer to message \"REDACTED\": REDACTED".to_string()),
             DataMessage {
                 reaction:
                     Some(Reaction {
@@ -315,14 +315,14 @@ async fn process_signal_message<S: Store>(
                 };
 
                 let ContentBody::DataMessage(DataMessage {
-                    body: Some(body), ..
+                    body: Some(_body), ..
                 }) = message.body
                 else {
                     warn!("message reacted to has no body");
                     return None;
                 };
 
-                Some(format!("Reacted with {emoji} to message: \"{body}\""))
+                Some(format!("Reacted with {emoji} to message: \"REDACTED\""))
             }
             DataMessage {
                 body: Some(body), ..
@@ -425,7 +425,7 @@ async fn process_signal_message<S: Store>(
         }
     } {
         let ts = content.timestamp();
-        let (prefix, body) = match msg {
+        let (prefix, _body) = match msg {
             Msg::Received(Thread::Contact(sender), body) => {
                 let contact = format_contact(sender, manager).await;
                 (format!("From {contact} @ {ts}: "), body)
@@ -459,7 +459,7 @@ async fn process_signal_message<S: Store>(
             }
         };
 
-        debug!("{prefix} / {body}");
+        debug!("{prefix} / REDACTED");
     }
 
     let sender = content.metadata.sender.raw_uuid();
@@ -496,7 +496,7 @@ async fn process_signal_message<S: Store>(
     Ok(())
 }
 
-async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<(), BitpartError> {
+async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<()> {
     let payload = json!({
         "content_type": "text",
         "content": {
@@ -554,7 +554,7 @@ fn unescape(input: &str) -> String {
         .replace("\\\\", "\\")
 }
 
-fn try_user_id_to_recipient(user_id: &str) -> Result<Recipient, BitpartError> {
+fn try_user_id_to_recipient(user_id: &str) -> Result<Recipient> {
     match Uuid::try_parse(user_id) {
         Ok(uuid) => Ok(Recipient::Contact(uuid)),
         Err(_) => {
@@ -592,7 +592,7 @@ async fn receive<S: Store>(
     manager: &mut Manager<S, Registered>,
     attachments_dir: &Path,
     state: Option<ChannelState>,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     info!(
         path =% attachments_dir.display(),
         "attachments will be stored"
@@ -628,7 +628,7 @@ async fn link_device<S: Store>(
     servers: SignalServers,
     device_name: String,
     provisioning_link_tx: oneshot::Sender<Url>,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     Manager::link_secondary_device(
         config_store,
         servers,
@@ -639,9 +639,7 @@ async fn link_device<S: Store>(
     Ok(())
 }
 
-async fn request_contacts_sync(
-    manager: &mut Manager<BitpartStore, Registered>,
-) -> Result<(), BitpartError> {
+async fn request_contacts_sync(manager: &mut Manager<BitpartStore, Registered>) -> Result<()> {
     manager.request_contacts().await?;
     let messages = manager
         .receive_messages()

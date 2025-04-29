@@ -18,6 +18,10 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use base64::prelude::*;
+use bitpart_common::{
+    csml::FlowTrigger,
+    error::{BitpartError, Result},
+};
 use chrono::{SecondsFormat, Utc};
 use csml_interpreter::data::{
     Client, Context, CsmlBot, CsmlFlow, Event, Interval, Memory, Message,
@@ -35,9 +39,8 @@ use std::collections::HashMap;
 use std::env;
 use tracing::debug;
 
-use super::data::{ConversationData, FlowTrigger};
+use super::data::ConversationData;
 use crate::db;
-use crate::error::BitpartError;
 
 fn add_info_to_message(data: &ConversationData, mut msg: Message, interaction_order: i32) -> Value {
     let payload = msg.message_to_json();
@@ -143,7 +146,7 @@ pub fn update_current_context(data: &mut ConversationData, memories: &HashMap<St
  * - matching method is case insensitive
  * - as name is similar to a flow's alias, both flow.name and flow.id can be matched.
  */
-pub fn get_flow_by_id<'a>(f_id: &str, flows: &'a [CsmlFlow]) -> Result<&'a CsmlFlow, BitpartError> {
+pub fn get_flow_by_id<'a>(f_id: &str, flows: &'a [CsmlFlow]) -> Result<&'a CsmlFlow> {
     let id = f_id.to_ascii_lowercase();
     // TODO: move to_lowercase at creation of vars
     match flows
@@ -162,7 +165,7 @@ pub fn get_flow_by_id<'a>(f_id: &str, flows: &'a [CsmlFlow]) -> Result<&'a CsmlF
  * Retrieve a bot's default flow.
  * The default flow must exist!
  */
-pub fn get_default_flow(bot: &CsmlBot) -> Result<&CsmlFlow, BitpartError> {
+pub fn get_default_flow(bot: &CsmlBot) -> Result<&CsmlFlow> {
     match bot
         .flows
         .iter()
@@ -178,13 +181,13 @@ pub fn get_default_flow(bot: &CsmlBot) -> Result<&CsmlFlow, BitpartError> {
 pub async fn clean_hold_and_restart(
     data: &mut ConversationData,
     db: &DatabaseConnection,
-) -> Result<(), BitpartError> {
+) -> Result<()> {
     db::state::delete(&data.client, "hold", "position", db).await?;
     data.context.hold = None;
     Ok(())
 }
 
-pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String, BitpartError> {
+pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String> {
     let mut hash = Md5::new();
 
     let step = match &context.step {
@@ -321,7 +324,7 @@ pub async fn search_flow<'a>(
     bot: &'a CsmlBot,
     client: &Client,
     db: &DatabaseConnection,
-) -> Result<(&'a CsmlFlow, String), BitpartError> {
+) -> Result<(&'a CsmlFlow, String)> {
     match event {
         event if event.content_type == "flow_trigger" => {
             db::state::delete(client, "hold", "position", db).await?;

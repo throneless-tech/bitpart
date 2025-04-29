@@ -15,11 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use anyhow::{Context, Result};
+use bitpart_common::socket::SocketMessage;
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 use futures_util::{Sink, SinkExt, StreamExt};
 use http::HeaderValue;
 use serde_json::json;
+use similar::{ChangeTag, TextDiff};
+use std::io;
 use std::{fs, marker::Unpin, path::PathBuf};
 use tokio_tungstenite::{
     connect_async,
@@ -72,18 +75,6 @@ enum Commands {
         path: Vec<PathBuf>,
     },
 
-    /// describe channel
-    #[command(arg_required_else_help = true)]
-    ChannelDescribe {
-        /// Channel ID
-        #[arg(short, long)]
-        id: String,
-
-        /// Bot ID
-        #[arg(short, long)]
-        bot_id: String,
-    },
-
     /// delete channel
     #[command(arg_required_else_help = true)]
     ChannelDelete {
@@ -128,17 +119,25 @@ enum Commands {
     #[command(arg_required_else_help = true)]
     Diff {
         /// Version A to compare
-        #[arg(short, long)]
+        #[arg(long)]
         version_a: String,
 
         /// Version B to compare
-        #[arg(short, long)]
+        #[arg(long)]
         version_b: String,
     },
 
     /// give a description of a bot
     #[command(arg_required_else_help = true)]
     Describe {
+        /// Bot ID
+        #[arg(short, long)]
+        id: String,
+    },
+
+    /// list versions of a bot
+    #[command(arg_required_else_help = true)]
+    Versions {
         /// Bot ID
         #[arg(short, long)]
         id: String,
@@ -156,8 +155,8 @@ enum Commands {
         id: String,
 
         /// Target version
-        #[arg(short, long)]
-        version: String,
+        #[arg(long)]
+        version_id: String,
     },
 
     /// talk to a bot
@@ -166,8 +165,6 @@ enum Commands {
         /// Bot ID
         #[arg(short, long)]
         id: String,
-
-        message: String,
     },
 }
 
@@ -259,16 +256,6 @@ async fn main() -> Result<()> {
             send(&mut sender, &req).await?;
             hangup(&mut sender).await?;
         }
-        Commands::ChannelDescribe { id, bot_id } => {
-            let req = json!({"message_type": "ReadChannel", "data" : {
-                "id": id,
-                "bot_id": bot_id
-            }});
-            debug!("Request: {:?}", req.to_string());
-
-            send(&mut sender, &req).await?;
-            hangup(&mut sender).await?;
-        }
         Commands::ChannelDelete { id, bot_id } => {
             let req = json!({"message_type": "DeleteChannel",
                 "data" : {
@@ -315,10 +302,19 @@ async fn main() -> Result<()> {
             hangup(&mut sender).await?;
         }
         Commands::Diff {
-            version_a: _,
-            version_b: _,
+            version_a,
+            version_b,
         } => {
-            todo!();
+            let req = json!({"message_type": "DiffBot",
+                "data" : {
+                    "version_a": version_a,
+                    "version_b": version_b
+                }
+            });
+            debug!("Request: {:?}", req.to_string());
+
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
         Commands::Describe { id } => {
             let req = json!({"message_type": "ReadBot",
@@ -338,34 +334,68 @@ async fn main() -> Result<()> {
             send(&mut sender, &req).await?;
             hangup(&mut sender).await?;
         }
-        Commands::Rollback { id: _, version: _ } => {
-            todo!();
-        }
-        Commands::Talk { id, message } => {
-            let req = json!({ "message_type": "ChatRequest",
+        Commands::Rollback { id, version_id } => {
+            let req = json!({"message_type": "RollbackBot",
                 "data" : {
-                "bot_id": id,
-                "apps_endpoint": "http://localhost",
-                "multibot": serde_json::Value::Null,
-                "event": {
-                    "id": "request_id",
-                    "client": {
-                        "user_id": "cli",
-                        "channel_id": "cli",
-                        "bot_id": id
-                    },
-                    "payload": {
-                        "content_type": "text",
-                        "content": {
-                            "text": message
-                        }
-                    },
-                    "metadata": serde_json::Value::Null,
+                    "id": id,
+                    "version_id": version_id
                 }
-            }});
+            });
             debug!("Request: {:?}", req.to_string());
 
             send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
+        }
+        Commands::Talk { id } => {
+            println!("Type 'q' to quit");
+            tokio::spawn(async move {
+                let mut buffer = String::new();
+                loop {
+                    buffer.clear();
+                    io::stdin()
+                        .read_line(&mut buffer)
+                        .expect("Failed to read line");
+
+                    if buffer == "q\n" {
+                        break;
+                    };
+
+                    let req = json!({ "message_type": "ChatRequest",
+                        "data" : {
+                        "bot_id": id,
+                        "apps_endpoint": "http://localhost",
+                        "multibot": serde_json::Value::Null,
+                        "event": {
+                            "id": uuid::Uuid::new_v4().to_string(),
+                            "client": {
+                                "user_id": "cli",
+                                "channel_id": "cli",
+                                "bot_id": id
+                            },
+                            "payload": {
+                                "content_type": "text",
+                                "content": {
+                                    "text": buffer.trim_end()
+                                }
+                            },
+                            "metadata": serde_json::Value::Null,
+                        }
+                    }});
+                    send(&mut sender, &req).await.unwrap();
+                }
+                hangup(&mut sender).await.unwrap();
+            });
+        }
+        Commands::Versions { id } => {
+            let req = json!({"message_type": "BotVersions",
+                "data" : {
+                    "id": id
+                }
+            });
+            debug!("Request: {:?}", req.to_string());
+
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
         }
     }
     //receiver just prints whatever it gets
@@ -374,7 +404,120 @@ async fn main() -> Result<()> {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(t) => {
-                    println!("{}", t)
+                    let contents: SocketMessage<serde_json::Value> =
+                        serde_json::from_slice(t.as_bytes()).unwrap();
+                    match contents {
+                        SocketMessage::Response(res) => match res.response_type {
+                            res_type if res_type == "CreateBot" => {
+                                println!(
+                                    "Created bot {}",
+                                    res.response.get("bot").and_then(|v| v.get("id")).unwrap()
+                                );
+                            }
+                            res_type if res_type == "ReadBot" => {
+                                println!(
+                                    "{}",
+                                    unescaper::unescape(
+                                        &serde_json::to_string_pretty(
+                                            res.response.get("bot").unwrap()
+                                        )
+                                        .unwrap(),
+                                    )
+                                    .unwrap()
+                                );
+                            }
+                            res_type if res_type == "BotVersions" => {
+                                res.response
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .for_each(|v| println!("{}", v.get("version_id").unwrap()));
+                            }
+                            res_type if res_type == "RollbackBot" => {
+                                println!(
+                                    "Rolled back bot {} to version {}",
+                                    res.response.get("bot").and_then(|v| v.get("id")).unwrap(),
+                                    res.response.get("version_id").unwrap()
+                                );
+                            }
+                            res_type if res_type == "DiffBot" => {
+                                let array = res.response.as_array().unwrap();
+                                let version_a = unescaper::unescape(
+                                    &serde_json::to_string_pretty(array[0].get("bot").unwrap())
+                                        .unwrap(),
+                                )
+                                .unwrap();
+                                let version_b = unescaper::unescape(
+                                    &serde_json::to_string_pretty(array[1].get("bot").unwrap())
+                                        .unwrap(),
+                                )
+                                .unwrap();
+                                let diff =
+                                    TextDiff::from_lines(version_a.as_str(), version_b.as_str());
+                                for change in diff.iter_all_changes() {
+                                    let sign = match change.tag() {
+                                        ChangeTag::Delete => "-",
+                                        ChangeTag::Insert => "+",
+                                        ChangeTag::Equal => " ",
+                                    };
+                                    print!("{}{}", sign, change);
+                                }
+                            }
+                            res_type if res_type == "DeleteBot" => {
+                                println!("Deleted the bot");
+                            }
+                            res_type if res_type == "ListBots" => {
+                                res.response
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .for_each(|v| println!("{}", v));
+                            }
+                            res_type if res_type == "ListChannels" => {
+                                res.response.as_array().unwrap().iter().for_each(|v| {
+                                    println!(
+                                        "Channel: {}  for Bot: {}",
+                                        v.get("channel_id").unwrap(),
+                                        v.get("bot_id").unwrap(),
+                                    )
+                                });
+                            }
+                            res_type if res_type == "DeleteChannel" => {
+                                println!("Deleted the channel");
+                            }
+                            res_type if res_type == "LinkChannel" => {
+                                let _ = qr2term::print_qr(res.response.to_string());
+                                println!("{}", res.response);
+                            }
+                            res_type if res_type == "ChatRequest" => {
+                                res.response
+                                    .get("messages")
+                                    .unwrap()
+                                    .as_array()
+                                    .unwrap()
+                                    .iter()
+                                    .for_each(|msg| {
+                                        println!(
+                                            "{}",
+                                            unescaper::unescape(
+                                                &msg.get("payload")
+                                                    .and_then(|v| v.get("content"))
+                                                    .and_then(|v| v.get("text"))
+                                                    .unwrap()
+                                                    .to_string()
+                                            )
+                                            .unwrap()
+                                        );
+                                    });
+                            }
+                            _ => {
+                                error!("Unrecognized message response: {:?}", res.response);
+                            }
+                        },
+                        _ => {
+                            println!("Wrong socket message type")
+                        }
+                    }
                 }
                 _ => println!("Unrecognized message"),
             }

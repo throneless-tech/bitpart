@@ -14,6 +14,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use bitpart_common::{
+    csml::Request,
+    error::{BitpartError, Result},
+};
 use csml_interpreter::{
     data::{CsmlBot, CsmlResult},
     search_for_modules, validate_bot,
@@ -21,12 +25,10 @@ use csml_interpreter::{
 use sea_orm::DatabaseConnection;
 use tokio::sync::oneshot;
 
-use crate::error::BitpartError;
-
 use crate::{
     channels::signal,
     csml::conversation,
-    csml::data::{BotVersion, Request},
+    csml::data::BotVersion,
     db::{self, entities::channel},
 };
 
@@ -41,7 +43,7 @@ pub struct ApiState {
 Bot
 */
 
-pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion, BitpartError> {
+pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion> {
     if let Err(err) = search_for_modules(&mut bot) {
         return Err(BitpartError::Api(format!("{:?}", err)));
     }
@@ -62,12 +64,12 @@ pub async fn list_bots(
     limit: Option<u64>,
     offset: Option<u64>,
     state: &ApiState,
-) -> Result<Vec<String>, BitpartError> {
+) -> Result<Vec<String>> {
     let list = db::bot::list(limit, offset, &state.db).await?;
     Ok(list)
 }
 
-pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>, BitpartError> {
+pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> {
     if let Some(bot) = db::bot::get_latest_by_bot_id(id, &state.db).await? {
         Ok(Some(bot))
     } else {
@@ -75,7 +77,7 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>, 
     }
 }
 
-pub async fn delete_bot(id: &str, state: &ApiState) -> Result<(), BitpartError> {
+pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_bot_id(id, &state.db).await?;
     db::channel::delete_by_bot_id(id, &state.db).await
 }
@@ -85,14 +87,11 @@ pub async fn get_bot_versions(
     limit: Option<u64>,
     offset: Option<u64>,
     state: &ApiState,
-) -> Result<Vec<BotVersion>, BitpartError> {
+) -> Result<Vec<BotVersion>> {
     db::bot::get(id, limit, offset, &state.db).await
 }
 
-pub async fn get_bot_version(
-    id: &str,
-    state: &ApiState,
-) -> Result<Option<BotVersion>, BitpartError> {
+pub async fn get_bot_version(id: &str, state: &ApiState) -> Result<Option<BotVersion>> {
     db::bot::get_by_id(id, &state.db).await
 }
 
@@ -100,7 +99,7 @@ pub async fn touch_bot_version(
     id: &str,
     version_id: &str,
     state: &ApiState,
-) -> Result<Option<BotVersion>, BitpartError> {
+) -> Result<Option<BotVersion>> {
     db::bot::touch(id, version_id, &state.db).await
 }
 
@@ -108,13 +107,13 @@ pub async fn get_bot_diff(
     version_a: &str,
     version_b: &str,
     state: &ApiState,
-) -> Result<(Option<BotVersion>, Option<BotVersion>), BitpartError> {
+) -> Result<(Option<BotVersion>, Option<BotVersion>)> {
     let a = db::bot::get_by_id(version_a, &state.db).await?;
     let b = db::bot::get_by_id(version_b, &state.db).await?;
     Ok((a, b))
 }
 
-pub async fn delete_bot_version(id: &str, state: &ApiState) -> Result<(), BitpartError> {
+pub async fn delete_bot_version(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_id(id, &state.db).await
 }
 
@@ -307,7 +306,7 @@ Request
 pub async fn process_request(
     body: &Request,
     db: &DatabaseConnection,
-) -> Result<serde_json::Map<String, serde_json::Value>, BitpartError> {
+) -> Result<serde_json::Map<String, serde_json::Value>> {
     match conversation::start(body, db).await {
         Ok(res) => Ok(res),
         Err(err) => Err(err),
@@ -376,11 +375,7 @@ mod test_request {
 Channels
 */
 
-pub async fn create_channel(
-    id: &str,
-    bot_id: &str,
-    state: &ApiState,
-) -> Result<String, BitpartError> {
+pub async fn create_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<String> {
     db::channel::create(id, bot_id, &state.db).await
 }
 
@@ -389,7 +384,7 @@ pub async fn link_channel(
     bot_id: &str,
     device_name: &str,
     state: &ApiState,
-) -> Result<String, BitpartError> {
+) -> Result<String> {
     let db_id = db::channel::create(id, bot_id, &state.db).await?;
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::LinkChannel {
@@ -410,7 +405,7 @@ pub async fn read_channel(
     id: &str,
     bot_id: &str,
     state: &ApiState,
-) -> Result<Option<channel::Model>, BitpartError> {
+) -> Result<Option<channel::Model>> {
     let channel = db::channel::get(id, bot_id, &state.db).await?;
     Ok(channel)
 }
@@ -419,14 +414,14 @@ pub async fn list_channels(
     limit: Option<u64>,
     offset: Option<u64>,
     state: &ApiState,
-) -> Result<Option<Vec<channel::Model>>, BitpartError> {
+) -> Result<Option<Vec<channel::Model>>> {
     match db::channel::list(limit, offset, &state.db).await {
         Ok(v) if !v.is_empty() => Ok(Some(v)),
         _ => Ok(None),
     }
 }
 
-pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<(), BitpartError> {
+pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<()> {
     db::channel::delete(id, bot_id, &state.db).await
 }
 

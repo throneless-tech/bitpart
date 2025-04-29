@@ -1,7 +1,6 @@
+use bitpart_common::error::Result;
 use sea_orm::DatabaseConnection;
 pub use sea_orm_migration::prelude::*;
-
-use crate::error::BitpartError;
 
 mod m20240801_000001_create_bot;
 mod m20240801_000002_create_conversation;
@@ -28,7 +27,7 @@ impl MigratorTrait for Migrator {
     }
 }
 
-pub async fn migrate(db: &DatabaseConnection) -> Result<(), BitpartError> {
+pub async fn migrate(db: &DatabaseConnection) -> Result<()> {
     Migrator::up(db, None).await?;
     Ok(())
 }
