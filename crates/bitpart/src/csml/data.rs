@@ -60,15 +60,15 @@ pub async fn search_bot(bot: &BotOpt, db: &DatabaseConnection) -> Result<Box<Csm
         BotOpt::CsmlBot(csml_bot) => Ok(csml_bot.to_owned()),
         BotOpt::BotId {
             bot_id,
-            apps_endpoint,
-            multibot,
+            apps_endpoint: _,
+            multibot: _,
         } => {
             let bot_version = db::bot::get_latest_by_bot_id(bot_id, db).await?;
 
             match bot_version {
-                Some(mut bot_version) => {
-                    bot_version.bot.apps_endpoint = apps_endpoint.to_owned();
-                    bot_version.bot.multibot = multibot.to_owned();
+                Some(bot_version) => {
+                    // bot_version.bot.apps_endpoint = apps_endpoint.to_owned();
+                    // bot_version.bot.multibot = multibot.to_owned();
                     Ok(Box::new(bot_version.bot))
                 }
                 None => Err(BitpartError::Interpreter(format!(
@@ -80,15 +80,15 @@ pub async fn search_bot(bot: &BotOpt, db: &DatabaseConnection) -> Result<Box<Csm
         BotOpt::Id {
             version_id,
             bot_id: _,
-            apps_endpoint,
-            multibot,
+            apps_endpoint: _,
+            multibot: _,
         } => {
             let bot_version = db::bot::get_by_id(version_id, db).await?;
 
             match bot_version {
-                Some(mut bot_version) => {
-                    bot_version.bot.apps_endpoint = apps_endpoint.to_owned();
-                    bot_version.bot.multibot = multibot.to_owned();
+                Some(bot_version) => {
+                    // bot_version.bot.apps_endpoint = apps_endpoint.to_owned();
+                    // bot_version.bot.multibot = multibot.to_owned();
                     Ok(Box::new(bot_version.bot))
                 }
                 None => Err(BitpartError::Interpreter(format!(

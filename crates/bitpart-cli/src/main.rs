@@ -70,6 +70,10 @@ enum Commands {
         #[arg(short, long)]
         default: String,
 
+        /// Apps endpoint
+        #[arg(short, long)]
+        endpoint: Option<String>,
+
         /// CSML file
         #[arg(required = true)]
         path: Vec<PathBuf>,
@@ -228,6 +232,7 @@ async fn main() -> Result<()> {
             id,
             name,
             path,
+            endpoint,
         } => {
             let flows = path
                 .iter()
@@ -248,7 +253,8 @@ async fn main() -> Result<()> {
                 "id": id,
                 "name": name,
                 "default_flow": default_flow,
-                "flows": flows
+                "flows": flows,
+                "apps_endpoint": endpoint
                 }
             });
             debug!("Request: {:?}", req.to_string());

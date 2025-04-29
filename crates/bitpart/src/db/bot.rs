@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bitpart_common::error::Result;
-use csml_interpreter::data::{CsmlBot, CsmlFlow, Module};
+use csml_interpreter::data::{CsmlBot, CsmlFlow, Module, MultiBot};
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -35,6 +35,8 @@ struct SerializedCsmlBot {
     pub no_interruption_delay: Option<i32>,
     pub env: Option<String>,
     pub modules: Option<Vec<Module>>,
+    pub apps_endpoint: Option<String>,
+    pub multibot: Option<Vec<MultiBot>>,
 }
 
 impl From<SerializedCsmlBot> for CsmlBot {
@@ -42,7 +44,7 @@ impl From<SerializedCsmlBot> for CsmlBot {
         CsmlBot {
             id: val.id.to_owned(),
             name: val.name.to_owned(),
-            apps_endpoint: None,
+            apps_endpoint: val.apps_endpoint,
             flows: val.flows.to_owned(),
             native_components: {
                 match val.native_components.to_owned() {
@@ -67,7 +69,7 @@ impl From<SerializedCsmlBot> for CsmlBot {
             no_interruption_delay: val.no_interruption_delay,
             env: val.env.as_ref().map(|e| serde_json::from_str(e).unwrap()),
             modules: val.modules.to_owned(),
-            multibot: None,
+            multibot: val.multibot,
         }
     }
 }
