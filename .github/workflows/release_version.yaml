@@ -1,4 +1,4 @@
-name: Bump version
+name: Release version
 
 on:
   push:
@@ -12,10 +12,10 @@ env:
     REGISTRY_PASSWORD: ${{ github.token }}
 
 jobs:
-  bump_version:
+  release_version:
     if: "!startsWith(github.event.head_commit.message, 'bump:')"
     runs-on: ubuntu-latest
-    name: "Bump version and create changelog with commitizen"
+    name: "Bump version, create changelog, and build release artifacts"
     steps:
       - name: Check out
         uses: actions/checkout@v4

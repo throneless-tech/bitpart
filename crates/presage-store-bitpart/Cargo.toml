@@ -1,9 +1,13 @@
 [package]
 name = "presage-store-bitpart"
-version = "1.0.0-alpha.1"
-edition = "2024"
-authors = ["Josh King <josh@throneless.tech>"]
-license = "AGPL-3.0-only"
+description = "Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders. (Signal message store)"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
 
 [dependencies]
 async-trait = "0.1"

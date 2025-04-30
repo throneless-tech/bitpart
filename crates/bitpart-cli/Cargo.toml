@@ -1,9 +1,13 @@
 [package]
 name = "bitpart-cli"
-version = "1.0.0-alpha.1"
-authors = ["Josh King <josh@throneless.tech>"]
-edition = "2024"
-license = "AGPL-3.0-only"
+description = "Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders. (CLI component)"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
 
 [dependencies]
 anyhow = "1.0.97"

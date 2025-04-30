@@ -7,6 +7,15 @@ members = [
   "crates/presage-store-bitpart",
 ]
 
+[workspace.package]
+version = "1.0.0-alpha.1"
+authors = ["Josh King <josh@throneless.tech>"]
+edition = "2024"
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/throneless-tech/bitpart"
+homepage = "https://bitp.art"
+keywords = ["signal", "chat", "bot"]
+
 [patch.crates-io]
 reqwest-websocket = { git = 'https://github.com/throneless-tech/reqwest-websocket' }
 curve25519-dalek = { git = 'https://github.com/signalapp/curve25519-dalek', tag = 'signal-curve25519-4.1.3' }
