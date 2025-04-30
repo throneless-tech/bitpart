@@ -50,13 +50,12 @@ use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 use tokio::{
     fs,
     runtime::Builder as TokioBuilder,
     sync::{mpsc, oneshot as tokio_oneshot},
     task::LocalSet,
-    time,
 };
 use tracing::warn;
 use tracing::{debug, error, info};
@@ -65,8 +64,6 @@ use uuid;
 
 use crate::api;
 use crate::db;
-
-const SYNC_INTERVAL: u64 = 300000;
 
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
@@ -183,16 +180,6 @@ async fn start_channel_send(
     Ok(())
 }
 
-async fn start_channel_sync(mut manager: Manager<BitpartStore, Registered>) -> Result<()> {
-    let mut interval = time::interval(Duration::from_millis(SYNC_INTERVAL));
-    loop {
-        interval.tick().await;
-        if let Err(err) = request_contacts_sync(&mut manager).await {
-            warn!("Contact sync error: {:?}", err);
-        };
-    }
-}
-
 async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
     let ChannelMessage { msg, db, sender } = msg;
     match msg {
@@ -227,7 +214,6 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                     manager.clone(),
                     tx,
                 ));
-                tokio::task::spawn_local(start_channel_sync(manager));
                 Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
             } else {
                 warn!("Skipping startup of unregistered channel");
@@ -538,7 +524,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<()
                     reply_get_text(i),
                 ))
                 .await
-                .unwrap();
+                .map_err(|err| BitpartError::Signal(err.to_string()))?;
         }
     }
 
@@ -636,25 +622,5 @@ async fn link_device<S: Store>(
         provisioning_link_tx,
     )
     .await?;
-    Ok(())
-}
-
-async fn request_contacts_sync(manager: &mut Manager<BitpartStore, Registered>) -> Result<()> {
-    manager.request_contacts().await?;
-    let messages = manager
-        .receive_messages()
-        .await
-        .map_err(|_e| BitpartError::Signal("failed to initialize messages stream".to_owned()))?;
-    pin_mut!(messages);
-    debug!(
-        "synchronizing messages until we get contacts (dots are messages synced from the past timeline)"
-    );
-    while let Some(content) = messages.next().await {
-        match content {
-            Received::QueueEmpty => break,
-            Received::Contacts => debug!("got contacts!"),
-            Received::Content(_) => print!("."),
-        }
-    }
     Ok(())
 }
