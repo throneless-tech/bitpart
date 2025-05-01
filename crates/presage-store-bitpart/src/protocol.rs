@@ -488,10 +488,12 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
                 .await?
                 .iter()
                 .filter_map(|(key, _)| {
-                    if !key.starts_with(&session_prefix) {
+                    let key_str: Vec<u8> = serde_json::from_slice(key.as_ref()).ok()?;
+                    let key_str = String::from_utf8_lossy(&key_str);
+                    if !key_str.starts_with(&session_prefix) {
                         return None;
                     };
-                    let device_id = key.strip_prefix(&session_prefix)?;
+                    let device_id = key_str.strip_prefix(&session_prefix)?;
                     device_id.parse().ok()
                 })
                 .filter(|d| *d != DEFAULT_DEVICE_ID)
