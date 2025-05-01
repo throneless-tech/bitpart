@@ -39,6 +39,7 @@ pub async fn get_test_socket() -> TestWebSocket {
     let state = ApiState {
         db,
         auth: "test".into(),
+        attachments_dir: "/tmp".into(),
         manager: Box::new(signal::SignalManager::new()),
     };
 

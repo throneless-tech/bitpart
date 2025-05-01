@@ -189,7 +189,15 @@ async fn process_message(
                     id,
                     bot_id,
                     device_name,
-                } => match api::link_channel(&id, &bot_id, &device_name, state).await {
+                } => match api::link_channel(
+                    &id,
+                    &bot_id,
+                    &device_name,
+                    state.attachments_dir.clone(),
+                    state,
+                )
+                .await
+                {
                     Ok(res) => wrap_response("LinkChannel", &res),
                     Err(err) => wrap_error("LinkChannel", &err.to_string()),
                 },

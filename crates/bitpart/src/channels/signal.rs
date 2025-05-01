@@ -69,6 +69,7 @@ use crate::db;
 pub enum ChannelMessageContents {
     LinkChannel {
         id: String,
+        attachments_dir: PathBuf,
         device_name: String,
     },
     StartChannel {
@@ -183,13 +184,20 @@ async fn start_channel_send(
 async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
     let ChannelMessage { msg, db, sender } = msg;
     match msg {
-        ChannelMessageContents::LinkChannel { id, device_name } => {
+        ChannelMessageContents::LinkChannel {
+            id,
+            attachments_dir,
+            device_name,
+        } => {
             let config_store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
             let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
             tokio::task::spawn_local(link_device(
+                id,
                 config_store,
                 SignalServers::Production,
+                attachments_dir,
                 device_name,
+                db,
                 provisioning_link_tx,
             ));
 
@@ -609,18 +617,34 @@ async fn receive<S: Store>(
 
 // API functions
 
-async fn link_device<S: Store>(
-    config_store: S,
+async fn link_device(
+    id: String,
+    config_store: BitpartStore,
     servers: SignalServers,
+    attachments_dir: PathBuf,
     device_name: String,
+    db: DatabaseConnection,
     provisioning_link_tx: oneshot::Sender<Url>,
 ) -> Result<()> {
-    Manager::link_secondary_device(
+    let (tx, rx) = mpsc::channel(100);
+    if let Ok(manager) = Manager::link_secondary_device(
         config_store,
         servers,
         device_name.clone(),
         provisioning_link_tx,
     )
-    .await?;
+    .await
+    {
+        tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
+        tokio::task::spawn_local(start_channel_recv(
+            id,
+            attachments_dir,
+            db.clone(),
+            manager.clone(),
+            tx,
+        ));
+    } else {
+        warn!("Skipping startup of just-linked channel");
+    }
     Ok(())
 }

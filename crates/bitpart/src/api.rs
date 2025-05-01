@@ -14,6 +14,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::path::PathBuf;
+
 use bitpart_common::{
     csml::Request,
     error::{BitpartError, Result},
@@ -36,6 +38,7 @@ use crate::{
 pub struct ApiState {
     pub db: DatabaseConnection,
     pub auth: String,
+    pub attachments_dir: PathBuf,
     pub manager: Box<signal::SignalManager>,
 }
 
@@ -383,13 +386,15 @@ pub async fn link_channel(
     id: &str,
     bot_id: &str,
     device_name: &str,
+    attachments_dir: PathBuf,
     state: &ApiState,
 ) -> Result<String> {
     let db_id = db::channel::create(id, bot_id, &state.db).await?;
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::LinkChannel {
-        id: db_id,
+        id: db_id.clone(),
         device_name: device_name.to_owned(),
+        attachments_dir,
     };
     let msg = signal::ChannelMessage {
         msg: contents,
@@ -397,7 +402,21 @@ pub async fn link_channel(
         sender: send,
     };
     state.manager.send(msg);
+    Ok(recv.await?)
+}
 
+pub async fn start_channel(channel_id: &str, state: &ApiState) -> Result<String> {
+    let (send, recv) = oneshot::channel();
+    let contents = signal::ChannelMessageContents::StartChannel {
+        id: channel_id.to_owned(),
+        attachments_dir: state.attachments_dir.clone(),
+    };
+    let msg = signal::ChannelMessage {
+        msg: contents,
+        db: state.db.clone(),
+        sender: send,
+    };
+    state.manager.send(msg);
     Ok(recv.await?)
 }
 

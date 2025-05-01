@@ -44,7 +44,6 @@ use sea_orm::{ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use tokio::sync::oneshot;
 use tracing::info;
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
@@ -187,21 +186,11 @@ async fn main() -> Result<()> {
     let state = ApiState {
         db,
         auth: server.auth,
+        attachments_dir: proj_dirs.cache_dir().to_path_buf(),
         manager: Box::new(signal::SignalManager::new()),
     };
     for channel in channels.iter() {
-        let (send, recv) = oneshot::channel();
-        let contents = signal::ChannelMessageContents::StartChannel {
-            id: channel.id.to_owned(),
-            attachments_dir: proj_dirs.cache_dir().to_path_buf(),
-        };
-        let msg = signal::ChannelMessage {
-            msg: contents,
-            db: state.db.clone(),
-            sender: send,
-        };
-        state.manager.send(msg);
-        let res = recv.await?;
+        let res = api::start_channel(&channel.id, &state).await?;
         info!("Started channel: {}", res);
     }
 
