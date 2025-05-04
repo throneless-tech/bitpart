@@ -52,7 +52,7 @@ jobs:
         uses: redhat-actions/buildah-build@v2
         with:
           image: ${{ env.IMAGE_NAME }}
-          tags: ${{ env.REVISION }}
+          tags: ${{ env.REVISION }} latest
           containerfiles: |
             ./Dockerfile
       - name: Push To GHCR
