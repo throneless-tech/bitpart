@@ -503,17 +503,30 @@ async fn main() -> Result<()> {
                                     .unwrap()
                                     .iter()
                                     .for_each(|msg| {
-                                        println!(
-                                            "{}",
-                                            unescaper::unescape(
+                                        let content_type = msg
+                                            .get("payload")
+                                            .and_then(|v| v.get("content_type"))
+                                            .unwrap()
+                                            .to_string();
+                                        match content_type.as_str() {
+                                            "\"text\"" => println!(
+                                                "{}",
+                                                unescaper::unescape(
+                                                    &msg.get("payload")
+                                                        .and_then(|v| v.get("content"))
+                                                        .and_then(|v| v.get("text"))
+                                                        .unwrap()
+                                                        .to_string()
+                                                )
+                                                .unwrap()
+                                            ),
+                                            _ => println!(
+                                                "{}",
                                                 &msg.get("payload")
                                                     .and_then(|v| v.get("content"))
-                                                    .and_then(|v| v.get("text"))
                                                     .unwrap()
-                                                    .to_string()
-                                            )
-                                            .unwrap()
-                                        );
+                                            ),
+                                        }
                                     });
                             }
                             _ => {
