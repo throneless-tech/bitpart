@@ -59,7 +59,13 @@ pub async fn create_many(
             channel_id: ActiveValue::Set(client.channel_id.to_owned()),
             user_id: ActiveValue::Set(client.user_id.to_owned()),
             key: ActiveValue::Set(key.to_owned()),
-            value: ActiveValue::Set(value.value.to_string()),
+            value: ActiveValue::Set(
+                value
+                    .value
+                    .to_string()
+                    .trim_matches(|c| c == '\"' || c == '\'')
+                    .to_string(),
+            ),
             expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
             ..Default::default()
         };
