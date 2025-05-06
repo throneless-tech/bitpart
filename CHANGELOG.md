@@ -1,3 +1,12 @@
+## 1.0.0-alpha.5 (2025-05-06)
+
+### Fix
+
+- Strip extra quotes from memory strings.
+- Fix inclusion of built-in functions in validation.
+- Improve CLI response handling.
+- Update Cargo.lock for newer package version
+
 ## 1.0.0-alpha.4 (2025-05-05)
 
 ### Fix
