@@ -22,7 +22,7 @@ use bitpart_common::{
 };
 use csml_interpreter::{
     data::{CsmlBot, CsmlResult},
-    search_for_modules, validate_bot,
+    load_components, search_for_modules, validate_bot,
 };
 use sea_orm::DatabaseConnection;
 use tokio::sync::oneshot;
@@ -47,6 +47,11 @@ Bot
 */
 
 pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion> {
+    bot.native_components = match load_components() {
+        Ok(components) => Some(components),
+        Err(err) => return Err(BitpartError::Interpreter(err.format_error())),
+    };
+
     if let Err(err) = search_for_modules(&mut bot) {
         return Err(BitpartError::Api(format!("{:?}", err)));
     }
