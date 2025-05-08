@@ -53,23 +53,40 @@ pub async fn create_many(
     let mut new_memories = vec![];
 
     for (key, value) in memories.iter() {
-        let entry = memory::ActiveModel {
-            id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
-            bot_id: ActiveValue::Set(client.bot_id.to_owned()),
-            channel_id: ActiveValue::Set(client.channel_id.to_owned()),
-            user_id: ActiveValue::Set(client.user_id.to_owned()),
-            key: ActiveValue::Set(key.to_owned()),
-            value: ActiveValue::Set(
-                value
-                    .value
-                    .to_string()
-                    .trim_matches(|c| c == '\"' || c == '\'')
-                    .to_string(),
-            ),
-            expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
-            ..Default::default()
-        };
-        new_memories.push(entry);
+        match get(client, key, db).await {
+            Ok(Some(existing)) => {
+                let mut existing: memory::ActiveModel = existing.into();
+
+                existing.value = ActiveValue::Set(
+                    value
+                        .value
+                        .to_string()
+                        .trim_matches(|c| c == '\"' || c == '\'')
+                        .to_string(),
+                );
+                existing.update(db).await?;
+            }
+            Ok(None) => {
+                let entry = memory::ActiveModel {
+                    id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
+                    bot_id: ActiveValue::Set(client.bot_id.to_owned()),
+                    channel_id: ActiveValue::Set(client.channel_id.to_owned()),
+                    user_id: ActiveValue::Set(client.user_id.to_owned()),
+                    key: ActiveValue::Set(key.to_owned()),
+                    value: ActiveValue::Set(
+                        value
+                            .value
+                            .to_string()
+                            .trim_matches(|c| c == '\"' || c == '\'')
+                            .to_string(),
+                    ),
+                    expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
+                    ..Default::default()
+                };
+                new_memories.push(entry);
+            }
+            Err(e) => return Err(e),
+        }
     }
     if !new_memories.is_empty() {
         Memory::insert_many(new_memories).exec(db).await?;
