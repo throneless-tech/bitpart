@@ -133,12 +133,17 @@ pub fn send_msg_to_callback_url(
     send_to_callback_url(data, serde_json::json!(messages))
 }
 
-pub fn update_current_context(data: &mut ConversationData, memories: &HashMap<String, Memory>) {
+pub fn update_current_context(
+    data: &mut ConversationData,
+    memories: &HashMap<String, Memory>,
+) -> Result<()> {
     for (_key, mem) in memories.iter() {
-        let lit = json_to_literal(&mem.value, Interval::default(), &data.context.flow).unwrap();
+        let lit = json_to_literal(&mem.value, Interval::default(), &data.context.flow)
+            .map_err(|err| BitpartError::Interpreter(err.message))?;
 
         data.context.current.insert(mem.key.to_owned(), lit);
     }
+    Ok(())
 }
 
 /**
@@ -196,14 +201,15 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
 
             let ast = match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = BASE64_STANDARD.decode(ast).unwrap();
-                    let csml_bot: HashMap<String, Flow> =
-                        bincode::deserialize(&base64decoded[..]).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(ast)?;
+                    let csml_bot: HashMap<String, Flow> = bincode::deserialize(&base64decoded[..])?;
                     match csml_bot.get(&context.flow) {
                         Some(flow) => flow.to_owned(),
                         None => csml_bot
                             .get(&get_default_flow(bot)?.name)
-                            .unwrap()
+                            .ok_or(BitpartError::Interpreter(
+                                "Error falling back to default flow".to_owned(),
+                            ))?
                             .to_owned(),
                     }
                 }
@@ -217,11 +223,12 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
 
             match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = BASE64_STANDARD.decode(ast).unwrap();
-                    let csml_bot: HashMap<String, Flow> =
-                        bincode::deserialize(&base64decoded[..]).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(ast)?;
+                    let csml_bot: HashMap<String, Flow> = bincode::deserialize(&base64decoded[..])?;
 
-                    let default_flow = csml_bot.get(&get_default_flow(bot)?.name).unwrap();
+                    let default_flow = csml_bot.get(&get_default_flow(bot)?.name).ok_or(
+                        BitpartError::Interpreter("Error falling back to default flow".to_owned()),
+                    )?;
 
                     match csml_bot.get(&context.flow) {
                         Some(target_flow) => {
@@ -265,15 +272,16 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
 
             let ast = match &bot.bot_ast {
                 Some(ast) => {
-                    let base64decoded = BASE64_STANDARD.decode(ast).unwrap();
-                    let csml_bot: HashMap<String, Flow> =
-                        bincode::deserialize(&base64decoded[..]).unwrap();
+                    let base64decoded = BASE64_STANDARD.decode(ast)?;
+                    let csml_bot: HashMap<String, Flow> = bincode::deserialize(&base64decoded[..])?;
 
                     match csml_bot.get(inserted_flow) {
                         Some(flow) => flow.to_owned(),
                         None => csml_bot
                             .get(&get_default_flow(bot)?.name)
-                            .unwrap()
+                            .ok_or(BitpartError::Interpreter(
+                                "Error falling back to default flow".to_owned(),
+                            ))?
                             .to_owned(),
                     }
                 }

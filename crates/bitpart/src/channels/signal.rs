@@ -408,7 +408,7 @@ async fn process_signal_message<S: Store>(
             &thread,
             format!(
                 "got {:?} receipt for messages sent at {timestamp:?}",
-                receipt_message::Type::try_from(receipt_type.unwrap_or_default()).unwrap()
+                receipt_message::Type::try_from(receipt_type.unwrap_or_default())?
             ),
         )),
         ContentBody::StoryMessage(story) => {
@@ -524,7 +524,13 @@ async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<()
 
     let res = api::process_request(&request, &state.db).await?;
     if let Some(messages) = res.get("messages") {
-        for i in messages.as_array().unwrap().iter() {
+        for i in messages
+            .as_array()
+            .ok_or(BitpartError::Signal(
+                "Got invalid message from interpreter".to_owned(),
+            ))?
+            .iter()
+        {
             state
                 .tx
                 .send((

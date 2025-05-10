@@ -226,7 +226,7 @@ fn set_bot_ast(bot: &mut CsmlBot) -> Result<()> {
             ..
         } => {
             bot.bot_ast =
-                Some(BASE64_STANDARD.encode(bincode::serialize(&(&flows, &extern_flows)).unwrap()));
+                Some(BASE64_STANDARD.encode(bincode::serialize(&(&flows, &extern_flows))?));
         }
         CsmlResult {
             flows: Some(flows),
@@ -237,7 +237,7 @@ fn set_bot_ast(bot: &mut CsmlBot) -> Result<()> {
             let extern_flows: HashMap<String, Flow> = HashMap::new();
 
             bot.bot_ast =
-                Some(BASE64_STANDARD.encode(bincode::serialize(&(&flows, &extern_flows)).unwrap()));
+                Some(BASE64_STANDARD.encode(bincode::serialize(&(&flows, &extern_flows))?));
         }
         CsmlResult {
             errors: Some(errors),

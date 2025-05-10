@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "bitpart"
-version = "1.0.0-alpha.5"
+version = "1.0.0-alpha.6"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -529,7 +529,7 @@ dependencies = [
 
 [[package]]
 name = "bitpart-cli"
-version = "1.0.0-alpha.5"
+version = "1.0.0-alpha.6"
 dependencies = [
  "anyhow",
  "bitpart-common",
@@ -554,10 +554,11 @@ dependencies = [
 
 [[package]]
 name = "bitpart-common"
-version = "1.0.0-alpha.5"
+version = "1.0.0-alpha.6"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "bincode",
  "csml_interpreter",
  "figment",
  "futures",
@@ -565,6 +566,7 @@ dependencies = [
  "opentelemetry-otlp",
  "presage",
  "presage-store-bitpart",
+ "prost",
  "sea-orm",
  "serde",
  "serde_json",
@@ -3187,7 +3189,7 @@ dependencies = [
 
 [[package]]
 name = "presage-store-bitpart"
-version = "1.0.0-alpha.5"
+version = "1.0.0-alpha.6"
 dependencies = [
  "anyhow",
  "async-trait",

@@ -114,8 +114,7 @@ impl BitpartStore {
                     WHERE id = NEW.id;
                 END;",
         )
-        .await
-        .unwrap();
+        .await?;
         Ok(Self {
             id: "test".to_owned(),
             db,

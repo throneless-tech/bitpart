@@ -39,7 +39,7 @@ pub async fn get(
     else {
         return Err(BitpartError::Interpreter("No state found".to_owned()));
     };
-    Ok(serde_json::from_str(&entry.value).unwrap())
+    Ok(serde_json::from_str(&entry.value)?)
 }
 
 pub async fn get_by_client(client: &Client, db: &DatabaseConnection) -> Result<Vec<Value>> {

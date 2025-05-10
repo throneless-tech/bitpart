@@ -67,7 +67,10 @@ impl From<SerializedCsmlBot> for CsmlBot {
             default_flow: val.default_flow.to_owned(),
             bot_ast: None,
             no_interruption_delay: val.no_interruption_delay,
-            env: val.env.as_ref().map(|e| serde_json::from_str(e).unwrap()),
+            env: val
+                .env
+                .as_ref()
+                .map(|e| serde_json::from_str(e).unwrap_or(JsonValue::Null)),
             modules: val.modules.to_owned(),
             multibot: val.multibot,
         }
@@ -85,7 +88,7 @@ pub async fn create(bot: CsmlBot, db: &DatabaseConnection) -> Result<BotVersion>
 
     let entry = model.insert(db).await?;
 
-    let bot: SerializedCsmlBot = serde_json::from_str(&entry.bot).unwrap();
+    let bot: SerializedCsmlBot = serde_json::from_str(&entry.bot)?;
 
     Ok(BotVersion {
         bot: bot.into(),
@@ -127,13 +130,13 @@ pub async fn get(
 
     Ok(entries
         .into_iter()
-        .map(|e| {
-            let bot: SerializedCsmlBot = serde_json::from_str(&e.bot).unwrap();
-            BotVersion {
+        .filter_map(|e| {
+            let bot: SerializedCsmlBot = serde_json::from_str(&e.bot).ok()?;
+            Some(BotVersion {
                 version_id: e.id.to_string(),
                 bot: bot.into(),
                 engine_version: env!["CARGO_PKG_VERSION"].to_owned(),
-            }
+            })
         })
         .collect())
 }

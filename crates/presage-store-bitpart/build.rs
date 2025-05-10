@@ -35,7 +35,7 @@ fn main() -> Result<()> {
             let path = entry.path();
             if Some("proto") == path.extension().and_then(std::ffi::OsStr::to_str) {
                 assert!(path.is_file());
-                println!("cargo:rerun-if-changed={}", path.to_str().unwrap());
+                println!("cargo:rerun-if-changed={}", path.to_str()?);
                 Some(path)
             } else {
                 None

@@ -15,12 +15,14 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use base64;
+use bincode;
 use figment;
 use futures;
 use hex;
 use opentelemetry_otlp;
 use presage;
 use presage_store_bitpart::BitpartStoreError;
+use prost;
 use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
 use std::{array, io};
@@ -70,6 +72,10 @@ pub enum BitpartError {
     SignalMessage(#[from] uuid::Error),
     #[error("OpenTelemetry build error: `{0}`")]
     OpenTelemetry(#[from] opentelemetry_otlp::ExporterBuildError),
+    #[error("Protocol Buffers error: `{0}`")]
+    ProtocolBuffers(#[from] prost::UnknownEnumValue),
+    #[error("Bincode error: `{0}`")]
+    Bincode(#[from] bincode::Error),
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartError {

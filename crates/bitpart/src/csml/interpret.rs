@@ -536,7 +536,7 @@ async fn manage_internal_goto<'a>(
                 data.context.step.get_step()
             );
 
-            update_current_context(data, memories);
+            let _ = update_current_context(data, memories);
             goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
         }
         (Some(flow), None) => {
@@ -549,7 +549,7 @@ async fn manage_internal_goto<'a>(
                 data.context.step.get_step()
             );
 
-            update_current_context(data, memories);
+            let _ = update_current_context(data, memories);
             let step = ContextStepInfo::Normal("start".to_owned());
 
             goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
