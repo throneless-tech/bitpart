@@ -349,8 +349,8 @@ async fn switch_bot(
         }
     }
 
-    // and get memories of the new bot form db,
-    // clearing the permanent memories form scope of the previous bot
+    // and get memories of the new bot from db,
+    // clearing the permanent memories from scope of the previous bot
     data.context.current = get_hashmap_from_mem(&serde_json::json!(map), &data.context.flow);
 
     Ok(())

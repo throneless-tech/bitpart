@@ -26,7 +26,7 @@ use super::entities::{prelude::*, *};
 pub async fn create(
     client: &Client,
     key: &str,
-    value: &str,
+    value: &serde_json::Value,
     expires_at: Option<NaiveDateTime>,
     db: &DatabaseConnection,
 ) -> Result<()> {
@@ -55,15 +55,7 @@ pub async fn create_many(
     for (key, value) in memories.iter() {
         match get(client, key, db).await {
             Ok(Some(existing)) => {
-                let mut existing: memory::ActiveModel = existing.into();
-
-                existing.value = ActiveValue::Set(
-                    value
-                        .value
-                        .to_string()
-                        .trim_matches(|c| c == '\"' || c == '\'')
-                        .to_string(),
-                );
+                let existing: memory::ActiveModel = existing.into();
                 existing.update(db).await?;
             }
             Ok(None) => {
@@ -73,13 +65,7 @@ pub async fn create_many(
                     channel_id: ActiveValue::Set(client.channel_id.to_owned()),
                     user_id: ActiveValue::Set(client.user_id.to_owned()),
                     key: ActiveValue::Set(key.to_owned()),
-                    value: ActiveValue::Set(
-                        value
-                            .value
-                            .to_string()
-                            .trim_matches(|c| c == '\"' || c == '\'')
-                            .to_string(),
-                    ),
+                    value: ActiveValue::Set(value.value.to_owned()),
                     expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
                     ..Default::default()
                 };

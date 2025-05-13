@@ -16,6 +16,7 @@
 
 use sea_orm::entity::prelude::*;
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq, Serialize)]
 #[sea_orm(table_name = "memory")]
@@ -26,7 +27,7 @@ pub struct Model {
     pub channel_id: String,
     pub user_id: String,
     pub key: String,
-    pub value: String,
+    pub value: Value,
     pub created_at: String,
     pub updated_at: String,
     pub expires_at: Option<String>,

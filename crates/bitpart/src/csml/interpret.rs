@@ -349,14 +349,14 @@ pub async fn step(
         }
     }
 
-    // save in db
-    let msgs: Vec<serde_json::Value> = data
-        .messages
-        .iter()
-        .map(|var| var.clone().message_to_json())
-        .collect();
-
     if !data.low_data {
+        // save in db
+        let msgs: Vec<serde_json::Value> = data
+            .messages
+            .iter()
+            .map(|var| var.clone().message_to_json())
+            .collect();
+
         db::message::create(data, &msgs, interaction_order, "SEND", None, db).await?;
     }
 
@@ -536,7 +536,7 @@ async fn manage_internal_goto<'a>(
                 data.context.step.get_step()
             );
 
-            let _ = update_current_context(data, memories);
+            update_current_context(data, memories)?;
             goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
         }
         (Some(flow), None) => {
@@ -549,7 +549,7 @@ async fn manage_internal_goto<'a>(
                 data.context.step.get_step()
             );
 
-            let _ = update_current_context(data, memories);
+            update_current_context(data, memories)?;
             let step = ContextStepInfo::Normal("start".to_owned());
 
             goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
