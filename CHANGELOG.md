@@ -1,3 +1,10 @@
+## 1.0.0-alpha.8 (2025-05-13)
+
+### Fix
+
+- properly serialize memories as their appropriate types instead of as strings
+- Remove extraneous unwrap()'s from bitpart and presage-store
+
 ## 1.0.0-alpha.7 (2025-05-09)
 
 ### Fix
