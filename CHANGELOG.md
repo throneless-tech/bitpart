@@ -1,3 +1,10 @@
+## 1.0.0-alpha.7 (2025-05-09)
+
+### Fix
+
+- allow building releases on all pushes to main branch
+- Keep duplicate memories from being saved to the database.
+
 ## 1.0.0-alpha.6 (2025-05-06)
 
 ## 1.0.0-alpha.5 (2025-05-06)
