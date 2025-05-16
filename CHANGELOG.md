@@ -1,3 +1,9 @@
+## 1.0.0-alpha.9 (2025-05-16)
+
+### Fix
+
+- Don't default events to 'secure'
+
 ## 1.0.0-alpha.8 (2025-05-13)
 
 ### Fix
