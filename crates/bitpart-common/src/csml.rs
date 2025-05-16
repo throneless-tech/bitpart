@@ -212,7 +212,7 @@ fn request_to_event(request: &SerializedEvent) -> Result<Event, BitpartError> {
         ttl_duration: json_event["ttl_duration"].as_i64(),
         low_data_mode: json_event["low_data_mode"].as_bool(),
         step_limit,
-        secure: json_event["payload"]["secure"].as_bool().unwrap_or(true), // we default to secure
+        secure: json_event["payload"]["secure"].as_bool().unwrap_or(false),
     })
 }
 
