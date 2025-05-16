@@ -1,3 +1,9 @@
+## 1.0.0-alpha.12 (2025-05-16)
+
+### Fix
+
+- Don't panic immediately when failing to send message to Signal
+
 ## 1.0.0-alpha.11 (2025-05-16)
 
 ### Fix
