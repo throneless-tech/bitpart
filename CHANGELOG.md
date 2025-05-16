@@ -1,3 +1,9 @@
+## 1.0.0-alpha.11 (2025-05-16)
+
+### Fix
+
+- Delete memory when bot is deleted
+
 ## 1.0.0-alpha.10 (2025-05-16)
 
 ### Fix
