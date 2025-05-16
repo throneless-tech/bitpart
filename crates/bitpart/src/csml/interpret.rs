@@ -133,6 +133,9 @@ pub async fn step(
                         .await?;
 
                 for c in convos.iter() {
+                    if c.user_id == data.client.user_id {
+                        continue;
+                    };
                     let mut msg_copy = msg.clone();
                     if let Value::Object(ref mut content) = msg_copy.content {
                         content.insert(
