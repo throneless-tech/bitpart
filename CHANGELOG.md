@@ -1,3 +1,9 @@
+## 1.0.0-alpha.10 (2025-05-16)
+
+### Fix
+
+- Don't shout to yourself
+
 ## 1.0.0-alpha.9 (2025-05-16)
 
 ### Fix
