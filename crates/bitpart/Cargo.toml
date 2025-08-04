@@ -31,7 +31,7 @@ mime_guess = "2.0.5"
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = ["reqwest-rustls"] }
 opentelemetry_sdk = "0.29.0"
-presage = { git = "https://github.com/whisperfish/presage", rev = "473c70db3048ec871f6cef1faf6a97d0fdb9c082" }
+presage = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"
 regex = "1.10.6"
