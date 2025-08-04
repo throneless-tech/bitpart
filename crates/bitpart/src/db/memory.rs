@@ -55,7 +55,8 @@ pub async fn create_many(
     for (key, value) in memories.iter() {
         match get(client, key, db).await {
             Ok(Some(existing)) => {
-                let existing: memory::ActiveModel = existing.into();
+                let mut existing: memory::ActiveModel = existing.into();
+                existing.value = ActiveValue::Set(value.value.clone());
                 existing.update(db).await?;
             }
             Ok(None) => {
