@@ -104,17 +104,19 @@ impl SignalManager {
             .build()
             .expect("Failed to create thread builder");
 
-        std::thread::spawn(move || {
-            let local = LocalSet::new();
+        let _ = std::thread::Builder::new()
+            .stack_size(4 * 1024 * 1024)
+            .spawn(move || {
+                let local = LocalSet::new();
 
-            local.spawn_local(async move {
-                while let Some(msg) = recv.recv().await {
-                    tokio::task::spawn_local(process_channel_message(msg));
-                }
+                local.spawn_local(async move {
+                    while let Some(msg) = recv.recv().await {
+                        tokio::task::spawn_local(process_channel_message(msg));
+                    }
+                });
+
+                rt.block_on(local);
             });
-
-            rt.block_on(local);
-        });
 
         Self { inner: send }
     }
@@ -256,13 +258,15 @@ async fn send<S: Store>(
             info!(recipient =% uuid, "sending message to contact");
             manager
                 .send_message(ServiceId::Aci(uuid.into()), content_body, timestamp)
-                .await?;
+                .await
+                .map_err(|_| BitpartError::PresageStore)?;
         }
         Recipient::Group(master_key) => {
             info!("sending message to group");
             manager
                 .send_message_to_group(&master_key, content_body, timestamp)
-                .await?;
+                .await
+                .map_err(|_| BitpartError::PresageStore)?;
         }
     }
 
