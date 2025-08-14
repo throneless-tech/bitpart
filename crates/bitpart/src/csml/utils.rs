@@ -306,17 +306,15 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
 }
 
 pub fn get_ttl_duration_value(event: Option<&Event>) -> Option<chrono::Duration> {
-    if let Some(event) = event {
-        if let Some(ttl) = event.ttl_duration {
+    if let Some(event) = event
+        && let Some(ttl) = event.ttl_duration {
             return Some(chrono::Duration::days(ttl));
         }
-    }
 
-    if let Ok(ttl) = env::var("TTL_DURATION") {
-        if let Ok(ttl) = ttl.parse::<i64>() {
+    if let Ok(ttl) = env::var("TTL_DURATION")
+        && let Ok(ttl) = ttl.parse::<i64>() {
             return Some(chrono::Duration::days(ttl));
         }
-    }
 
     None
 }

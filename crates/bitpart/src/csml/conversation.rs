@@ -408,49 +408,44 @@ async fn check_for_hold(
     event: &mut Event,
     db: &DatabaseConnection,
 ) -> Result<()> {
-    match db::state::get(&data.client, "hold", "position", db).await {
-        // user is currently on hold
-        Ok(hold) => {
-            match hold.get("hash") {
-                Some(hash_value) => {
-                    let flow_hash = utils::get_current_step_hash(&data.context, bot)?;
-                    // cleanup the current hold and restart flow
-                    if flow_hash != *hash_value {
-                        return utils::clean_hold_and_restart(data, db).await;
-                    }
-                    flow_hash
+    if let Ok(hold) = db::state::get(&data.client, "hold", "position", db).await {
+        match hold.get("hash") {
+            Some(hash_value) => {
+                let flow_hash = utils::get_current_step_hash(&data.context, bot)?;
+                // cleanup the current hold and restart flow
+                if flow_hash != *hash_value {
+                    return utils::clean_hold_and_restart(data, db).await;
                 }
-                _ => return Ok(()),
-            };
-
-            let index = match serde_json::from_value::<IndexInfo>(hold["index"].clone()) {
-                Ok(index) => index,
-                Err(_) => {
-                    db::state::delete(&data.client, "hold", "position", db).await?;
-                    return Ok(());
-                }
-            };
-
-            let secure_hold = hold["secure"].as_bool().unwrap_or(false);
-
-            if secure_hold {
-                event.secure = true;
+                flow_hash
             }
+            _ => return Ok(()),
+        };
 
-            // all good, let's load the position and local variables
-            data.context.hold = Some(Hold {
-                index,
-                step_vars: hold["step_vars"].clone(),
-                step_name: data.context.step.get_step(),
-                flow_name: data.context.flow.to_owned(),
-                previous: serde_json::from_value(hold["previous"].clone()).unwrap_or(None),
-                secure: secure_hold,
-            });
+        let index = match serde_json::from_value::<IndexInfo>(hold["index"].clone()) {
+            Ok(index) => index,
+            Err(_) => {
+                db::state::delete(&data.client, "hold", "position", db).await?;
+                return Ok(());
+            }
+        };
 
-            db::state::delete(&data.client, "hold", "position", db).await?;
+        let secure_hold = hold["secure"].as_bool().unwrap_or(false);
+
+        if secure_hold {
+            event.secure = true;
         }
-        // user is not on hold
-        Err(_) => (),
+
+        // all good, let's load the position and local variables
+        data.context.hold = Some(Hold {
+            index,
+            step_vars: hold["step_vars"].clone(),
+            step_name: data.context.step.get_step(),
+            flow_name: data.context.flow.to_owned(),
+            previous: serde_json::from_value(hold["previous"].clone()).unwrap_or(None),
+            secure: secure_hold,
+        });
+
+        db::state::delete(&data.client, "hold", "position", db).await?;
     };
     Ok(())
 }
