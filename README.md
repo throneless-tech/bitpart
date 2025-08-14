@@ -1,4 +1,5 @@
 # Bitpart 🤖
+[![Run checks](https://github.com/throneless-tech/bitpart/actions/workflows/run_checks.yaml/badge.svg)](https://github.com/throneless-tech/bitpart/actions/workflows/run_checks.yaml) 
 
 Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders.
 
