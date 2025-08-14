@@ -70,7 +70,7 @@ For example, to list available bots on a Bitpart server listening at `<BIND>` an
 
 ## CSML
 
-Bitpart's conversation logic is defined by scripts written in the open-source Conversational Markup Language, or CSML. Visit [the documentation from the CSML project](https://docs.csml.dev/) to learn how to write a CSML conversation flow. Each instance of Bitpart can run one or more bots, where each bot processes incoming messages according to one or more CSML flows.
+Bitpart's conversation logic is defined by scripts written in the open-source Conversational Standard Meta Language, or CSML. Visit [the documentation from the CSML project](https://docs.csml.dev/) to learn how to write a CSML conversation flow. Each instance of Bitpart can run one or more bots, where each bot processes incoming messages according to one or more CSML flows.
 
 ## License
 
