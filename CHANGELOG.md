@@ -1,3 +1,15 @@
+## 1.0.0 (2025-08-14)
+
+### Fix
+
+- Fmt fixes.
+- Blood for the Clippy god.
+- Box up errors.
+- Pin Github actions to hashes. Fixes #11
+- Update presage to 0.7.0, fixes #23 (hopefully)
+- Save new memory value for existing memory. Fixes #22
+- Double thread stack size. Fixes #21
+
 ## 1.0.0-alpha.12 (2025-05-16)
 
 ### Fix
