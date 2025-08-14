@@ -18,29 +18,28 @@ jobs:
     name: "Bump version, create changelog, and build release artifacts"
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
           fetch-depth: 0
           token: "${{ secrets.GITHUB_TOKEN }}"
       - name: Install dependencies
-        uses: awalsh128/cache-apt-pkgs-action@latest
+        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
         with:
           packages: protobuf-compiler
           version: 1.0
       - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48
       - name: Build
         run: cargo build --all --release && strip target/release/bitpart && strip target/release/bitpart-cli
       - id: cz
         name: Create bump and changelog
-        uses: commitizen-tools/commitizen-action@master
+        uses: commitizen-tools/commitizen-action@5b0848cd060263e24602d1eba03710e056ef7711
         with:
-          prerelease: alpha
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: body.md
           commitizen_version: 4.6.3
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
           body_path: "body.md"
           tag_name: ${{ env.REVISION }}
@@ -51,14 +50,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Buildah Action
         id: build_image
-        uses: redhat-actions/buildah-build@v2
+        uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
         with:
           image: ${{ env.IMAGE_NAME }}
           tags: ${{ env.REVISION }} latest
           containerfiles: |
             ./Dockerfile
       - name: Push To GHCR
-        uses: redhat-actions/push-to-registry@v2
+        uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c
         id: push
         with:
           image: ${{ steps.build_image.outputs.image }}
