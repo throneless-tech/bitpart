@@ -433,9 +433,10 @@ async fn process_signal_message<S: Store>(
             Msg::Replyable(Thread::Contact(sender), body) => {
                 let contact = format_contact(sender, manager).await;
                 if let Some(state) = state
-                    && let Err(err) = reply(sender.to_string(), body.clone(), state).await {
-                        warn!("Problem with replying to message: {:?}", err);
-                    }
+                    && let Err(err) = reply(sender.to_string(), body.clone(), state).await
+                {
+                    warn!("Problem with replying to message: {:?}", err);
+                }
                 (format!("From {contact} @ {ts}: "), body)
             }
             Msg::Sent(Thread::Contact(recipient), body) => {
@@ -572,19 +573,21 @@ fn try_user_id_to_recipient(user_id: &str) -> Result<Recipient> {
 fn reply_get_user_id(res: &serde_json::Value, default_user_id: &str) -> String {
     if let Some(payload) = res.get("payload")
         && let Some(content) = payload.get("content")
-            && let Some(client) = content.get("client")
-                && let Some(user_id) = client.get("user_id") {
-                    return unescape(&user_id.to_string()).to_string();
-                }
+        && let Some(client) = content.get("client")
+        && let Some(user_id) = client.get("user_id")
+    {
+        return unescape(&user_id.to_string()).to_string();
+    }
     default_user_id.to_string()
 }
 
 fn reply_get_text(res: &serde_json::Value) -> String {
     if let Some(payload) = res.get("payload")
         && let Some(content) = payload.get("content")
-            && let Some(text) = content.get("text") {
-                return unescape(&text.to_string()).to_string();
-            }
+        && let Some(text) = content.get("text")
+    {
+        return unescape(&text.to_string()).to_string();
+    }
     "".to_owned()
 }
 
