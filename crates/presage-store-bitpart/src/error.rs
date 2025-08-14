@@ -46,6 +46,8 @@ pub enum BitpartStoreError {
     UnsupportedContent,
     #[error("string encoding error: {0}")]
     Utf8(#[from] str::Utf8Error),
+    #[error("Libsignal protocol error: `{0}`")]
+    SignalProtocol(#[from] SignalProtocolError),
 }
 
 impl StoreError for BitpartStoreError {}

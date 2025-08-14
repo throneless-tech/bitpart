@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bitpart_common::error::{BitpartError, Result};
+use bitpart_common::error::{BitpartErrorKind, Result};
 use chrono::NaiveDateTime;
 use csml_interpreter::data::Client;
 use sea_orm::*;
@@ -37,7 +37,7 @@ pub async fn get(
         .one(db)
         .await?
     else {
-        return Err(BitpartError::Interpreter("No state found".to_owned()));
+        return Err(BitpartErrorKind::Interpreter("No state found".to_owned()).into());
     };
     Ok(serde_json::from_str(&entry.value)?)
 }

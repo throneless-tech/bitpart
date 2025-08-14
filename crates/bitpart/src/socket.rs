@@ -20,7 +20,7 @@ use axum::{
     response::IntoResponse,
 };
 use bitpart_common::{
-    error::{BitpartError, Result},
+    error::{BitpartErrorKind, Result},
     socket::{Response, SocketMessage},
 };
 use serde::Serialize;
@@ -222,11 +222,11 @@ async fn process_message(
                 );
                 match cf.code {
                     1000 => Ok(None), // 1000 is code for "Normal"
-                    _ => Err(BitpartError::WebsocketClose),
+                    _ => Err(BitpartErrorKind::WebsocketClose.into()),
                 }
             } else {
                 debug!(">>> {who} somehow sent close message without CloseFrame");
-                Err(BitpartError::WebsocketClose)
+                Err(BitpartErrorKind::WebsocketClose.into())
             }
         }
 

@@ -27,11 +27,13 @@ use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
 use std::{array, io};
 use thiserror::Error;
+use thiserror_ext::Box;
 use tokio;
 use uuid;
 
-#[derive(Debug, Error)]
-pub enum BitpartError {
+#[derive(Debug, Error, Box)]
+#[thiserror_ext(newtype(name = BitpartError))]
+pub enum BitpartErrorKind {
     #[error("API error: `{0}`")]
     Api(String),
     #[error("Interpreter error: `{0}`")]
@@ -78,7 +80,7 @@ pub enum BitpartError {
     Bincode(#[from] bincode::Error),
 }
 
-impl<S: std::error::Error> From<presage::Error<S>> for BitpartError {
+impl<S: std::error::Error> From<presage::Error<S>> for BitpartErrorKind {
     fn from(_err: presage::Error<S>) -> Self {
         Self::PresageStore
     }

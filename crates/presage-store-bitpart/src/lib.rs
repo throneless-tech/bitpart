@@ -21,7 +21,7 @@ use base64::prelude::*;
 use presage::{
     libsignal_service::{
         prelude::{ProfileKey, Uuid},
-        protocol::IdentityKeyPair,
+        protocol::{IdentityKeyPair, SenderCertificate},
     },
     manager::RegistrationData,
     model::identity::OnNewIdentity,
@@ -48,6 +48,7 @@ use sea_orm::ConnectionTrait;
 const BITPART_TREE_STATE: &str = "state";
 
 const BITPART_KEY_REGISTRATION: &str = "registration";
+const BITPART_KEY_SENDER_CERTIFICATE: &str = "sender_certificate";
 
 #[derive(Clone)]
 pub struct BitpartStore {
@@ -231,7 +232,9 @@ impl BitpartStore {
 impl StateStore for BitpartStore {
     type StateStoreError = BitpartStoreError;
 
-    async fn load_registration_data(&self) -> Result<Option<RegistrationData>, BitpartStoreError> {
+    async fn load_registration_data(
+        &self,
+    ) -> Result<Option<RegistrationData>, Self::StateStoreError> {
         self.get(BITPART_TREE_STATE, BITPART_KEY_REGISTRATION).await
     }
 
@@ -254,7 +257,7 @@ impl StateStore for BitpartStore {
     async fn save_registration_data(
         &mut self,
         state: &RegistrationData,
-    ) -> Result<(), BitpartStoreError> {
+    ) -> Result<(), Self::StateStoreError> {
         self.insert(BITPART_TREE_STATE, BITPART_KEY_REGISTRATION, state)
             .await?;
         Ok(())
@@ -267,7 +270,7 @@ impl StateStore for BitpartStore {
             .is_some()
     }
 
-    async fn clear_registration(&mut self) -> Result<(), BitpartStoreError> {
+    async fn clear_registration(&mut self) -> Result<(), Self::StateStoreError> {
         // drop registration data (includes identity keys)
         db::channel_state::remove_all(&self.id, BITPART_TREE_STATE, &self.db).await?;
         // drop all saved profile (+avatards) and profile keys
@@ -277,6 +280,29 @@ impl StateStore for BitpartStore {
         self.aci_protocol_store().clear(true).await?;
         self.pni_protocol_store().clear(true).await?;
 
+        Ok(())
+    }
+
+    async fn sender_certificate(&self) -> Result<Option<SenderCertificate>, Self::StateStoreError> {
+        let value: Option<Vec<u8>> = self
+            .get(BITPART_TREE_STATE, BITPART_KEY_SENDER_CERTIFICATE)
+            .await?;
+        value
+            .map(|value| SenderCertificate::deserialize(&value))
+            .transpose()
+            .map_err(From::from)
+    }
+
+    async fn save_sender_certificate(
+        &self,
+        certificate: &SenderCertificate,
+    ) -> Result<(), Self::StateStoreError> {
+        self.insert(
+            BITPART_TREE_STATE,
+            BITPART_KEY_SENDER_CERTIFICATE,
+            certificate.serialized()?,
+        )
+        .await?;
         Ok(())
     }
 }

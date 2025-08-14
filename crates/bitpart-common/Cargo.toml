@@ -25,6 +25,7 @@ sea-orm = "~1.0"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.132"
 thiserror = "2.0.12"
+thiserror-ext = "0.3.0"
 tokio = "1.44.2"
 uuid = "1.16.0"
 

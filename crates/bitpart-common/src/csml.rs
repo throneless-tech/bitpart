@@ -2,7 +2,7 @@ use csml_interpreter::data::{Client, CsmlBot, Event, MultiBot};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::error::BitpartError;
+use crate::error::{BitpartError, BitpartErrorKind};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FlowTrigger {
@@ -81,9 +81,7 @@ impl TryInto<BotOpt> for Request {
                 apps_endpoint,
                 multibot,
             }),
-            _ => Err(BitpartError::Interpreter(
-                "Invalid bot_opt format".to_owned(),
-            )),
+            _ => Err(BitpartErrorKind::Interpreter("Invalid bot_opt format".to_owned()).into()),
         }
     }
 }
@@ -130,9 +128,7 @@ impl TryInto<BotOpt> for &Request {
                 apps_endpoint: apps_endpoint.to_owned(),
                 multibot: multibot.to_owned(),
             }),
-            _ => Err(BitpartError::Interpreter(
-                "Invalid bot_opt format".to_owned(),
-            )),
+            _ => Err(BitpartErrorKind::Interpreter("Invalid bot_opt format".to_owned()).into()),
         }
     }
 }
@@ -143,49 +139,46 @@ fn get_event_content(content_type: &str, metadata: &Value) -> Result<String, Bit
             if let Some(val) = metadata["url"].as_str() {
                 Ok(val.to_string())
             } else {
-                Err(BitpartError::Interpreter(
-                    "no url content in event".to_owned(),
-                ))
+                Err(BitpartErrorKind::Interpreter("no url content in event".to_owned()).into())
             }
         }
         "payload" => {
             if let Some(val) = metadata["payload"].as_str() {
                 Ok(val.to_string())
             } else {
-                Err(BitpartError::Interpreter(
-                    "no payload content in event".to_owned(),
-                ))
+                Err(BitpartErrorKind::Interpreter("no payload content in event".to_owned()).into())
             }
         }
         "text" => {
             if let Some(val) = metadata["text"].as_str() {
                 Ok(val.to_string())
             } else {
-                Err(BitpartError::Interpreter(
-                    "no text content in event".to_owned(),
-                ))
+                Err(BitpartErrorKind::Interpreter("no text content in event".to_owned()).into())
             }
         }
         "regex" => {
             if let Some(val) = metadata["payload"].as_str() {
                 Ok(val.to_string())
             } else {
-                Err(BitpartError::Interpreter(
+                Err(BitpartErrorKind::Interpreter(
                     "invalid payload for event type regex".to_owned(),
-                ))
+                )
+                .into())
             }
         }
         "flow_trigger" => match serde_json::from_value::<FlowTrigger>(metadata.clone()) {
             Ok(_) => Ok(metadata.to_string()),
-            Err(_) => Err(BitpartError::Interpreter(
+            Err(_) => Err(BitpartErrorKind::Interpreter(
                 "invalid content for event type flow_trigger: expect flow_id and optional step_id"
                     .to_owned(),
-            )),
+            )
+            .into()),
         },
-        content_type => Err(BitpartError::Interpreter(format!(
+        content_type => Err(BitpartErrorKind::Interpreter(format!(
             "{} is not a valid content_type",
             content_type
-        ))),
+        ))
+        .into()),
     }
 }
 
@@ -196,9 +189,10 @@ fn request_to_event(request: &SerializedEvent) -> Result<Event, BitpartError> {
     let content_type = match json_event["payload"]["content_type"].as_str() {
         Some(content_type) => content_type.to_string(),
         None => {
-            return Err(BitpartError::Interpreter(
+            return Err(BitpartErrorKind::Interpreter(
                 "no content_type in event payload".to_owned(),
-            ));
+            )
+            .into());
         }
     };
     let content = json_event["payload"]["content"].to_owned();

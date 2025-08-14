@@ -19,7 +19,7 @@
 
 use bitpart_common::{
     csml::BotOpt,
-    error::{BitpartError, Result},
+    error::{BitpartErrorKind, Result},
 };
 use csml_interpreter::data::{Client, Context, CsmlBot, Message};
 use sea_orm::DatabaseConnection;
@@ -71,10 +71,11 @@ pub async fn search_bot(bot: &BotOpt, db: &DatabaseConnection) -> Result<Box<Csm
                     // bot_version.bot.multibot = multibot.to_owned();
                     Ok(Box::new(bot_version.bot))
                 }
-                None => Err(BitpartError::Interpreter(format!(
+                None => Err(BitpartErrorKind::Interpreter(format!(
                     "bot ({}) not found in db",
                     bot_id
-                ))),
+                ))
+                .into()),
             }
         }
         BotOpt::Id {
@@ -91,10 +92,11 @@ pub async fn search_bot(bot: &BotOpt, db: &DatabaseConnection) -> Result<Box<Csm
                     // bot_version.bot.multibot = multibot.to_owned();
                     Ok(Box::new(bot_version.bot))
                 }
-                None => Err(BitpartError::Interpreter(format!(
+                None => Err(BitpartErrorKind::Interpreter(format!(
                     "bot version ({}) not found in db",
                     version_id
-                ))),
+                ))
+                .into()),
             }
         }
     }

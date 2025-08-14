@@ -19,7 +19,7 @@
 
 use bitpart_common::{
     csml::{Request, SerializedEvent},
-    error::{BitpartError, Result},
+    error::{BitpartErrorKind, Result},
 };
 use chrono::Local;
 use csml_interpreter::data::Client;
@@ -104,17 +104,19 @@ impl SignalManager {
             .build()
             .expect("Failed to create thread builder");
 
-        std::thread::spawn(move || {
-            let local = LocalSet::new();
+        let _ = std::thread::Builder::new()
+            .stack_size(4 * 1024 * 1024)
+            .spawn(move || {
+                let local = LocalSet::new();
 
-            local.spawn_local(async move {
-                while let Some(msg) = recv.recv().await {
-                    tokio::task::spawn_local(process_channel_message(msg));
-                }
+                local.spawn_local(async move {
+                    while let Some(msg) = recv.recv().await {
+                        tokio::task::spawn_local(process_channel_message(msg));
+                    }
+                });
+
+                rt.block_on(local);
             });
-
-            rt.block_on(local);
-        });
 
         Self { inner: send }
     }
@@ -140,7 +142,7 @@ async fn start_channel_recv(
 ) -> Result<()> {
     let channel = db::channel::get_by_id(&id, &db)
         .await?
-        .ok_or_else(|| BitpartError::Signal("No such channel.".to_owned()))?;
+        .ok_or_else(|| BitpartErrorKind::Signal("No such channel.".to_owned()))?;
     let state = ChannelState {
         id: channel.bot_id,
         db,
@@ -204,8 +206,8 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             let res = provisioning_link_rx
                 .await
                 .map(|url| url.to_string())
-                .map_err(|_e| BitpartError::Signal("Linking error".to_owned()))?;
-            Ok(sender.send(res).map_err(BitpartError::Signal)?)
+                .map_err(|_e| BitpartErrorKind::Signal("Linking error".to_owned()))?;
+            Ok(sender.send(res).map_err(BitpartErrorKind::Signal)?)
         }
         ChannelMessageContents::StartChannel {
             id,
@@ -222,10 +224,14 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                     manager.clone(),
                     tx,
                 ));
-                Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
+                Ok(sender
+                    .send("".to_owned())
+                    .map_err(BitpartErrorKind::Signal)?)
             } else {
                 warn!("Skipping startup of unregistered channel");
-                Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
+                Ok(sender
+                    .send("".to_owned())
+                    .map_err(BitpartErrorKind::Signal)?)
             }
         }
     }
@@ -256,13 +262,15 @@ async fn send<S: Store>(
             info!(recipient =% uuid, "sending message to contact");
             manager
                 .send_message(ServiceId::Aci(uuid.into()), content_body, timestamp)
-                .await?;
+                .await
+                .map_err(|_| BitpartErrorKind::PresageStore)?;
         }
         Recipient::Group(master_key) => {
             info!("sending message to group");
             manager
                 .send_message_to_group(&master_key, content_body, timestamp)
-                .await?;
+                .await
+                .map_err(|_| BitpartErrorKind::PresageStore)?;
         }
     }
 
@@ -424,10 +432,10 @@ async fn process_signal_message<S: Store>(
             }
             Msg::Replyable(Thread::Contact(sender), body) => {
                 let contact = format_contact(sender, manager).await;
-                if let Some(state) = state {
-                    if let Err(err) = reply(sender.to_string(), body.clone(), state).await {
-                        warn!("Problem with replying to message: {:?}", err);
-                    }
+                if let Some(state) = state
+                    && let Err(err) = reply(sender.to_string(), body.clone(), state).await
+                {
+                    warn!("Problem with replying to message: {:?}", err);
                 }
                 (format!("From {contact} @ {ts}: "), body)
             }
@@ -524,7 +532,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<()
     if let Some(messages) = res.get("messages") {
         for i in messages
             .as_array()
-            .ok_or(BitpartError::Signal(
+            .ok_or(BitpartErrorKind::Signal(
                 "Got invalid message from interpreter".to_owned(),
             ))?
             .iter()
@@ -536,7 +544,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<()
                     reply_get_text(i),
                 ))
                 .await
-                .map_err(|err| BitpartError::Signal(err.to_string()))?;
+                .map_err(|err| BitpartErrorKind::Signal(err.to_string()))?;
         }
     }
 
@@ -563,25 +571,22 @@ fn try_user_id_to_recipient(user_id: &str) -> Result<Recipient> {
 }
 
 fn reply_get_user_id(res: &serde_json::Value, default_user_id: &str) -> String {
-    if let Some(payload) = res.get("payload") {
-        if let Some(content) = payload.get("content") {
-            if let Some(client) = content.get("client") {
-                if let Some(user_id) = client.get("user_id") {
-                    return unescape(&user_id.to_string()).to_string();
-                }
-            }
-        }
+    if let Some(payload) = res.get("payload")
+        && let Some(content) = payload.get("content")
+        && let Some(client) = content.get("client")
+        && let Some(user_id) = client.get("user_id")
+    {
+        return unescape(&user_id.to_string()).to_string();
     }
     default_user_id.to_string()
 }
 
 fn reply_get_text(res: &serde_json::Value) -> String {
-    if let Some(payload) = res.get("payload") {
-        if let Some(content) = payload.get("content") {
-            if let Some(text) = content.get("text") {
-                return unescape(&text.to_string()).to_string();
-            }
-        }
+    if let Some(payload) = res.get("payload")
+        && let Some(content) = payload.get("content")
+        && let Some(text) = content.get("text")
+    {
+        return unescape(&text.to_string()).to_string();
     }
     "".to_owned()
 }
@@ -596,10 +601,9 @@ async fn receive<S: Store>(
         "attachments will be stored"
     );
 
-    let messages = manager
-        .receive_messages()
-        .await
-        .map_err(|_e| BitpartError::Signal("failed to initialize messages stream".to_owned()))?;
+    let messages = manager.receive_messages().await.map_err(|_e| {
+        BitpartErrorKind::Signal("failed to initialize messages stream".to_owned())
+    })?;
     pin_mut!(messages);
 
     while let Some(content) = messages.next().await {
