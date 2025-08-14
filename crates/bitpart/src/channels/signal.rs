@@ -19,7 +19,7 @@
 
 use bitpart_common::{
     csml::{Request, SerializedEvent},
-    error::{BitpartError, Result},
+    error::{BitpartErrorKind, Result},
 };
 use chrono::Local;
 use csml_interpreter::data::Client;
@@ -142,7 +142,7 @@ async fn start_channel_recv(
 ) -> Result<()> {
     let channel = db::channel::get_by_id(&id, &db)
         .await?
-        .ok_or_else(|| BitpartError::Signal("No such channel.".to_owned()))?;
+        .ok_or_else(|| BitpartErrorKind::Signal("No such channel.".to_owned()))?;
     let state = ChannelState {
         id: channel.bot_id,
         db,
@@ -206,8 +206,8 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             let res = provisioning_link_rx
                 .await
                 .map(|url| url.to_string())
-                .map_err(|_e| BitpartError::Signal("Linking error".to_owned()))?;
-            Ok(sender.send(res).map_err(BitpartError::Signal)?)
+                .map_err(|_e| BitpartErrorKind::Signal("Linking error".to_owned()))?;
+            Ok(sender.send(res).map_err(BitpartErrorKind::Signal)?)
         }
         ChannelMessageContents::StartChannel {
             id,
@@ -224,10 +224,14 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                     manager.clone(),
                     tx,
                 ));
-                Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
+                Ok(sender
+                    .send("".to_owned())
+                    .map_err(BitpartErrorKind::Signal)?)
             } else {
                 warn!("Skipping startup of unregistered channel");
-                Ok(sender.send("".to_owned()).map_err(BitpartError::Signal)?)
+                Ok(sender
+                    .send("".to_owned())
+                    .map_err(BitpartErrorKind::Signal)?)
             }
         }
     }
@@ -259,14 +263,14 @@ async fn send<S: Store>(
             manager
                 .send_message(ServiceId::Aci(uuid.into()), content_body, timestamp)
                 .await
-                .map_err(|_| BitpartError::PresageStore)?;
+                .map_err(|_| BitpartErrorKind::PresageStore)?;
         }
         Recipient::Group(master_key) => {
             info!("sending message to group");
             manager
                 .send_message_to_group(&master_key, content_body, timestamp)
                 .await
-                .map_err(|_| BitpartError::PresageStore)?;
+                .map_err(|_| BitpartErrorKind::PresageStore)?;
         }
     }
 
@@ -528,7 +532,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<()
     if let Some(messages) = res.get("messages") {
         for i in messages
             .as_array()
-            .ok_or(BitpartError::Signal(
+            .ok_or(BitpartErrorKind::Signal(
                 "Got invalid message from interpreter".to_owned(),
             ))?
             .iter()
@@ -540,7 +544,7 @@ async fn reply(user_id: String, body: String, state: &ChannelState) -> Result<()
                     reply_get_text(i),
                 ))
                 .await
-                .map_err(|err| BitpartError::Signal(err.to_string()))?;
+                .map_err(|err| BitpartErrorKind::Signal(err.to_string()))?;
         }
     }
 
@@ -600,10 +604,9 @@ async fn receive<S: Store>(
         "attachments will be stored"
     );
 
-    let messages = manager
-        .receive_messages()
-        .await
-        .map_err(|_e| BitpartError::Signal("failed to initialize messages stream".to_owned()))?;
+    let messages = manager.receive_messages().await.map_err(|_e| {
+        BitpartErrorKind::Signal("failed to initialize messages stream".to_owned())
+    })?;
     pin_mut!(messages);
 
     while let Some(content) = messages.next().await {

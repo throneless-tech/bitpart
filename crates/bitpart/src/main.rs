@@ -29,7 +29,7 @@ use axum::{
     response::Response,
     routing::any,
 };
-use bitpart_common::error::{BitpartError, Result};
+use bitpart_common::error::{BitpartErrorKind, Result};
 use clap::Parser;
 use clap_verbosity_flag::Verbosity;
 use directories::ProjectDirs;
@@ -147,7 +147,7 @@ fn telemetry_meter_init() -> Result<SdkMeterProvider> {
 async fn main() -> Result<()> {
     // Set project directories
     let proj_dirs = ProjectDirs::from("tech", "throneless", "bitpart").ok_or(
-        BitpartError::Directory("Failed to find project directories.".to_owned()),
+        BitpartErrorKind::Directory("Failed to find project directories.".to_owned()),
     )?;
 
     // Merge the configuration from CLI, environment, files, container secrets

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use bitpart_common::{
     csml::Request,
-    error::{BitpartError, Result},
+    error::{BitpartErrorKind, Result},
 };
 use csml_interpreter::{
     data::{CsmlBot, CsmlResult},
@@ -49,18 +49,18 @@ Bot
 pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion> {
     bot.native_components = match load_components() {
         Ok(components) => Some(components),
-        Err(err) => return Err(BitpartError::Interpreter(err.format_error())),
+        Err(err) => return Err(BitpartErrorKind::Interpreter(err.format_error()).into()),
     };
 
     if let Err(err) = search_for_modules(&mut bot) {
-        return Err(BitpartError::Api(format!("{:?}", err)));
+        return Err(BitpartErrorKind::Api(format!("{:?}", err)).into());
     }
 
     match validate_bot(&bot) {
         CsmlResult {
             errors: Some(errors),
             ..
-        } => Err(BitpartError::Api(format!("{:?}", errors))),
+        } => Err(BitpartErrorKind::Api(format!("{:?}", errors)).into()),
         CsmlResult { .. } => {
             let created = db::bot::create(bot, &state.db).await?;
             Ok(created)

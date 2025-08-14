@@ -20,7 +20,7 @@
 use base64::prelude::*;
 use bitpart_common::{
     csml::FlowTrigger,
-    error::{BitpartError, Result},
+    error::{BitpartErrorKind, Result},
 };
 use chrono::{SecondsFormat, Utc};
 use csml_interpreter::data::{
@@ -139,7 +139,7 @@ pub fn update_current_context(
 ) -> Result<()> {
     for (_key, mem) in memories.iter() {
         let lit = json_to_literal(&mem.value, Interval::default(), &data.context.flow)
-            .map_err(|err| BitpartError::Interpreter(err.message))?;
+            .map_err(|err| BitpartErrorKind::Interpreter(err.message))?;
 
         data.context.current.insert(mem.key.to_owned(), lit);
     }
@@ -159,10 +159,9 @@ pub fn get_flow_by_id<'a>(f_id: &str, flows: &'a [CsmlFlow]) -> Result<&'a CsmlF
         .find(|&val| val.id.to_ascii_lowercase() == id || val.name.to_ascii_lowercase() == id)
     {
         Some(f) => Ok(f),
-        None => Err(BitpartError::Interpreter(format!(
-            "Flow '{}' does not exist",
-            f_id
-        ))),
+        None => {
+            Err(BitpartErrorKind::Interpreter(format!("Flow '{}' does not exist", f_id)).into())
+        }
     }
 }
 
@@ -177,9 +176,10 @@ pub fn get_default_flow(bot: &CsmlBot) -> Result<&CsmlFlow> {
         .find(|&flow| flow.id == bot.default_flow || flow.name == bot.default_flow)
     {
         Some(flow) => Ok(flow),
-        None => Err(BitpartError::Interpreter(
+        None => Err(BitpartErrorKind::Interpreter(
             "The bot's default_flow does not exist".to_owned(),
-        )),
+        )
+        .into()),
     }
 }
 
@@ -207,13 +207,15 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
                         Some(flow) => flow.to_owned(),
                         None => csml_bot
                             .get(&get_default_flow(bot)?.name)
-                            .ok_or(BitpartError::Interpreter(
+                            .ok_or(BitpartErrorKind::Interpreter(
                                 "Error falling back to default flow".to_owned(),
                             ))?
                             .to_owned(),
                     }
                 }
-                None => return Err(BitpartError::Interpreter("not valid ast".to_string())),
+                None => {
+                    return Err(BitpartErrorKind::Interpreter("not valid ast".to_string()).into());
+                }
             };
 
             get_step(step, flow, &ast)
@@ -227,7 +229,9 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
                     let csml_bot: HashMap<String, Flow> = bincode::deserialize(&base64decoded[..])?;
 
                     let default_flow = csml_bot.get(&get_default_flow(bot)?.name).ok_or(
-                        BitpartError::Interpreter("Error falling back to default flow".to_owned()),
+                        BitpartErrorKind::Interpreter(
+                            "Error falling back to default flow".to_owned(),
+                        ),
                     )?;
 
                     match csml_bot.get(&context.flow) {
@@ -261,7 +265,9 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
                         None => get_step(step, flow, default_flow),
                     }
                 }
-                None => return Err(BitpartError::Interpreter("not valid ast".to_string())),
+                None => {
+                    return Err(BitpartErrorKind::Interpreter("not valid ast".to_string()).into());
+                }
             }
         }
         ContextStepInfo::InsertedStep {
@@ -279,13 +285,15 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
                         Some(flow) => flow.to_owned(),
                         None => csml_bot
                             .get(&get_default_flow(bot)?.name)
-                            .ok_or(BitpartError::Interpreter(
+                            .ok_or(BitpartErrorKind::Interpreter(
                                 "Error falling back to default flow".to_owned(),
                             ))?
                             .to_owned(),
                     }
                 }
-                None => return Err(BitpartError::Interpreter("not valid ast".to_string())),
+                None => {
+                    return Err(BitpartErrorKind::Interpreter("not valid ast".to_string()).into());
+                }
             };
 
             get_step(step, flow, &ast)
@@ -378,10 +386,11 @@ pub async fn search_flow<'a>(
                     db::state::delete(client, "hold", "position", db).await?;
                     Ok((flow, "start".to_owned()))
                 }
-                None => Err(BitpartError::Interpreter(format!(
+                None => Err(BitpartErrorKind::Interpreter(format!(
                     "no match found for regex: {}",
                     event.content_value
-                ))),
+                ))
+                .into()),
             }
         }
         event => {
@@ -409,10 +418,11 @@ pub async fn search_flow<'a>(
                     db::state::delete(client, "hold", "position", db).await?;
                     Ok((flow, "start".to_owned()))
                 }
-                None => Err(BitpartError::Interpreter(format!(
+                None => Err(BitpartErrorKind::Interpreter(format!(
                     "Flow '{}' does not exist",
                     event.content_value
-                ))),
+                ))
+                .into()),
             }
         }
     }
