@@ -1,7 +1,7 @@
 ####################################################################################################
 ## Builder
 ####################################################################################################
-FROM rust:latest AS builder
+FROM rust:bookworm AS builder
 
 RUN apt update && apt install -y protobuf-compiler
 RUN update-ca-certificates

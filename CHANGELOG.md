@@ -1,3 +1,45 @@
+## 1.0.1 (2025-08-25)
+
+### Fix
+
+- Properly filter whisper messages by bot_id.
+
+## 1.0.0 (2025-08-14)
+
+### Fix
+
+- Fmt fixes.
+- Blood for the Clippy god.
+- Box up errors.
+- Pin Github actions to hashes. Fixes #11
+- Update presage to 0.7.0, fixes #23 (hopefully)
+- Save new memory value for existing memory. Fixes #22
+- Double thread stack size. Fixes #21
+
+## 1.0.0-alpha.12 (2025-05-16)
+
+### Fix
+
+- Don't panic immediately when failing to send message to Signal
+
+## 1.0.0-alpha.11 (2025-05-16)
+
+### Fix
+
+- Delete memory when bot is deleted
+
+## 1.0.0-alpha.10 (2025-05-16)
+
+### Fix
+
+- Don't shout to yourself
+
+## 1.0.0-alpha.9 (2025-05-16)
+
+### Fix
+
+- Don't default events to 'secure'
+
 ## 1.0.0-alpha.8 (2025-05-13)
 
 ### Fix

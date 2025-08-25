@@ -115,9 +115,14 @@ pub async fn get_by_client(
     Ok(entry)
 }
 
-pub async fn get_by_memory(key: &str, db: &DatabaseConnection) -> Result<Vec<memory::Model>> {
+pub async fn get_by_memory(
+    key: &str,
+    bot_id: &str,
+    db: &DatabaseConnection,
+) -> Result<Vec<memory::Model>> {
     let entry = Memory::find()
         .filter(memory::Column::Key.eq(key))
+        .filter(memory::Column::BotId.eq(bot_id))
         .all(db)
         .await?;
 
