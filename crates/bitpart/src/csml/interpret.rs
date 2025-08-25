@@ -162,7 +162,7 @@ pub async fn step(
 
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
 
-                let clients = db::memory::get_by_memory("_whisperable", db)
+                let clients = db::memory::get_by_memory("_whisperable", &data.client.bot_id, db)
                     .await?
                     .into_iter()
                     .map(|mem| Client {
