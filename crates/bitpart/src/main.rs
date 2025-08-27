@@ -44,6 +44,7 @@ use sea_orm::{ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use subtle::ConstantTimeEq;
 use tracing::info;
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
@@ -118,7 +119,9 @@ async fn authenticate(
         .and_then(|header| header.to_str().ok());
 
     match auth_header {
-        Some(auth_header) if auth_header == state.auth => Ok(next.run(req).await),
+        Some(auth_header) if auth_header.as_bytes().ct_eq(state.auth.as_bytes()).into() => {
+            Ok(next.run(req).await)
+        }
         _ => Err(StatusCode::UNAUTHORIZED),
     }
 }

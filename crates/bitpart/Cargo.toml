@@ -39,6 +39,7 @@ sea-orm = { version = "~1.0", features = ["sqlx-sqlite", "runtime-tokio-rustls",
 sea-orm-migration = "1.0.1"
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.117"
+subtle = { version = "2.6.1", features = ["const-generics"] }
 tempfile = "3.13.0"
 thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["full"] }
