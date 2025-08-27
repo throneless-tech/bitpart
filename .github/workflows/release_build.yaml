@@ -1,4 +1,4 @@
-name: Release version
+name: Build release version
 
 on:
   push:
@@ -59,6 +59,10 @@ jobs:
       - name: Push To GHCR
         uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c
         id: push
+        env:
+          IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ github.token }}
         with:
           image: ${{ steps.build_image.outputs.image }}
           tags: ${{ steps.build_image.outputs.tags }}

@@ -1,15 +1,14 @@
-name: Test version
+name: Build test image
 
 on:
-  push:
-    branches:
-      - develop
+  workflow_run:
+    workflows: ["Run checks"]
+    branches: [develop]
+    types: 
+      - completed
 
 env:
-    IMAGE_NAME: bitpart
-    IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
-    REGISTRY_USER: ${{ github.actor }}
-    REGISTRY_PASSWORD: ${{ github.token }}
+  IMAGE_NAME: bitpart
 
 jobs:
   release_version:
@@ -33,6 +32,10 @@ jobs:
       - name: Push To GHCR
         uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c
         id: push
+        env:
+          IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_PASSWORD: ${{ github.token }}
         with:
           image: ${{ steps.build_image.outputs.image }}
           tags: ${{ steps.build_image.outputs.tags }}
