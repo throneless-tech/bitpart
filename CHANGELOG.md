@@ -1,3 +1,9 @@
+## 1.0.2 (2025-08-27)
+
+### Fix
+
+- Compare authorization header in constant time. Shout out to @redshiftzero for catching this.
+
 ## 1.0.1 (2025-08-25)
 
 ### Fix
