@@ -22,15 +22,12 @@ jobs:
         with:
           fetch-depth: 0
           token: "${{ secrets.GITHUB_TOKEN }}"
-      - name: Get hash
-        id: vars
-        run: echo "short_hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
       - name: Buildah Action
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
         with:
           image: ${{ env.IMAGE_NAME }}
-          tags: ${{github.head_ref}}-${{ steps.vars.output.short_hash }}
+          tags: develop-${{ github.sha }}
           containerfiles: |
             ./Dockerfile
       - name: Push To GHCR
