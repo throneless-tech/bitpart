@@ -1,0 +1,46 @@
+name: Release version
+
+on:
+  push:
+    branches:
+      - develop
+
+env:
+    IMAGE_NAME: bitpart
+    IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+    REGISTRY_USER: ${{ github.actor }}
+    REGISTRY_PASSWORD: ${{ github.token }}
+
+jobs:
+  release_version:
+    runs-on: ubuntu-latest
+    name: "Build test image"
+    steps:
+      - name: Check out
+        id: check_out
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+          token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Get hash
+        id: vars
+        run: echo "short_hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Buildah Action
+        id: build_image
+        uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
+        with:
+          image: ${{ env.IMAGE_NAME }}
+          tags: ${{github.head_ref}}-${{ steps.vars.output.short_hash }}
+          containerfiles: |
+            ./Dockerfile
+      - name: Push To GHCR
+        uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c
+        id: push
+        with:
+          image: ${{ steps.build_image.outputs.image }}
+          tags: ${{ steps.build_image.outputs.tags }}
+          registry: ${{ env.IMAGE_REGISTRY }}
+          username: ${{ env.REGISTRY_USER }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+          extra-args: |
+            --disable-content-trust
