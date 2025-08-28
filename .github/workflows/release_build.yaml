@@ -14,6 +14,8 @@ jobs:
   bump_version:
     runs-on: ubuntu-latest
     name: "Bump version, create changelog"
+    outputs:
+      - version: ${{ steps.cz.outputs.version }}
     steps:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -52,7 +54,7 @@ jobs:
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
           body_path: "body.md"
-          tag_name: ${{ env.REVISION }}
+          tag_name: ${{ needs.bump_version.outputs.version }}
           files: |
             target/release/bitpart
             target/release/bitpart-cli
@@ -73,7 +75,7 @@ jobs:
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
         with:
           image: ${{ env.IMAGE_NAME }}
-          tags: ${{ env.REVISION }} latest
+          tags: ${{ needs.bump_version.outputs.version }} latest
           containerfiles: |
             ./Dockerfile
       - name: Push To GHCR
