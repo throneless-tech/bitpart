@@ -46,6 +46,7 @@ use presage::{
     store::{Store, Thread},
 };
 use presage_store_bitpart::BitpartStore;
+use sanitise_file_name::sanitise;
 use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -477,10 +478,12 @@ async fn process_signal_message<S: Store>(
                     .unwrap_or("application/octet-stream"),
             );
             let extension = extensions.and_then(|e| e.first()).unwrap_or(&"bin");
-            let filename = attachment_pointer
-                .file_name
-                .clone()
-                .unwrap_or_else(|| Local::now().format("%Y-%m-%d-%H-%M-%s").to_string());
+            let filename = sanitise(
+                &attachment_pointer
+                    .file_name
+                    .clone()
+                    .unwrap_or_else(|| Local::now().format("%Y-%m-%d-%H-%M-%s").to_string()),
+            );
             let file_path = attachments_dir.join(format!("bitpart-{filename}.{extension}",));
             match fs::write(&file_path, &attachment_data).await {
                 Ok(_) => info!(%sender, file_path =% file_path.display(), "saved attachment"),

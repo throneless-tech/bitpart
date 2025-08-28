@@ -35,6 +35,7 @@ presage = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"
 regex = "1.10.6"
+sanitise-file-name = "1.0.0"
 sea-orm = { version = "~1.0", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
 sea-orm-migration = "1.0.1"
 serde = { version = "1.0.204", features = ["derive"] }
