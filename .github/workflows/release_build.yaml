@@ -29,7 +29,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: body.md
-          commitizen_version: 4.6.3
+          commitizen_version: 4.8.3
       - name: Read body.md file
         id: get_body
         run: echo "body=$(cat body.md)" >> $GITHUB_OUTPUT
