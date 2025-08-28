@@ -483,7 +483,7 @@ dependencies = [
 
 [[package]]
 name = "bitpart"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -531,7 +531,7 @@ dependencies = [
 
 [[package]]
 name = "bitpart-cli"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "bitpart-common",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "bitpart-common"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3273,7 +3273,7 @@ dependencies = [
 
 [[package]]
 name = "presage-store-bitpart"
-version = "1.0.1"
+version = "1.0.2"
 dependencies = [
  "anyhow",
  "async-trait",
