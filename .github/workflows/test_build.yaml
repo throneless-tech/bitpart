@@ -21,12 +21,15 @@ jobs:
         with:
           fetch-depth: 0
           token: "${{ secrets.GITHUB_TOKEN }}"
+      - name: Set timestamp
+        id: set_timestamp
+        run: echo "TIMESTAMP=$(date +%s)" >> $GITHUB_ENV
       - name: Buildah Action
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
         with:
           image: ${{ env.IMAGE_NAME }}
-          tags: develop-${{ github.sha }}
+          tags: develop-${{ github.sha }}-${{ env.TIMESTAMP}}
           containerfiles: |
             ./Dockerfile
       - name: Push To GHCR
