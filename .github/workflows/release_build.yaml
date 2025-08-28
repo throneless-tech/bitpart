@@ -8,7 +8,8 @@ on:
       - completed
 
 env:
-    IMAGE_NAME: bitpart
+  IMAGE_NAME: bitpart
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
 
 jobs:
   bump_version:
@@ -21,16 +22,13 @@ jobs:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          fetch-depth: 0
-          token: "${{ secrets.GITHUB_TOKEN }}"
-          ref: 'main'
+          ref: ${{ env.BRANCH_NAME }}
       - id: cz
         name: Create bump and changelog
         uses: commitizen-tools/commitizen-action@5b0848cd060263e24602d1eba03710e056ef7711
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: body.md
-          commitizen_version: latest
       - name: Read body.md file
         id: get_body
         run: echo "body=$(cat body.md)" >> $GITHUB_OUTPUT
@@ -44,9 +42,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          fetch-depth: 0
-          token: "${{ secrets.GITHUB_TOKEN }}"
-          ref: 'main'
+          ref: ${{ env.BRANCH_NAME }}
       - name: Install dependencies
         uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
         with:
@@ -74,9 +70,7 @@ jobs:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          fetch-depth: 0
-          token: "${{ secrets.GITHUB_TOKEN }}"
-          ref: 'main'
+          ref: ${{ env.BRANCH_NAME }}
       - name: Build image
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
