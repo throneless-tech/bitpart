@@ -16,6 +16,7 @@ jobs:
     name: "Bump version, create changelog"
     outputs:
       version: ${{ steps.cz.outputs.version }}
+      body: ${{ steps.cz.outputs.body}}
     steps:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -29,6 +30,9 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: body.md
           commitizen_version: 4.6.3
+      - name: Read body.md file
+        id: get_body
+        run: echo "body=$(cat body.md)" >> $GITHUB_OUTPUT
       - name: Print Version
         run: echo "Bumped to version ${{ steps.cz.outputs.version }}"
   build_release:
@@ -53,7 +57,7 @@ jobs:
       - name: Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
-          body_path: "body.md"
+          body: ${{ needs.bump_version.outputs.body }}
           tag_name: ${{ needs.bump_version.outputs.version }}
           files: |
             target/release/bitpart
