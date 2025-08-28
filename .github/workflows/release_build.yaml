@@ -46,6 +46,7 @@ jobs:
         with:
           fetch-depth: 0
           token: "${{ secrets.GITHUB_TOKEN }}"
+          ref: 'main'
       - name: Install dependencies
         uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
         with:
@@ -75,6 +76,7 @@ jobs:
         with:
           fetch-depth: 0
           token: "${{ secrets.GITHUB_TOKEN }}"
+          ref: 'main'
       - name: Build image
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
