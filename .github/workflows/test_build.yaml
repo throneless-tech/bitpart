@@ -9,6 +9,7 @@ on:
 
 env:
   IMAGE_NAME: bitpart
+  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
 
 jobs:
   release_version:
@@ -19,8 +20,7 @@ jobs:
         id: check_out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
         with:
-          fetch-depth: 0
-          token: "${{ secrets.GITHUB_TOKEN }}"
+          ref: ${{ env.BRANCH_NAME }}
       - name: Set timestamp
         id: set_timestamp
         run: echo "TIMESTAMP=$(date +%s)" >> $GITHUB_ENV
