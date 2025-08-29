@@ -31,7 +31,10 @@ jobs:
           changelog_increment_filename: body.md
       - name: Read body.md file
         id: get_body
-        run: echo "body=$(cat body.md)" >> $GITHUB_OUTPUT
+        run: |
+          echo 'body<<EOF' >> $GITHUB_OUTPUT
+          echo "$(cat body.md)" >> $GITHUB_OUTPUT
+          echo 'EOF' >> $GITHUB_OUTPUT
       - name: Print Version
         run: echo "Bumped to version ${{ steps.cz.outputs.version }}"
   build_release:
