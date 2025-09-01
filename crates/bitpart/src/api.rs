@@ -26,6 +26,7 @@ use csml_interpreter::{
 };
 use sea_orm::DatabaseConnection;
 use tokio::sync::oneshot;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
     channels::signal,
@@ -38,6 +39,8 @@ use crate::{
 pub struct ApiState {
     pub db: DatabaseConnection,
     pub auth: String,
+    pub token: CancellationToken,
+    pub tracker: TaskTracker,
     pub attachments_dir: PathBuf,
     pub manager: Box<signal::SignalManager>,
 }
@@ -405,6 +408,8 @@ pub async fn link_channel(
     let msg = signal::ChannelMessage {
         msg: contents,
         db: state.db.clone(),
+        token: state.token.clone(),
+        tracker: state.tracker.clone(),
         sender: send,
     };
     state.manager.send(msg);
@@ -420,6 +425,8 @@ pub async fn start_channel(channel_id: &str, state: &ApiState) -> Result<String>
     let msg = signal::ChannelMessage {
         msg: contents,
         db: state.db.clone(),
+        token: state.token.clone(),
+        tracker: state.tracker.clone(),
         sender: send,
     };
     state.manager.send(msg);

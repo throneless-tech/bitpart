@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use subtle::ConstantTimeEq;
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
@@ -186,9 +187,13 @@ async fn main() -> Result<()> {
 
     // Start incoming message channels
     let channels = db::channel::list(None, None, &db).await?;
+    let token = CancellationToken::new();
+    let tracker = TaskTracker::new();
     let state = ApiState {
         db,
         auth: server.auth,
+        token: token.clone(),
+        tracker: tracker.clone(),
         attachments_dir: proj_dirs.cache_dir().to_path_buf(),
         manager: Box::new(signal::SignalManager::new()),
     };
@@ -204,6 +209,18 @@ async fn main() -> Result<()> {
         .with_state(state);
 
     println!("Server is running 🤖");
+
+    {
+        let tracker = tracker.clone();
+        tokio::spawn(async move {
+            tokio::signal::ctrl_c()
+                .await
+                .expect("Failed to listen for signal");
+            tracker.close();
+            token.cancel();
+        });
+    }
+
     if let Ok(addr) = server.bind.parse::<SocketAddr>() {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
@@ -212,12 +229,15 @@ async fn main() -> Result<()> {
             listener,
             app.into_make_service_with_connect_info::<SocketAddr>(),
         )
+        .with_graceful_shutdown(async move { tracker.wait().await })
         .await?;
     } else {
         let Ok(path) = server.bind.parse::<PathBuf>();
         let _ = tokio::fs::remove_file(&path).await;
         let listener = tokio::net::UnixListener::bind(path).expect("Unable to bind to address");
-        axum::serve(listener, app.into_make_service()).await?;
+        axum::serve(listener, app.into_make_service())
+            .with_graceful_shutdown(async move { tracker.wait().await })
+            .await?;
     };
 
     Ok(())

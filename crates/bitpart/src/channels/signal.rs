@@ -58,6 +58,7 @@ use tokio::{
     sync::{mpsc, oneshot as tokio_oneshot},
     task::LocalSet,
 };
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::warn;
 use tracing::{debug, error, info};
 use url::Url;
@@ -82,6 +83,8 @@ pub enum ChannelMessageContents {
 pub struct ChannelMessage {
     pub msg: ChannelMessageContents,
     pub db: DatabaseConnection,
+    pub token: CancellationToken,
+    pub tracker: TaskTracker,
     pub sender: tokio_oneshot::Sender<String>,
 }
 
@@ -185,7 +188,13 @@ async fn start_channel_send(
 }
 
 async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
-    let ChannelMessage { msg, db, sender } = msg;
+    let ChannelMessage {
+        msg,
+        db,
+        token,
+        tracker,
+        sender,
+    } = msg;
     match msg {
         ChannelMessageContents::LinkChannel {
             id,
@@ -194,15 +203,23 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
         } => {
             let config_store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
             let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
-            tokio::task::spawn_local(link_device(
-                id,
-                config_store,
-                SignalServers::Production,
-                attachments_dir,
-                device_name,
-                db,
-                provisioning_link_tx,
-            ));
+            let local_tracker = tracker.clone();
+            tracker.spawn_local(async move {
+                tokio::select! {
+                    res = link_device(
+                        id,
+                        config_store,
+                        SignalServers::Production,
+                        attachments_dir,
+                        device_name,
+                        db,
+                        token.clone(),
+                        local_tracker,
+                        provisioning_link_tx,
+                    ) => {error!("Channel message LinkChannel task exited early: {:?}", res)},
+                    () = token.cancelled() => {debug!("Channel message LinkChannel task exited...")}
+                }
+            });
 
             let res = provisioning_link_rx
                 .await
@@ -217,14 +234,25 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             let (tx, rx) = mpsc::channel(100);
             let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
             if let Ok(manager) = Manager::load_registered(store).await {
-                tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
-                tokio::task::spawn_local(start_channel_recv(
-                    id,
-                    attachments_dir,
-                    db.clone(),
-                    manager.clone(),
-                    tx,
-                ));
+                let send_manager = manager.clone();
+                let send_token = token.clone();
+                tracker.spawn_local(async move {
+                    tokio::select! {
+                        res = start_channel_send(send_manager, rx) => {
+                            error!("Channel message StartChannel send task exited early: {:?}", res)
+                        },
+                        () = send_token.cancelled() => {debug!("Channel message StartChannel send task exited...")}
+                    }
+                });
+                tracker.spawn_local(async move {
+                    tokio::select! {
+                     res = start_channel_recv(id, attachments_dir, db.clone(), manager, tx) => {
+
+                            error!("Channel message StartChannel receive task exited early: {:?}", res)
+                     },
+                        () = token.cancelled() => {debug!("Channel message StartChannel receive task exited...")}
+                    }
+                });
                 Ok(sender
                     .send("".to_owned())
                     .map_err(BitpartErrorKind::Signal)?)
@@ -628,6 +656,7 @@ async fn receive<S: Store>(
 
 // API functions
 
+#[allow(clippy::too_many_arguments)]
 async fn link_device(
     id: String,
     config_store: BitpartStore,
@@ -635,6 +664,8 @@ async fn link_device(
     attachments_dir: PathBuf,
     device_name: String,
     db: DatabaseConnection,
+    token: CancellationToken,
+    tracker: TaskTracker,
     provisioning_link_tx: oneshot::Sender<Url>,
 ) -> Result<()> {
     let (tx, rx) = mpsc::channel(100);
@@ -646,14 +677,30 @@ async fn link_device(
     )
     .await
     {
-        tokio::task::spawn_local(start_channel_send(manager.clone(), rx));
-        tokio::task::spawn_local(start_channel_recv(
-            id,
-            attachments_dir,
-            db.clone(),
-            manager.clone(),
-            tx,
-        ));
+        let send_manager = manager.clone();
+        let send_token = token.clone();
+        tracker.spawn_local(async move {
+            tokio::select! {
+                res = start_channel_send(send_manager, rx) => {
+                    error!("Link device sender channel exited early: {:?}", res);
+                },
+                () = send_token.cancelled() => {debug!("Link device sender channel exited...")}
+            }
+        });
+        tracker.spawn_local(async move {
+            tokio::select! {
+                res = start_channel_recv(
+                id,
+                attachments_dir,
+                db.clone(),
+                manager,
+                tx,
+                ) => {
+                    error!("Link device receiver channel exited early: {:?}", res);
+                },
+                () = token.cancelled() => {debug!("Link device receiver channel exited...")}
+            }
+        });
     } else {
         warn!("Skipping startup of just-linked channel");
     }
