@@ -57,6 +57,7 @@ use tokio::{
     runtime::Builder as TokioBuilder,
     sync::{mpsc, oneshot as tokio_oneshot},
     task::LocalSet,
+    time::{Duration, sleep},
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::warn;
@@ -152,7 +153,8 @@ async fn start_channel_recv(
         db,
         tx,
     };
-    receive(&mut manager, &attachments_dir, Some(state)).await
+    receive(&mut manager, &attachments_dir, Some(state)).await;
+    Ok(())
 }
 
 async fn start_channel_send(
@@ -626,32 +628,37 @@ async fn receive<S: Store>(
     manager: &mut Manager<S, Registered>,
     attachments_dir: &Path,
     state: Option<ChannelState>,
-) -> Result<()> {
+) {
     info!(
         path =% attachments_dir.display(),
         "attachments will be stored"
     );
 
-    let messages = manager.receive_messages().await.map_err(|_e| {
-        BitpartErrorKind::Signal("failed to initialize messages stream".to_owned())
-    })?;
-    pin_mut!(messages);
-
-    while let Some(content) = messages.next().await {
-        match content {
-            Received::QueueEmpty => debug!("done with synchronization"),
-            Received::Contacts => debug!("got contacts synchronization"),
-            Received::Content(content) => {
-                if let Err(err) =
-                    process_signal_message(manager, attachments_dir, &content, &state).await
-                {
-                    warn!("Failed to extract message thread: {:?}", err);
+    loop {
+        match manager.receive_messages().await {
+            Ok(messages) => {
+                pin_mut!(messages);
+                while let Some(content) = messages.next().await {
+                    match content {
+                        Received::QueueEmpty => debug!("done with synchronization"),
+                        Received::Contacts => debug!("got contacts synchronization"),
+                        Received::Content(content) => {
+                            if let Err(err) =
+                                process_signal_message(manager, attachments_dir, &content, &state)
+                                    .await
+                            {
+                                warn!("Failed to extract message thread: {:?}", err);
+                            }
+                        }
+                    }
                 }
+            }
+            Err(err) => {
+                error!("Failed to receive messages: {}", err);
+                sleep(Duration::from_millis(500)).await;
             }
         }
     }
-
-    Ok(())
 }
 
 // API functions
