@@ -218,7 +218,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                         token.clone(),
                         local_tracker,
                         provisioning_link_tx,
-                    ) => {error!("Channel message LinkChannel task exited early: {:?}", res)},
+                    ) => {info!("Channel message LinkChannel task exited: {:?}", res)},
                     () = token.cancelled() => {debug!("Channel message LinkChannel task exited...")}
                 }
             });
@@ -654,8 +654,8 @@ async fn receive<S: Store>(
                 }
             }
             Err(err) => {
-                error!("Failed to receive messages: {}", err);
-                sleep(Duration::from_millis(500)).await;
+                error!("Failed to receive messages: {:?}", err);
+                sleep(Duration::from_millis(5000)).await;
             }
         }
     }
@@ -676,7 +676,7 @@ async fn link_device(
     provisioning_link_tx: oneshot::Sender<Url>,
 ) -> Result<()> {
     let (tx, rx) = mpsc::channel(100);
-    if let Ok(manager) = Manager::link_secondary_device(
+    if let Ok(mut manager) = Manager::link_secondary_device(
         config_store,
         servers,
         device_name.clone(),
@@ -694,13 +694,14 @@ async fn link_device(
                 () = send_token.cancelled() => {debug!("Link device sender channel exited...")}
             }
         });
+        let recv_manager = manager.clone();
         tracker.spawn_local(async move {
             tokio::select! {
                 res = start_channel_recv(
                 id,
                 attachments_dir,
                 db.clone(),
-                manager,
+                recv_manager,
                 tx,
                 ) => {
                     error!("Link device receiver channel exited early: {:?}", res);
@@ -708,6 +709,9 @@ async fn link_device(
                 () = token.cancelled() => {debug!("Link device receiver channel exited...")}
             }
         });
+        if let Err(err) = manager.request_contacts().await {
+            error!("Failed to sync contacts after linking device: {}", err);
+        }
     } else {
         warn!("Skipping startup of just-linked channel");
     }
