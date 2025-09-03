@@ -533,6 +533,9 @@ async fn main() -> Result<()> {
                                 error!("Unrecognized message response: {:?}", res.response);
                             }
                         },
+                        SocketMessage::Error(res) => {
+                            println!("{}", res.response.to_string());
+                        }
                         _ => {
                             println!("Wrong socket message type")
                         }
