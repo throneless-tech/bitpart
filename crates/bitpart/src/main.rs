@@ -42,9 +42,12 @@ use opentelemetry::trace::TracerProvider;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracer};
 use sea_orm::{ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
 use subtle::ConstantTimeEq;
+use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_log::AsTrace;
@@ -189,16 +192,18 @@ async fn main() -> Result<()> {
     let channels = db::channel::list(None, None, &db).await?;
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
-    let state = ApiState {
+    let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
+    let mut state = ApiState {
         db,
         auth: server.auth,
-        token: token.clone(),
+        parent_token: token.clone(),
+        tokens: Arc::new(Mutex::new(tokens)),
         tracker: tracker.clone(),
         attachments_dir: proj_dirs.cache_dir().to_path_buf(),
         manager: Box::new(signal::SignalManager::new()),
     };
     for channel in channels.iter() {
-        let res = api::start_channel(&channel.id, &state).await?;
+        let res = api::start_channel(&channel.id, &channel.bot_id, &mut state).await?;
         info!("Started channel: {}", res);
     }
 

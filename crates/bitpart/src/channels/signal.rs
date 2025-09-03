@@ -655,7 +655,7 @@ async fn receive<S: Store>(
             }
             Err(err) => {
                 error!("Failed to receive messages: {:?}", err);
-                sleep(Duration::from_millis(5000)).await;
+                sleep(Duration::from_secs(60)).await;
             }
         }
     }

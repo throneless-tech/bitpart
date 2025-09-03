@@ -14,7 +14,9 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use bitpart_common::{
     csml::Request,
@@ -25,7 +27,7 @@ use csml_interpreter::{
     load_components, search_for_modules, validate_bot,
 };
 use sea_orm::DatabaseConnection;
-use tokio::sync::oneshot;
+use tokio::sync::{Mutex, oneshot};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::{
@@ -39,7 +41,8 @@ use crate::{
 pub struct ApiState {
     pub db: DatabaseConnection,
     pub auth: String,
-    pub token: CancellationToken,
+    pub parent_token: CancellationToken,
+    pub tokens: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
     pub tracker: TaskTracker,
     pub attachments_dir: PathBuf,
     pub manager: Box<signal::SignalManager>,
@@ -90,8 +93,12 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> 
 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_bot_id(id, &state.db).await?;
-    db::channel::delete_by_bot_id(id, &state.db).await?;
-    db::memory::delete_by_bot_id(id, &state.db).await
+    db::memory::delete_by_bot_id(id, &state.db).await?;
+    let channels = db::channel::get_by_bot_id(&id, &state.db).await?;
+    for channel in channels.iter() {
+        delete_channel(&channel.channel_id, id, state).await?;
+    }
+    Ok(())
 }
 
 pub async fn get_bot_versions(
@@ -396,7 +403,7 @@ pub async fn link_channel(
     bot_id: &str,
     device_name: &str,
     attachments_dir: PathBuf,
-    state: &ApiState,
+    state: &mut ApiState,
 ) -> Result<String> {
     let db_id = db::channel::create(id, bot_id, &state.db).await?;
     let (send, recv) = oneshot::channel();
@@ -405,10 +412,14 @@ pub async fn link_channel(
         device_name: device_name.to_owned(),
         attachments_dir,
     };
+    let token = state.parent_token.child_token();
+    let msg_token = token.clone();
+    let mut data = state.tokens.lock().await;
+    data.insert((bot_id.to_owned(), id.to_owned()), token);
     let msg = signal::ChannelMessage {
         msg: contents,
         db: state.db.clone(),
-        token: state.token.clone(),
+        token: msg_token,
         tracker: state.tracker.clone(),
         sender: send,
     };
@@ -416,16 +427,20 @@ pub async fn link_channel(
     Ok(recv.await?)
 }
 
-pub async fn start_channel(channel_id: &str, state: &ApiState) -> Result<String> {
+pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState) -> Result<String> {
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::StartChannel {
         id: channel_id.to_owned(),
         attachments_dir: state.attachments_dir.clone(),
     };
+    let mut data = state.tokens.lock().await;
+    let token = data
+        .entry((bot_id.to_owned(), channel_id.to_owned()))
+        .or_insert(state.parent_token.child_token());
     let msg = signal::ChannelMessage {
         msg: contents,
         db: state.db.clone(),
-        token: state.token.clone(),
+        token: token.clone(),
         tracker: state.tracker.clone(),
         sender: send,
     };
@@ -454,7 +469,12 @@ pub async fn list_channels(
 }
 
 pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<()> {
-    db::channel::delete(id, bot_id, &state.db).await
+    db::channel::delete(id, bot_id, &state.db).await?;
+    let data = state.tokens.lock().await;
+    if let Some(token) = data.get(&(bot_id.to_owned(), id.to_owned())) {
+        token.cancel();
+    }
+    Ok(())
 }
 
 #[cfg(test)]
