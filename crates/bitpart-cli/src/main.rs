@@ -534,7 +534,7 @@ async fn main() -> Result<()> {
                             }
                         },
                         SocketMessage::Error(res) => {
-                            println!("{}", res.response.to_string());
+                            println!("{}", res.response);
                         }
                         _ => {
                             println!("Wrong socket message type")
