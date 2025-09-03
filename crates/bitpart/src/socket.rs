@@ -38,10 +38,10 @@ pub async fn handler(
     ws.on_upgrade(move |socket| handle_socket(socket, addr, state))
 }
 
-async fn handle_socket(mut socket: WebSocket, who: SocketAddr, state: ApiState) {
+async fn handle_socket(mut socket: WebSocket, who: SocketAddr, mut state: ApiState) {
     while let Some(msg) = socket.recv().await {
         let msg = if let Ok(msg) = msg {
-            match process_message(msg, who, &state).await {
+            match process_message(msg, who, &mut state).await {
                 Ok(Some(msg)) => msg,
                 Ok(None) => {
                     debug!("Websocket closed");
@@ -87,7 +87,7 @@ fn wrap_response<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Me
 async fn process_message(
     msg: Message,
     who: SocketAddr,
-    state: &ApiState,
+    state: &mut ApiState,
 ) -> Result<Option<Message>> {
     match msg {
         Message::Text(t) => {

@@ -75,6 +75,15 @@ pub async fn get_by_id(id: &str, db: &DatabaseConnection) -> Result<Option<chann
     Ok(entries)
 }
 
+pub async fn get_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<Vec<channel::Model>> {
+    let entries = Channel::find()
+        .filter(channel::Column::BotId.eq(bot_id.to_owned()))
+        .all(db)
+        .await?;
+
+    Ok(entries)
+}
+
 pub async fn delete(channel_id: &str, bot_id: &str, db: &DatabaseConnection) -> Result<()> {
     let entry = Channel::find()
         .filter(channel::Column::BotId.eq(bot_id.to_owned()))

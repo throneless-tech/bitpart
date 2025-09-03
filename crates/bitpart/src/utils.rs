@@ -29,15 +29,29 @@ use sea_orm::Database;
 #[cfg(test)]
 use sea_orm_migration::MigratorTrait;
 #[cfg(test)]
+use std::collections::HashMap;
+#[cfg(test)]
 use std::net::SocketAddr;
+#[cfg(test)]
+use std::sync::Arc;
+#[cfg(test)]
+use tokio::sync::Mutex;
+#[cfg(test)]
+use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 #[cfg(test)]
 pub async fn get_test_socket() -> TestWebSocket {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     db::migration::Migrator::refresh(&db).await.unwrap();
 
+    let token = CancellationToken::new();
+    let tracker = TaskTracker::new();
+    let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
     let state = ApiState {
         db,
+        parent_token: token.clone(),
+        tokens: Arc::new(Mutex::new(tokens)),
+        tracker: tracker.clone(),
         auth: "test".into(),
         attachments_dir: "/tmp".into(),
         manager: Box::new(signal::SignalManager::new()),
