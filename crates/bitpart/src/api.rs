@@ -94,7 +94,7 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_bot_id(id, &state.db).await?;
     db::memory::delete_by_bot_id(id, &state.db).await?;
-    let channels = db::channel::get_by_bot_id(&id, &state.db).await?;
+    let channels = db::channel::get_by_bot_id(id, &state.db).await?;
     for channel in channels.iter() {
         delete_channel(&channel.channel_id, id, state).await?;
     }
