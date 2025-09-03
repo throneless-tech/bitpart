@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bitpart_common::error::Result;
+use bitpart_common::error::{BitpartErrorKind, Result};
 use sea_orm::*;
 use uuid;
 
@@ -93,9 +93,10 @@ pub async fn delete(channel_id: &str, bot_id: &str, db: &DatabaseConnection) -> 
 
     if let Some(e) = entry {
         e.delete(db).await?;
+        Ok(())
+    } else {
+        Err(BitpartErrorKind::Db(DbErr::RecordNotFound(bot_id.to_owned())).into())
     }
-
-    Ok(())
 }
 
 pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {

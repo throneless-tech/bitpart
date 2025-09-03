@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bitpart_common::error::Result;
+use bitpart_common::error::{BitpartErrorKind, Result};
 use csml_interpreter::data::{CsmlBot, CsmlFlow, Module, MultiBot};
 use sea_orm::*;
 use serde::{Deserialize, Serialize};
@@ -209,11 +209,15 @@ pub async fn get_latest_by_bot_id(
 }
 
 pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
-    Bot::delete_many()
+    let res = Bot::delete_many()
         .filter(bot::Column::BotId.eq(bot_id))
         .exec(db)
         .await?;
-    Ok(())
+    if res.rows_affected == 0 {
+        Err(BitpartErrorKind::Db(DbErr::RecordNotFound(bot_id.to_owned())).into())
+    } else {
+        Ok(())
+    }
 }
 
 pub async fn delete_by_id(id: &str, db: &DatabaseConnection) -> Result<()> {
