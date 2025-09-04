@@ -30,6 +30,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: body.md
+          commitizen_version: '4.8.2'
       - name: Read body.md file
         id: get_body
         run: |
