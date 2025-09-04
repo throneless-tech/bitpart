@@ -1,3 +1,13 @@
+## 1.0.3 (2025-09-04)
+
+### Fix
+
+- Make delete commands return errors if channel/bot is not found.
+- Shutdown receive task when channel or its associated bot is deleted.
+- Send initial sync message after linking.
+- Be more resilient to disconnections or message errors.
+- Quick fix for attachment filename sanitization.
+
 ## 1.0.2 (2025-08-27)
 
 ### Fix
