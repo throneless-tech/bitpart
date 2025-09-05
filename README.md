@@ -1,5 +1,6 @@
 # Bitpart 🤖
-[![Run checks](https://github.com/throneless-tech/bitpart/actions/workflows/run_checks.yaml/badge.svg)](https://github.com/throneless-tech/bitpart/actions/workflows/run_checks.yaml) 
+
+[![Run checks](https://github.com/throneless-tech/bitpart/actions/workflows/run_checks.yaml/badge.svg)](https://github.com/throneless-tech/bitpart/actions/workflows/run_checks.yaml)
 
 Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders.
 
@@ -67,6 +68,26 @@ For example, to list available bots on a Bitpart server listening at `<BIND>` an
 ```
   bitpart-cli --auth <AUTH> --connect <BIND> list
 ```
+
+### Adding a bot and connecting it to Signal
+
+When you have the server running as described above, and you have `bitpart-cli` able to connect to it at location `<BIND>` with authorization token `<AUTH>`, you can add a bot:
+
+```
+  bitpart-cli --auth <AUTH> --connect <BIND> add --id <BOT_ID> --name <NAME> --default <BASENAME> ./<BASENAME>.csml
+```
+
+where `<BOT_ID>` is a unique name you choose for the bot, `<NAME>` is the keyword the bot will respond to when in a group, and `<BASENAME>` is the name of the default CSML script included in the bot (you can include multiple CSML scripts, but you must specify which one is used by default for new conversations). To find out more about CSML scripting, check out the example(s) in the `examples` directory in this repository.
+
+To link the bot you created to Signal so that it receives messages, you must open a _channel_ between the bot and a Signal account. **We recommend using a separate Signal account just for this purpose**, since Bitpart will also receive and respond to the Signal messages sent to this account.
+
+```
+  bitpart-cli --auth <AUTH> --connect <BIND> channel-link --id signal --bot-id <BOT_ID> --device-name <DEVICE_NAME>
+```
+
+where `<BOT_ID>` is the id of the bot you're linking, and `<DEVICE_NAME>` is the name of the device as it will appear in the list of linked devices on Signal (for example, `bitpart`). Currently the channel ID is always `signal`, because that's the only type of channel available.
+
+After you enter this command, a QR code will be displayed. In your Signal client, go to _Settings -> Linked Devices -> Link new device_ and take a picture of the QR code. After a few seconds, your bot will finish linking with Signal. From another Signal device, send a message to the number or username associated with the bot (**NOTE**: the bot will take on the profile information of the linked device) and it should reply!
 
 ## CSML
 
