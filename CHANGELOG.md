@@ -1,3 +1,9 @@
+## 1.0.4 (2025-09-05)
+
+### Fix
+
+- Add additional usage documentation to the README
+
 ## 1.0.3 (2025-09-04)
 
 ### Fix
