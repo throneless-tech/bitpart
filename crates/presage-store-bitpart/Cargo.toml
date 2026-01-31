@@ -15,7 +15,7 @@ base64 = "0.22"
 chrono = "0.4.35"
 fs_extra = "1.3"
 futures = "0.3.31"
-presage = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
+presage = { git = "https://github.com/whisperfish/presage", rev = "c9276897d1ae31212f724dcece830822e3b037fd" }
 prost = "0.13"
 quickcheck_macros = "1.0.0"
 sea-orm = { version = "~1.0", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
@@ -34,5 +34,5 @@ prost-build = "0.13"
 anyhow = "1.0"
 quickcheck = "1.0.3"
 quickcheck_async = "0.1"
-rand = "0.8"
+rand = "0.9"
 tokio = { version = "1.35", default-features = false, features = ["time"] }

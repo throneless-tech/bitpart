@@ -173,7 +173,8 @@ async fn start_channel_send(
 
                 send(manager, recipient, data_message).await?
             }
-            Recipient::Group(group) => { let data_message = DataMessage {
+            Recipient::Group(group) => {
+                let data_message = DataMessage {
                     body: Some(msg),
                     group_v2: Some(GroupContextV2 {
                         master_key: Some(group.to_vec()),
@@ -211,7 +212,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             tracker.clone().spawn_local(async move {
                 tokio::select! {
                     _ = async {
-                    if let Ok(mut manager) = Manager::link_secondary_device(
+                    match Manager::link_secondary_device(
                         config_store,
                         SignalServers::Production,
                         device_name.clone(),
@@ -219,6 +220,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                     )
                     .await
                     {
+                    Ok(mut manager) => {
                         if let Err(err) = manager.request_contacts().await {
                             error!("Failed to sync contacts after linking device: {}", err);
                         }
@@ -232,25 +234,27 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                             },
                             () = send_token.cancelled() => {debug!("Link device sender channel exited...")}
                         }
-                    });
-                    let recv_token = token.clone();
-                    tracker.spawn_local(async move {
-                        tokio::select! {
-                            res = start_channel_recv(
-                                id,
-                                attachments_dir,
-                                db.clone(),
-                                &manager_ref,
-                                tx,
-                            ) => {
-                                error!("Link device receiver channel exited early: {:?}", res);
-                            },
-                            () = recv_token.cancelled() => {debug!("Link device receiver channel exited...")}
-                        }
-                    });
-                    } else {
-                        warn!("Skipping startup of just-linked channel");
+                        });
+                        let recv_token = token.clone();
+                        tracker.spawn_local(async move {
+                            tokio::select! {
+                                res = start_channel_recv(
+                                    id,
+                                    attachments_dir,
+                                    db.clone(),
+                                    &manager_ref,
+                                    tx,
+                                ) => {
+                                    error!("Link device receiver channel exited early: {:?}", res);
+                                },
+                                () = recv_token.cancelled() => {debug!("Link device receiver channel exited...")}
+                            }
+                        });
                     }
+                    Err(err) => { 
+                        warn!("Skipping startup of just-linked channel: {:?}", err);
+                        }
+                        }
                 } => {info!("Channel message LinkChannel task exited")},
                 () = token.cancelled() => {debug!("Channel message LinkChannel task exited...")}
                 }

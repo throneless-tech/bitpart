@@ -119,7 +119,7 @@ pub async fn remove(
     tree: &str,
     key: &str,
     db: &DatabaseConnection,
-) -> Result<u64, BitpartStoreError> {
+) -> Result<Option<String>, BitpartStoreError> {
     let existing = ChannelState::find()
         .filter(channel_state::Column::ChannelId.eq(channel_id))
         .filter(channel_state::Column::Tree.eq(tree))
@@ -128,9 +128,11 @@ pub async fn remove(
         .await?;
 
     if let Some(entry) = existing {
-        Ok(entry.delete(db).await?.rows_affected)
+        let value = entry.value.clone();
+        entry.delete(db).await?;
+        Ok(Some(value))
     } else {
-        Ok(0)
+        Ok(None)
     }
 }
 

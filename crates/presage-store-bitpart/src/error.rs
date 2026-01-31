@@ -17,7 +17,10 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use presage::{libsignal_service::protocol::SignalProtocolError, store::StoreError};
+use presage::{
+    libsignal_service::{prelude::InvalidDeviceId, protocol::SignalProtocolError},
+    store::StoreError,
+};
 use sea_orm::DbErr;
 use std::str;
 use tracing::error;
@@ -48,6 +51,8 @@ pub enum BitpartStoreError {
     Utf8(#[from] str::Utf8Error),
     #[error("Libsignal protocol error: `{0}`")]
     SignalProtocol(#[from] SignalProtocolError),
+    #[error("Invalid device ID: `{0}`")]
+    InvalidDeviceId(#[from] InvalidDeviceId),
 }
 
 impl StoreError for BitpartStoreError {}

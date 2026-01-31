@@ -181,13 +181,13 @@ impl BitpartStore {
         Ok(replaced)
     }
 
-    async fn remove<K>(&self, tree: &str, key: K) -> Result<bool, BitpartStoreError>
+    async fn remove<K>(&self, tree: &str, key: K) -> Result<Option<String>, BitpartStoreError>
     where
         K: AsRef<[u8]>,
     {
         let key = serde_json::to_string(key.as_ref())?;
         let removed = db::channel_state::remove(&self.id, tree, &key, &self.db).await?;
-        Ok(removed > 0)
+        Ok(removed)
     }
 
     async fn remove_all(&self, tree: &str) -> Result<bool, BitpartStoreError> {
@@ -340,6 +340,7 @@ mod tests {
     use protocol::BitpartPreKeyId;
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
+    use rand::prelude::*;
 
     use super::*;
 
@@ -359,10 +360,11 @@ mod tests {
             ];
             let sender_uuid: Uuid = *g.choose(&contacts).unwrap();
             let destination_uuid: Uuid = *g.choose(&contacts).unwrap();
+            let sender_device: u8 = rand::rng().random_range(1..127);
             let metadata = Metadata {
                 sender: ServiceId::Aci(sender_uuid.into()),
                 destination: ServiceId::Aci(destination_uuid.into()),
-                sender_device: Arbitrary::arbitrary(g),
+                sender_device: sender_device.try_into().unwrap(),
                 server_guid: None,
                 timestamp,
                 needs_receipt: Arbitrary::arbitrary(g),

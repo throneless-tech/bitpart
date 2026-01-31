@@ -40,7 +40,7 @@ message SignalServiceEnvelopeProto {
 
 message MetadataProto {
   optional AddressProto address                  = 1;
-  optional int32        senderDevice             = 2;
+  optional uint32       senderDevice             = 2;
   optional int64        timestamp                = 3;
   optional int64        serverReceivedTimestamp  = 5;
   optional int64        serverDeliveredTimestamp = 6;

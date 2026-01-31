@@ -31,7 +31,7 @@ mime_guess = "2.0.5"
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = ["reqwest-rustls"] }
 opentelemetry_sdk = "0.29.0"
-presage = { git = "https://github.com/whisperfish/presage", tag = "0.7.0" }
+presage = { git = "https://github.com/whisperfish/presage", rev = "c9276897d1ae31212f724dcece830822e3b037fd" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"
 regex = "1.10.6"
@@ -43,7 +43,7 @@ serde_json = "1.0.117"
 subtle = { version = "2.6.1", features = ["const-generics"] }
 tempfile = "3.13.0"
 thiserror = "1.0.61"
-tokio = { version = "1.38.0", features = ["full"] }
+tokio = { version = "1.48.0", features = ["full"] }
 tokio-util = { version = "0.7.16", features = ["rt"] }
 tracing = "0.1.40"
 tracing-log = "0.2.0"
