@@ -769,11 +769,11 @@ mod tests {
     use base64::prelude::*;
     use presage::{
         libsignal_service::{
-            pre_keys::PreKeysStore,
+            pre_keys::{KyberPreKeyStoreExt, PreKeysStore},
             protocol::{
-                self, Direction, GenericSignedPreKey, IdentityKeyStore, PreKeyId, PreKeyRecord,
-                PreKeyStore, SessionRecord, SessionStore, SignedPreKeyId, SignedPreKeyRecord,
-                SignedPreKeyStore, Timestamp,
+                self, Direction, GenericSignedPreKey, IdentityKeyStore, KyberPreKeyStore, PreKeyId,
+                PreKeyRecord, PreKeyStore, SessionRecord, SessionStore, SignedPreKeyId,
+                SignedPreKeyRecord, SignedPreKeyStore, Timestamp, kem,
             },
         },
         store::Store,
@@ -788,6 +788,12 @@ mod tests {
 
     #[derive(Clone)]
     struct KeyPair(protocol::KeyPair);
+
+    #[derive(Clone, Debug)]
+    struct KyberPreKeyId(protocol::KyberPreKeyId);
+
+    #[derive(Clone, Debug)]
+    struct KyberPreKeyRecord(protocol::KyberPreKeyRecord);
 
     impl fmt::Debug for KeyPair {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -817,6 +823,28 @@ mod tests {
         }
     }
 
+    impl Arbitrary for KyberPreKeyId {
+        fn arbitrary(_g: &mut Gen) -> Self {
+            let id: u32 = rand::rng().random();
+            KyberPreKeyId(id.into())
+        }
+    }
+
+    impl Arbitrary for KyberPreKeyRecord {
+        fn arbitrary(g: &mut Gen) -> Self {
+            let random: [u8; 32] = rand::rng().random();
+            let pkey = protocol::PrivateKey::deserialize(&random).unwrap();
+            KyberPreKeyRecord(
+                protocol::KyberPreKeyRecord::generate(
+                    kem::KeyType::Kyber1024,
+                    KyberPreKeyId::arbitrary(g).0,
+                    &pkey,
+                )
+                .unwrap(),
+            )
+        }
+    }
+
     #[quickcheck_async::tokio]
     async fn test_save_get_trust_identity(addr: ProtocolAddress, key_pair: KeyPair) -> bool {
         let mut db = BitpartStore::temporary()
@@ -835,20 +863,30 @@ mod tests {
     }
 
     #[quickcheck_async::tokio]
-    async fn test_save_get_kyber_prekey(addr: ProtocolAddress, key_pair: KeyPair) -> bool {
+    async fn test_save_get_kyber_prekey(id: KyberPreKeyId, record: KyberPreKeyRecord) -> bool {
         let mut db = BitpartStore::temporary()
             .await
             .unwrap()
             .aci_protocol_store();
-        let identity_key = protocol::IdentityKey::new(key_pair.0.public_key);
-        db.save_identity(&addr.0, &identity_key).await.unwrap();
-        let id = db.get_identity(&addr.0).await.unwrap().unwrap();
-        if id != identity_key {
-            return false;
-        }
-        db.is_trusted_identity(&addr.0, &id, Direction::Receiving)
+        db.save_kyber_pre_key(id.0, &record.0).await.unwrap();
+        let key = db.get_kyber_pre_key(id.0).await.unwrap();
+        key.public_key().unwrap() == record.0.public_key().unwrap()
+    }
+
+    #[quickcheck_async::tokio]
+    async fn test_save_get_last_resort_kyber_prekey(
+        id: KyberPreKeyId,
+        record: KyberPreKeyRecord,
+    ) -> bool {
+        let mut db = BitpartStore::temporary()
             .await
             .unwrap()
+            .aci_protocol_store();
+        db.store_last_resort_kyber_pre_key(id.0, &record.0)
+            .await
+            .unwrap();
+        let key = db.get_kyber_pre_key(id.0).await.unwrap();
+        key.public_key().unwrap() == record.0.public_key().unwrap()
     }
 
     #[quickcheck_async::tokio]
