@@ -17,6 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use std::fmt;
 use std::marker::PhantomData;
 
 use async_trait::async_trait;
@@ -37,8 +38,12 @@ use presage::{
     proto::verified,
     store::{StateStore, save_trusted_identity_message},
 };
-use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace, warn};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{SeqAccess, Visitor},
+    ser,
+};
+use tracing::{error, trace, warn};
 
 use crate::{BitpartStore, BitpartStoreError, OnNewIdentity, db};
 
@@ -79,7 +84,6 @@ impl<T: BitpartTrees> BitpartProtocolStore<T> {
             .collect::<Vec<u32>>();
         keys.sort();
         Ok(keys.last().map(|id| *id))
-        // Ok(keys.last().map_or(0, |id| id + 1))
     }
 }
 
@@ -101,6 +105,61 @@ pub struct BaseKeysSeen {
     kyber_pre_key_id: u32,
     signed_pre_key_id: u32,
     base_key: [u8; 32],
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct KyberPreKey {
+    record: KyberPreKeyRecordWrapper,
+    is_last_resort: bool,
+}
+
+#[derive(Debug)]
+struct KyberPreKeyRecordWrapper(KyberPreKeyRecord);
+
+impl Serialize for KyberPreKeyRecordWrapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let record = self
+            .0
+            .serialize()
+            .map_err(|_| ser::Error::custom("KyberPreKeyRecord serialization error."))?;
+        serializer.serialize_bytes(&record)
+    }
+}
+
+impl<'de> Deserialize<'de> for KyberPreKeyRecordWrapper {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct KyberPreKeyVisitor;
+
+        impl<'de> Visitor<'de> for KyberPreKeyVisitor {
+            type Value = KyberPreKeyRecordWrapper;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str(
+                    "a struct containing a KyberPreKeyRecord and its is_last_resort flag",
+                )
+            }
+
+            fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
+            where
+                V: SeqAccess<'de>,
+            {
+                let mut buf = Vec::<u8>::new();
+                while let Some(element) = seq.next_element()? {
+                    buf.push(element);
+                }
+                let record = KyberPreKeyRecord::deserialize(&buf).unwrap();
+                Ok(KyberPreKeyRecordWrapper(record))
+            }
+        }
+
+        deserializer.deserialize_bytes(KyberPreKeyVisitor)
+    }
 }
 
 #[derive(Clone)]
@@ -249,13 +308,16 @@ impl<T: BitpartTrees + Send + Sync> PreKeyStore for BitpartProtocolStore<T> {
     }
 
     async fn remove_pre_key(&mut self, prekey_id: PreKeyId) -> Result<(), SignalProtocolError> {
-        self.store
+        let _: Vec<u8> = self
+            .store
             .remove(T::pre_keys(), prekey_id.store_key())
             .await
-            .map_err(|error| {
-                error!(%error, "store error");
-                SignalProtocolError::InvalidState("remove_pre_key", "store error".into())
-            })?;
+            .ok()
+            .flatten()
+            .ok_or(SignalProtocolError::InvalidState(
+                "remove_pre_key",
+                "store error".into(),
+            ))?;
         Ok(())
     }
 }
@@ -293,14 +355,9 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
     }
 
     /// number of kyber pre-keys we currently have in store
-    async fn kyber_pre_keys_count(&self, last_resort: bool) -> Result<usize, SignalProtocolError> {
-        let tree = if last_resort {
-            T::kyber_pre_keys_last_resort()
-        } else {
-            T::kyber_pre_keys()
-        };
+    async fn kyber_pre_keys_count(&self, _last_resort: bool) -> Result<usize, SignalProtocolError> {
         Ok(
-            db::channel_state::get_all(&self.store.id, tree, &self.store.db)
+            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
                 .await
                 .map_err(|error| {
                     error!(%error, "store error");
@@ -317,10 +374,23 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
     async fn last_resort_kyber_prekey_id(
         &self,
     ) -> Result<Option<KyberPreKeyId>, SignalProtocolError> {
-        Ok(self
-            .max_key_id(T::kyber_pre_keys_last_resort())
-            .await?
-            .map(From::from))
+        let mut keys =
+            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
+                .await?
+                .into_iter()
+                .filter_map(|(key, value)| {
+                    let value: KyberPreKey = serde_json::from_str(&value).ok()?;
+                    if value.is_last_resort {
+                        Some(u32::from_be_bytes(
+                            serde_json::from_str::<[u8; 4]>(&key).ok()?,
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<u32>>();
+        keys.sort();
+        Ok(keys.last().map(|id| *id).map(From::from))
     }
 }
 
@@ -366,29 +436,11 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         &self,
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<KyberPreKeyRecord, SignalProtocolError> {
-        debug!("KyberPreKeyId Out: {:?}", kyber_prekey_id);
-        let buf: Option<Vec<u8>> = self
+        let entry: Result<Option<KyberPreKey>, BitpartStoreError> = self
             .store
             .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-            .await
-            .ok()
-            .flatten();
-        if let Some(buf) = buf {
-            let record = KyberPreKeyRecord::deserialize(&buf);
-            debug!("KyberPreKeyRecord Out: {:?}", record);
-            record
-        } else {
-            let buf: Vec<u8> = self
-                .store
-                .get(T::kyber_pre_keys_last_resort(), kyber_prekey_id.store_key())
-                .await
-                .ok()
-                .flatten()
-                .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
-            let record = KyberPreKeyRecord::deserialize(&buf);
-            debug!("KyberPreKeyRecord Out: {:?}", record);
-            record
-        }
+            .await;
+        Ok(entry.unwrap().unwrap().record.0)
     }
 
     async fn save_kyber_pre_key(
@@ -396,14 +448,12 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         kyber_prekey_id: KyberPreKeyId,
         record: &KyberPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
-        debug!("KyberPreKeyId In: {:?}", kyber_prekey_id);
-        debug!("KyberPreKeyRecord In: {:?}", record);
+        let storable = KyberPreKey {
+            record: KyberPreKeyRecordWrapper(record.clone()),
+            is_last_resort: false,
+        };
         self.store
-            .insert(
-                T::kyber_pre_keys(),
-                kyber_prekey_id.store_key(),
-                record.serialize()?,
-            )
+            .insert(T::kyber_pre_keys(), kyber_prekey_id.store_key(), storable)
             .await
             .map_err(|error| {
                 error!(%error, "store error");
@@ -418,43 +468,48 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         ec_prekey_id: SignedPreKeyId,
         base_key: &PublicKey,
     ) -> Result<(), SignalProtocolError> {
-        let removed = self
+        if let Some(key) = self
             .store
-            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.store_key())
+            .get::<[u8; 4], KyberPreKey>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
             .await
             .map_err(|error| {
                 error!(%error, "store error");
                 SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "store error".into())
-            })?;
-        if removed.is_some() {
-            trace!(%kyber_prekey_id, "removed kyber pre-key");
-            let value = BaseKeysSeen {
-                kyber_pre_key_id: kyber_prekey_id.into(),
-                signed_pre_key_id: ec_prekey_id.into(),
-                base_key: base_key.public_key_bytes().try_into().map_err(|error| {
-                    error!(%error, "store error");
-                    SignalProtocolError::InvalidState(
-                        "mark_kyber_pre_key_used",
-                        "store error".into(),
-                    )
-                })?,
-            };
-            self.store
-                .insert(T::base_keys_seen(), kyber_prekey_id.store_key(), value)
-                .await?;
+            })?
+        {
+            if key.is_last_resort {
+                trace!(%kyber_prekey_id, "removed kyber pre-key");
+                let value = BaseKeysSeen {
+                    kyber_pre_key_id: kyber_prekey_id.into(),
+                    signed_pre_key_id: ec_prekey_id.into(),
+                    base_key: base_key.public_key_bytes().try_into().map_err(|error| {
+                        error!(%error, "store error");
+                        SignalProtocolError::InvalidState(
+                            "mark_kyber_pre_key_used",
+                            "store error".into(),
+                        )
+                    })?,
+                };
+                self.store
+                    .insert(T::base_keys_seen(), kyber_prekey_id.store_key(), value)
+                    .await?;
+            } else {
+                let _: Option<KyberPreKey> = self
+                    .store
+                    .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+                    .await
+                    .map_err(|error| {
+                        error!(%error, "store error");
+                        SignalProtocolError::InvalidState(
+                            "mark_kyber_pre_key_used",
+                            "store error".into(),
+                        )
+                    })?;
+            }
+            Ok(())
         } else {
-            self.store
-                .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-                .await
-                .map_err(|error| {
-                    error!(%error, "store error");
-                    SignalProtocolError::InvalidState(
-                        "mark_kyber_pre_key_used",
-                        "store error".into(),
-                    )
-                })?;
+            Ok(())
         }
-        Ok(())
     }
 }
 
@@ -465,15 +520,12 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
         kyber_prekey_id: KyberPreKeyId,
         record: &KyberPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
-        trace!(%kyber_prekey_id, "store_last_resort_kyber_pre_key");
-        debug!("KyberPreKeyId Last Resort In: {:?}", kyber_prekey_id);
-        debug!("KyberPreKeyRecord Last Resort In: {:?}", record);
+        let storable = KyberPreKey {
+            record: KyberPreKeyRecordWrapper(record.clone()),
+            is_last_resort: true,
+        };
         self.store
-            .insert(
-                T::kyber_pre_keys_last_resort(),
-                kyber_prekey_id.store_key(),
-                record.serialize()?,
-            )
+            .insert(T::kyber_pre_keys(), kyber_prekey_id.store_key(), storable)
             .await
             .map_err(|error| {
                 error!(%error, "store error");
@@ -489,23 +541,24 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
         &self,
     ) -> Result<Vec<KyberPreKeyRecord>, SignalProtocolError> {
         trace!("load_last_resort_kyber_pre_keys");
-        self.store
-            .iter(T::kyber_pre_keys_last_resort())
+        Ok(self
+            .store
+            .iter(T::kyber_pre_keys())
             .await?
-            .filter_map(|data: Result<Vec<u8>, BitpartStoreError>| data.ok())
-            .map(|data| KyberPreKeyRecord::deserialize(&data))
-            .collect()
+            .filter_map(|data: Result<KyberPreKey, BitpartStoreError>| {
+                data.ok().filter(|k| k.is_last_resort == true)
+            })
+            .map(|data| data.record.0)
+            .collect())
     }
 
     async fn remove_kyber_pre_key(
         &mut self,
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<(), SignalProtocolError> {
-        self.store
-            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.store_key())
-            .await?;
-        self.store
-            .remove(T::kyber_pre_keys_last_resort(), kyber_prekey_id.store_key())
+        let _: Option<KyberPreKey> = self
+            .store
+            .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
             .await?;
         Ok(())
     }

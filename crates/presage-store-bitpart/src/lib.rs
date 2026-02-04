@@ -181,13 +181,17 @@ impl BitpartStore {
         Ok(replaced)
     }
 
-    async fn remove<K>(&self, tree: &str, key: K) -> Result<Option<String>, BitpartStoreError>
+    async fn remove<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
     where
         K: AsRef<[u8]>,
+        V: DeserializeOwned,
     {
         let key = serde_json::to_string(key.as_ref())?;
-        let removed = db::channel_state::remove(&self.id, tree, &key, &self.db).await?;
-        Ok(removed)
+        if let Some(removed) = db::channel_state::remove(&self.id, tree, &key, &self.db).await? {
+            Ok(Some(serde_json::from_str(&removed)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn remove_all(&self, tree: &str) -> Result<bool, BitpartStoreError> {

@@ -206,7 +206,7 @@ impl ContentsStore for BitpartStore {
         let tree = messages_thread_tree_name(thread);
         self.remove(&tree, timestamp.to_be_bytes())
             .await
-            .map(|existing| existing.is_some())
+            .map(|existing: Option<[u8; 8]>| existing.is_some())
     }
 
     async fn message(
@@ -362,7 +362,7 @@ impl ContentsStore for BitpartStore {
     async fn remove_sticker_pack(&mut self, id: &[u8]) -> Result<bool, BitpartStoreError> {
         self.remove(BITPART_TREE_STICKER_PACKS, id)
             .await
-            .map(|existing| existing.is_some())
+            .map(|existing: Option<StickerPack>| existing.is_some())
     }
 
     async fn sticker_pack(&self, id: &[u8]) -> Result<Option<StickerPack>, BitpartStoreError> {
