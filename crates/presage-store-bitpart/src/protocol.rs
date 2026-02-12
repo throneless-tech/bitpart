@@ -631,9 +631,10 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
                         return None;
                     };
                     if let Ok(did) = key_str.strip_prefix(&session_prefix)?.parse::<u32>()
-                        && did != device_id {
-                            return did.try_into().ok();
-                        }
+                        && did != device_id
+                    {
+                        return did.try_into().ok();
+                    }
                     None
                 })
                 .collect();
