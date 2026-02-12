@@ -351,10 +351,7 @@ async fn process_signal_message<S: Store>(
         }
     }
 
-    async fn format_contact<'lock, S: Store>(
-        uuid: &Uuid,
-        manager: &mut Manager<S, Registered>,
-    ) -> String {
+    async fn format_contact<S: Store>(uuid: &Uuid, manager: &mut Manager<S, Registered>) -> String {
         manager
             .store()
             .contact_by_id(uuid)
@@ -366,10 +363,7 @@ async fn process_signal_message<S: Store>(
             .unwrap_or_else(|| uuid.to_string())
     }
 
-    async fn format_group<'lock, S: Store>(
-        key: [u8; 32],
-        manager: &mut Manager<S, Registered>,
-    ) -> String {
+    async fn format_group<S: Store>(key: [u8; 32], manager: &mut Manager<S, Registered>) -> String {
         manager
             .store()
             .group(key)

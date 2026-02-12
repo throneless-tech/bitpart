@@ -58,6 +58,7 @@ impl TryFrom<AddressProto> for ServiceId {
 }
 
 impl From<Metadata> for MetadataProto {
+    #[allow(clippy::unnecessary_fallible_conversions)]
     fn from(m: Metadata) -> Self {
         MetadataProto {
             address: Some(m.sender.into()),

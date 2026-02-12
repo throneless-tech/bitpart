@@ -83,7 +83,7 @@ impl<T: BitpartTrees> BitpartProtocolStore<T> {
             })
             .collect::<Vec<u32>>();
         keys.sort();
-        Ok(keys.last().map(|id| *id))
+        Ok(keys.last().copied())
     }
 }
 
@@ -390,7 +390,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
                 })
                 .collect::<Vec<u32>>();
         keys.sort();
-        Ok(keys.last().map(|id| *id).map(From::from))
+        Ok(keys.last().copied().map(From::from))
     }
 }
 
@@ -546,7 +546,7 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
             .iter(T::kyber_pre_keys())
             .await?
             .filter_map(|data: Result<KyberPreKey, BitpartStoreError>| {
-                data.ok().filter(|k| k.is_last_resort == true)
+                data.ok().filter(|k| k.is_last_resort)
             })
             .map(|data| data.record.0)
             .collect())
@@ -630,11 +630,10 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
                     if !key_str.starts_with(&session_prefix) {
                         return None;
                     };
-                    if let Ok(did) = key_str.strip_prefix(&session_prefix)?.parse::<u32>() {
-                        if did != device_id {
+                    if let Ok(did) = key_str.strip_prefix(&session_prefix)?.parse::<u32>()
+                        && did != device_id {
                             return did.try_into().ok();
                         }
-                    }
                     None
                 })
                 .collect();
