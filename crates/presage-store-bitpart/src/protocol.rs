@@ -40,7 +40,7 @@ use presage::{
 };
 use serde::{
     Deserialize, Deserializer, Serialize,
-    de::{SeqAccess, Visitor},
+    de::{self, SeqAccess, Visitor},
     ser,
 };
 use tracing::{error, trace, warn};
@@ -140,9 +140,7 @@ impl<'de> Deserialize<'de> for KyberPreKeyRecordWrapper {
             type Value = KyberPreKeyRecordWrapper;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str(
-                    "a struct containing a KyberPreKeyRecord and its is_last_resort flag",
-                )
+                formatter.write_str("a struct containing a KyberPreKeyRecord")
             }
 
             fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
@@ -153,8 +151,13 @@ impl<'de> Deserialize<'de> for KyberPreKeyRecordWrapper {
                 while let Some(element) = seq.next_element()? {
                     buf.push(element);
                 }
-                let record = KyberPreKeyRecord::deserialize(&buf).unwrap();
-                Ok(KyberPreKeyRecordWrapper(record))
+                match KyberPreKeyRecord::deserialize(&buf) {
+                    Ok(record) => Ok(KyberPreKeyRecordWrapper(record)),
+                    Err(err) => {
+                        warn!("Skipping old-format Kyber prekey in storage.");
+                        Err(de::Error::custom(err))
+                    }
+                }
             }
         }
 
@@ -436,11 +439,14 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         &self,
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<KyberPreKeyRecord, SignalProtocolError> {
-        let entry: Result<Option<KyberPreKey>, BitpartStoreError> = self
+        let entry: KyberPreKey = self
             .store
             .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-            .await;
-        Ok(entry.unwrap().unwrap().record.0)
+            .await
+            .ok()
+            .flatten()
+            .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
+        Ok(entry.record.0)
     }
 
     async fn save_kyber_pre_key(
