@@ -485,48 +485,65 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         ec_prekey_id: SignedPreKeyId,
         base_key: &PublicKey,
     ) -> Result<(), SignalProtocolError> {
-        if let Some(key) = self
+        let key = if let Ok(Some(key)) = self
             .store
             .get::<[u8; 4], KyberPreKey>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
             .await
             .map_err(|error| {
                 error!(%error, "store error");
                 SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "store error".into())
-            })?
+            }) {
+            key
+        } else if let Ok(Some(buf)) = self
+            .store
+            .get::<[u8; 4], Vec<u8>>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+            .await
+            .map_err(|error| {
+                error!(%error, "store error");
+                SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "store error".into())
+            })
         {
-            if key.is_last_resort {
-                trace!(%kyber_prekey_id, "removed kyber pre-key");
-                let value = BaseKeysSeen {
-                    kyber_pre_key_id: kyber_prekey_id.into(),
-                    signed_pre_key_id: ec_prekey_id.into(),
-                    base_key: base_key.public_key_bytes().try_into().map_err(|error| {
-                        error!(%error, "store error");
-                        SignalProtocolError::InvalidState(
-                            "mark_kyber_pre_key_used",
-                            "store error".into(),
-                        )
-                    })?,
-                };
-                self.store
-                    .insert(T::base_keys_seen(), kyber_prekey_id.store_key(), value)
-                    .await?;
-            } else {
-                let _: Option<KyberPreKey> = self
-                    .store
-                    .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-                    .await
-                    .map_err(|error| {
-                        error!(%error, "store error");
-                        SignalProtocolError::InvalidState(
-                            "mark_kyber_pre_key_used",
-                            "store error".into(),
-                        )
-                    })?;
+            let key = KyberPreKeyRecord::deserialize(&buf)?;
+            KyberPreKey {
+                record: KyberPreKeyRecordWrapper(key),
+                is_last_resort: false,
             }
-            Ok(())
         } else {
-            Ok(())
+            return Err(SignalProtocolError::InvalidState(
+                "mark_kyber_pre_key_used",
+                "store error".into(),
+            ));
+        };
+        if key.is_last_resort {
+            trace!(%kyber_prekey_id, "removed kyber pre-key");
+            let value = BaseKeysSeen {
+                kyber_pre_key_id: kyber_prekey_id.into(),
+                signed_pre_key_id: ec_prekey_id.into(),
+                base_key: base_key.public_key_bytes().try_into().map_err(|error| {
+                    error!(%error, "store error");
+                    SignalProtocolError::InvalidState(
+                        "mark_kyber_pre_key_used",
+                        "store error".into(),
+                    )
+                })?,
+            };
+            self.store
+                .insert(T::base_keys_seen(), kyber_prekey_id.store_key(), value)
+                .await?;
+        } else {
+            let _: Option<KyberPreKey> = self
+                .store
+                .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+                .await
+                .map_err(|error| {
+                    error!(%error, "store error");
+                    SignalProtocolError::InvalidState(
+                        "mark_kyber_pre_key_used",
+                        "store error".into(),
+                    )
+                })?;
         }
+        Ok(())
     }
 }
 
