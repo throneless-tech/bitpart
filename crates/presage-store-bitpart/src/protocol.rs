@@ -439,14 +439,25 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         &self,
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<KyberPreKeyRecord, SignalProtocolError> {
-        let entry: KyberPreKey = self
+        if let Some(entry) = self
             .store
-            .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+            .get::<[u8; 4], KyberPreKey>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
             .await
             .ok()
             .flatten()
-            .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
-        Ok(entry.record.0)
+        {
+            Ok(entry.record.0)
+        } else {
+            // Stored in the old format
+            let buf: Vec<u8> = self
+                .store
+                .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+                .await
+                .ok()
+                .flatten()
+                .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
+            KyberPreKeyRecord::deserialize(&buf)
+        }
     }
 
     async fn save_kyber_pre_key(
