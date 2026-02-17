@@ -43,7 +43,7 @@ use serde::{
     de::{self, SeqAccess, Visitor},
     ser,
 };
-use tracing::{error, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::{BitpartStore, BitpartStoreError, OnNewIdentity, db};
 
@@ -359,6 +359,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
 
     /// number of kyber pre-keys we currently have in store
     async fn kyber_pre_keys_count(&self, _last_resort: bool) -> Result<usize, SignalProtocolError> {
+        debug!("kyber_pre_keys_count");
         Ok(
             db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
                 .await
@@ -377,6 +378,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
     async fn last_resort_kyber_prekey_id(
         &self,
     ) -> Result<Option<KyberPreKeyId>, SignalProtocolError> {
+        debug!("last_resort_kyber_prekey_id");
         let mut keys =
             db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
                 .await?
@@ -439,6 +441,7 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         &self,
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<KyberPreKeyRecord, SignalProtocolError> {
+        debug!("get_kyber_pre_key");
         if let Some(entry) = self
             .store
             .get::<[u8; 4], KyberPreKey>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
@@ -477,6 +480,7 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         kyber_prekey_id: KyberPreKeyId,
         record: &KyberPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
+        debug!("save_kyber_pre_key");
         let storable = KyberPreKey {
             record: KyberPreKeyRecordWrapper(record.clone()),
             is_last_resort: false,
@@ -497,6 +501,7 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         ec_prekey_id: SignedPreKeyId,
         base_key: &PublicKey,
     ) -> Result<(), SignalProtocolError> {
+        debug!("mark_kyber_pre_key_used");
         let key = if let Ok(Some(key)) = self
             .store
             .get::<[u8; 4], KyberPreKey>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
@@ -566,6 +571,7 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
         kyber_prekey_id: KyberPreKeyId,
         record: &KyberPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
+        debug!("store_last_resort_kyber_pre_key");
         let storable = KyberPreKey {
             record: KyberPreKeyRecordWrapper(record.clone()),
             is_last_resort: true,
@@ -586,7 +592,7 @@ impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
     async fn load_last_resort_kyber_pre_keys(
         &self,
     ) -> Result<Vec<KyberPreKeyRecord>, SignalProtocolError> {
-        trace!("load_last_resort_kyber_pre_keys");
+        debug!("load_last_resort_kyber_pre_keys");
         Ok(self
             .store
             .iter(T::kyber_pre_keys())
