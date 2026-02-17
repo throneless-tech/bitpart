@@ -449,14 +449,26 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
             Ok(entry.record.0)
         } else {
             // Stored in the old format
-            let buf: Vec<u8> = self
+            match self
                 .store
-                .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+                .get::<[u8; 4], Vec<u8>>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
                 .await
-                .ok()
-                .flatten()
-                .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
-            KyberPreKeyRecord::deserialize(&buf)
+            {
+                Ok(Some(buf)) => KyberPreKeyRecord::deserialize(&buf),
+                Err(err) => {
+                    error!("Error deserializing old format kyber prekey: {:?}", err);
+                    Err(SignalProtocolError::InvalidKyberPreKeyId)
+                }
+                _ => Err(SignalProtocolError::InvalidKyberPreKeyId),
+            }
+            // let buf: Vec<u8> = self
+            //     .store
+            //     .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+            //     .await
+            //     .ok()
+            //     .flatten()
+            //     .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
+            // KyberPreKeyRecord::deserialize(&buf)
         }
     }
 
