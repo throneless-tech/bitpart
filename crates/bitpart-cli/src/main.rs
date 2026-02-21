@@ -111,6 +111,18 @@ enum Commands {
         device_name: String,
     },
 
+    /// reset all active chat sessions on a channel
+    #[command(arg_required_else_help = true)]
+    ChannelReset {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+
+        /// Bot ID
+        #[arg(short, long)]
+        bot_id: String,
+    },
+
     /// delete a bot
     #[command(arg_required_else_help = true)]
     Delete {
@@ -290,6 +302,17 @@ async fn main() -> Result<()> {
                 "id": id,
                 "bot_id": bot_id,
                 "device_name": device_name
+            }});
+            debug!("Request: {:?}", req.to_string());
+
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
+        }
+        Commands::ChannelReset { id, bot_id } => {
+            let req = json!({"message_type": "ResetChannel",
+                "data" : {
+                "id": id,
+                "bot_id": bot_id,
             }});
             debug!("Request: {:?}", req.to_string());
 

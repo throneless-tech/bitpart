@@ -81,6 +81,9 @@ pub enum ChannelMessageContents {
         id: String,
         attachments_dir: PathBuf,
     },
+    ResetSessions {
+        id: String,
+    },
 }
 
 pub struct ChannelMessage {
@@ -225,6 +228,31 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                     "Channel message StartChannel receive task exited early: {:?}",
                     res
                 );
+                Ok(sender
+                    .send("".to_owned())
+                    .map_err(BitpartErrorKind::Signal)?)
+            } else {
+                warn!("Skipping startup of unregistered channel");
+                Ok(sender
+                    .send("".to_owned())
+                    .map_err(BitpartErrorKind::Signal)?)
+            }
+        }
+        ChannelMessageContents::ResetSessions { id } => {
+            let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
+            if let Ok(mut manager) = Manager::load_registered(store).await {
+                let sessions: Vec<(String, Vec<u8>)> = manager.store().get_all("sessions").await?;
+                for (address, _) in sessions {
+                    let timestamp = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_millis() as u64;
+                    let addr: Vec<&str> = address.split('.').collect();
+                    let uuid = uuid::Uuid::parse_str(addr[0])?;
+                    manager
+                        .send_session_reset(&ServiceId::Aci(uuid.into()), timestamp)
+                        .await?
+                }
                 Ok(sender
                     .send("".to_owned())
                     .map_err(BitpartErrorKind::Signal)?)

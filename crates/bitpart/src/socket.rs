@@ -159,6 +159,12 @@ async fn process_message(
                         Err(err) => wrap_error("ReadChannel", &err.to_string()),
                     }
                 }
+                SocketMessage::ResetChannel { id, bot_id } => {
+                    match api::reset_channel(&id, &bot_id, state).await {
+                        Ok(res) => wrap_response("ReadChannel", &res),
+                        Err(err) => wrap_error("ReadChannel", &err.to_string()),
+                    }
+                }
                 SocketMessage::ListChannels(options) => {
                     if let Some(paginate) = options {
                         match api::list_channels(paginate.limit, paginate.offset, state).await {

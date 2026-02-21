@@ -448,6 +448,26 @@ pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
     Ok(recv.await?)
 }
 
+pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState) -> Result<String> {
+    let (send, recv) = oneshot::channel();
+    let contents = signal::ChannelMessageContents::ResetSessions {
+        id: channel_id.to_owned(),
+    };
+    let mut data = state.tokens.lock().await;
+    let token = data
+        .entry((bot_id.to_owned(), channel_id.to_owned()))
+        .or_insert(state.parent_token.child_token());
+    let msg = signal::ChannelMessage {
+        msg: contents,
+        db: state.db.clone(),
+        token: token.clone(),
+        tracker: state.tracker.clone(),
+        sender: send,
+    };
+    state.manager.send(msg);
+    Ok(recv.await?)
+}
+
 pub async fn read_channel(
     id: &str,
     bot_id: &str,
