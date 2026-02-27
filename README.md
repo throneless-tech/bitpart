@@ -9,7 +9,7 @@ Bitpart is a messaging tool that runs on top of Signal to support activists, jou
 This repository contains three components: the Bitpart server, a command-line client for connecting to the Bitpart server, and a storage adapter used for storing Signal key information to Bitpart's database. In order to build all three components, make sure you have a _2024 edition of Rust_ and run:
 
 ```
-  cargo build
+  cargo build --release
 ```
 
 ## Installing
