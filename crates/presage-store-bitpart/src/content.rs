@@ -25,6 +25,7 @@ use presage::{
         Profile,
         content::Content,
         prelude::Uuid,
+        protocol::ServiceId,
         zkgroup::{GroupMasterKeyBytes, profiles::ProfileKey},
     },
     model::{contacts::Contact, groups::Group},
@@ -203,7 +204,9 @@ impl ContentsStore for BitpartStore {
         timestamp: u64,
     ) -> Result<bool, BitpartStoreError> {
         let tree = messages_thread_tree_name(thread);
-        self.remove(&tree, timestamp.to_be_bytes()).await
+        self.remove(&tree, timestamp.to_be_bytes())
+            .await
+            .map(|existing: Option<[u8; 8]>| existing.is_some())
     }
 
     async fn message(
@@ -301,7 +304,11 @@ impl ContentsStore for BitpartStore {
         .map(|_| true)
     }
 
-    async fn profile_key(&self, uuid: &Uuid) -> Result<Option<ProfileKey>, BitpartStoreError> {
+    async fn profile_key(
+        &self,
+        service_id: &ServiceId,
+    ) -> Result<Option<ProfileKey>, BitpartStoreError> {
+        let uuid = service_id.raw_uuid();
         self.get(BITPART_TREE_PROFILE_KEYS, uuid.as_bytes()).await
     }
 
@@ -353,7 +360,9 @@ impl ContentsStore for BitpartStore {
     }
 
     async fn remove_sticker_pack(&mut self, id: &[u8]) -> Result<bool, BitpartStoreError> {
-        self.remove(BITPART_TREE_STICKER_PACKS, id).await
+        self.remove(BITPART_TREE_STICKER_PACKS, id)
+            .await
+            .map(|existing: Option<StickerPack>| existing.is_some())
     }
 
     async fn sticker_pack(&self, id: &[u8]) -> Result<Option<StickerPack>, BitpartStoreError> {

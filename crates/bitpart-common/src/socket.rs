@@ -56,6 +56,10 @@ pub enum SocketMessage<S: Serialize> {
         bot_id: String,
         device_name: String,
     },
+    ResetChannel {
+        id: String,
+        bot_id: String,
+    },
     ChatRequest(Box<Request>),
     Response(Response<S>),
     Error(Response<S>),

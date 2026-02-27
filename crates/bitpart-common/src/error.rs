@@ -20,12 +20,15 @@ use figment;
 use futures;
 use hex;
 use opentelemetry_otlp;
-use presage;
+use presage::{
+    self,
+    libsignal_service::{prelude::InvalidDeviceId, protocol::SignalProtocolError},
+};
 use presage_store_bitpart::BitpartStoreError;
 use prost;
 use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
-use std::{array, io};
+use std::{array, io, num::ParseIntError};
 use thiserror::Error;
 use thiserror_ext::Box;
 use tokio;
@@ -78,6 +81,12 @@ pub enum BitpartErrorKind {
     ProtocolBuffers(#[from] prost::UnknownEnumValue),
     #[error("Bincode error: `{0}`")]
     Bincode(#[from] bincode::Error),
+    #[error("Parse Int error: `{0}`")]
+    ParseInt(#[from] ParseIntError),
+    #[error("Invalid DeviceID error: `{0}`")]
+    InvalidDeviceId(#[from] InvalidDeviceId),
+    #[error("Signal Protocol error: `{0}`")]
+    SignalProtocol(#[from] SignalProtocolError),
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartErrorKind {

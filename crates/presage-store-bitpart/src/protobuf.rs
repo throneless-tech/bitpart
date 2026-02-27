@@ -27,6 +27,7 @@ use std::str::FromStr;
 use presage::libsignal_service::content::Content;
 use presage::libsignal_service::content::ContentBody;
 use presage::libsignal_service::content::Metadata;
+use presage::libsignal_service::prelude::DeviceId;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto;
 use presage::libsignal_service::protocol::ServiceId;
@@ -57,6 +58,7 @@ impl TryFrom<AddressProto> for ServiceId {
 }
 
 impl From<Metadata> for MetadataProto {
+    #[allow(clippy::unnecessary_fallible_conversions)]
     fn from(m: Metadata) -> Self {
         MetadataProto {
             address: Some(m.sender.into()),
@@ -91,7 +93,7 @@ impl TryFrom<MetadataProto> for Metadata {
             sender_device: metadata
                 .sender_device
                 .and_then(|m| m.try_into().ok())
-                .unwrap_or_default(),
+                .unwrap_or(DeviceId::new(1)?),
             server_guid: metadata
                 .server_guid
                 .and_then(|u| crate::Uuid::from_str(&u).ok()),
