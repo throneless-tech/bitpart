@@ -161,8 +161,8 @@ async fn process_message(
                 }
                 SocketMessage::ResetChannel { id, bot_id } => {
                     match api::reset_channel(&id, &bot_id, state).await {
-                        Ok(res) => wrap_response("ReadChannel", &res),
-                        Err(err) => wrap_error("ReadChannel", &err.to_string()),
+                        Ok(res) => wrap_response("ResetChannel", &res),
+                        Err(err) => wrap_error("ResetChannel", &err.to_string()),
                     }
                 }
                 SocketMessage::ListChannels(options) => {

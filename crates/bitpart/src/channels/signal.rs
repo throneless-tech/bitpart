@@ -115,7 +115,7 @@ impl SignalManager {
             .expect("Failed to create thread builder");
 
         let _ = std::thread::Builder::new()
-            .stack_size(4 * 1024 * 1024)
+            .stack_size(8 * 1024 * 1024)
             .spawn(move || {
                 let local = LocalSet::new();
 
@@ -164,7 +164,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
         msg,
         db,
         token,
-        tracker,
+        tracker: _,
         sender,
     } = msg;
     match msg {
@@ -176,37 +176,50 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             let config_store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
             let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
 
-            tracker.clone().spawn_local(async move {
-                tokio::select! {
-                    _ = async {
-                    match Manager::link_secondary_device(
-                        config_store,
-                        SignalServers::Production,
-                        device_name.clone(),
-                        provisioning_link_tx,
-                    )
-                    .await
-                    {
-                    Ok(mut manager) => {
-                        if let Err(err) = manager.request_contacts().await {
-                            error!("Failed to sync contacts after linking device: {}", err);
+            let rt = TokioBuilder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create thread builder");
+
+            let _ = std::thread::Builder::new()
+                .stack_size(8 * 1024 * 1024)
+                .spawn(move || {
+                    let local = LocalSet::new();
+
+                    local.spawn_local(async move {
+                        tokio::select! {
+                            _ = async {
+                                match Manager::link_secondary_device(
+                                    config_store,
+                                    SignalServers::Production,
+                                    device_name.clone(),
+                                    provisioning_link_tx,
+                                )
+                                .await
+                                {
+                                    Ok(mut manager) => {
+                                        if let Err(err) = manager.request_contacts().await {
+                                            error!("Failed to sync contacts after linking device: {}", err);
+                                        }
+                                        let mut manager_ref = Cell::new(manager);
+                                        let res = start_channel_recv(
+                                            id,
+                                            attachments_dir,
+                                            db.clone(),
+                                            &mut manager_ref).await;
+                                        error!("Link device receiver channel exited early: {:?}", res);
+                                    }
+                                    Err(err) => {
+                                        warn!("Skipping startup of just-linked channel: {:?}", err);
+                                    }
+                                }
+                            } => {info!("Channel message LinkChannel task exited")},
+                            () = token.cancelled() => {debug!("Channel message LinkChannel task exited...")}
                         }
-                        let mut manager_ref = Cell::new(manager);
-                        let res = start_channel_recv(
-                                    id,
-                                    attachments_dir,
-                                    db.clone(),
-                                    &mut manager_ref).await;
-                        error!("Link device receiver channel exited early: {:?}", res);
-                    }
-                    Err(err) => {
-                        warn!("Skipping startup of just-linked channel: {:?}", err);
-                        }
-                        }
-                } => {info!("Channel message LinkChannel task exited")},
-                () = token.cancelled() => {debug!("Channel message LinkChannel task exited...")}
-                }
-            });
+                    });
+
+                    rt.block_on(local);
+                });
 
             let res = provisioning_link_rx
                 .await
@@ -219,48 +232,75 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             attachments_dir,
         } => {
             let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
-            if let Ok(manager) = Manager::load_registered(store).await {
-                let mut manager_ref = Cell::new(manager);
-                let res =
-                    start_channel_recv(id, attachments_dir, db.clone(), &mut manager_ref).await;
+            let rt = TokioBuilder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create thread builder");
 
-                error!(
-                    "Channel message StartChannel receive task exited early: {:?}",
-                    res
-                );
-                Ok(sender
-                    .send("".to_owned())
-                    .map_err(BitpartErrorKind::Signal)?)
-            } else {
-                warn!("Skipping startup of unregistered channel");
-                Ok(sender
-                    .send("".to_owned())
-                    .map_err(BitpartErrorKind::Signal)?)
-            }
+            let _ = std::thread::Builder::new()
+                .stack_size(8 * 1024 * 1024)
+                .spawn(move || {
+                    let local = LocalSet::new();
+
+                    local.spawn_local(async move {
+                        tokio::select! {
+                            _ = async {
+                                match Manager::load_registered(store).await {
+                                    Ok(manager) => {
+                                        let mut manager_ref = Cell::new(manager);
+                                        let res =
+                                            start_channel_recv(id, attachments_dir, db.clone(), &mut manager_ref).await;
+
+                                        error!(
+                                            "Channel message StartChannel receive task exited early: {:?}",
+                                            res
+                                        );
+
+                                    },
+                                    Err(err) => {
+                                        error!("Skipping startup of unregistered channel: {:?}", err);
+
+                                    }
+                                }
+                            } => {info!("Channel message StartChannel task exited")},
+                            () = token.cancelled() => {debug!("Channel message StartChannel task exited...")}
+                        }
+                    });
+                    rt.block_on(local);
+                });
+
+            Ok(sender
+                .send("".to_owned())
+                .map_err(BitpartErrorKind::Signal)?)
         }
         ChannelMessageContents::ResetSessions { id } => {
             let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
-            if let Ok(mut manager) = Manager::load_registered(store).await {
-                let sessions: Vec<(String, Vec<u8>)> = manager.store().get_all("sessions").await?;
-                for (address, _) in sessions {
-                    let timestamp = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .expect("Time went backwards")
-                        .as_millis() as u64;
-                    let addr: Vec<&str> = address.split('.').collect();
-                    let uuid = uuid::Uuid::parse_str(addr[0])?;
-                    manager
-                        .send_session_reset(&ServiceId::Aci(uuid.into()), timestamp)
-                        .await?
+
+            match Manager::load_registered(store).await {
+                Ok(mut manager) => {
+                    let sessions: Vec<(String, Vec<u8>)> =
+                        manager.store().get_all("sessions").await?;
+                    for (address, _) in sessions {
+                        let timestamp = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .expect("Time went backwards")
+                            .as_millis() as u64;
+                        let addr: Vec<&str> = address.split('.').collect();
+                        let uuid = uuid::Uuid::parse_str(addr[0])?;
+                        manager
+                            .send_session_reset(&ServiceId::Aci(uuid.into()), timestamp)
+                            .await?
+                    }
+                    Ok(sender
+                        .send("".to_owned())
+                        .map_err(BitpartErrorKind::Signal)?)
                 }
-                Ok(sender
-                    .send("".to_owned())
-                    .map_err(BitpartErrorKind::Signal)?)
-            } else {
-                warn!("Skipping startup of unregistered channel");
-                Ok(sender
-                    .send("".to_owned())
-                    .map_err(BitpartErrorKind::Signal)?)
+                Err(err) => {
+                    error!("Skipping startup of unregistered channel: {:?}", err);
+                    Ok(sender
+                        .send("".to_owned())
+                        .map_err(BitpartErrorKind::Signal)?)
+                }
             }
         }
     }

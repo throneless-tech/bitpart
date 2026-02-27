@@ -449,23 +449,27 @@ pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
 }
 
 pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState) -> Result<String> {
-    let (send, recv) = oneshot::channel();
-    let contents = signal::ChannelMessageContents::ResetSessions {
-        id: channel_id.to_owned(),
-    };
-    let mut data = state.tokens.lock().await;
-    let token = data
-        .entry((bot_id.to_owned(), channel_id.to_owned()))
-        .or_insert(state.parent_token.child_token());
-    let msg = signal::ChannelMessage {
-        msg: contents,
-        db: state.db.clone(),
-        token: token.clone(),
-        tracker: state.tracker.clone(),
-        sender: send,
-    };
-    state.manager.send(msg);
-    Ok(recv.await?)
+    if let Some(channel) = db::channel::get(channel_id, bot_id, &state.db).await? {
+        let (send, recv) = oneshot::channel();
+        let contents = signal::ChannelMessageContents::ResetSessions {
+            id: channel.id.to_owned(),
+        };
+        let mut data = state.tokens.lock().await;
+        let token = data
+            .entry((bot_id.to_owned(), channel_id.to_owned()))
+            .or_insert(state.parent_token.child_token());
+        let msg = signal::ChannelMessage {
+            msg: contents,
+            db: state.db.clone(),
+            token: token.clone(),
+            tracker: state.tracker.clone(),
+            sender: send,
+        };
+        state.manager.send(msg);
+        Ok(recv.await?)
+    } else {
+        Err(BitpartErrorKind::Api("Resetting non-existent channel".into()).into())
+    }
 }
 
 pub async fn read_channel(

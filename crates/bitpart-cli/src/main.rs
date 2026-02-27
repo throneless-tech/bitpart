@@ -514,6 +514,9 @@ async fn main() -> Result<()> {
                             res_type if res_type == "DeleteChannel" => {
                                 println!("Deleted the channel");
                             }
+                            res_type if res_type == "ResetChannel" => {
+                                println!("Reset the channel");
+                            }
                             res_type if res_type == "LinkChannel" => {
                                 let _ = qr2term::print_qr(res.response.to_string());
                                 println!("{}", res.response);
