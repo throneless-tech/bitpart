@@ -1,3 +1,9 @@
+## 1.0.5 (2026-02-27)
+
+### Fix
+
+- Possible fix for long-running Signal timeouts.
+
 ## 1.0.4 (2025-09-05)
 
 ### Fix

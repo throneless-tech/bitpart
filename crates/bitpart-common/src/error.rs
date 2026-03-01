@@ -22,7 +22,7 @@ use hex;
 use opentelemetry_otlp;
 use presage::{
     self,
-    libsignal_service::{prelude::InvalidDeviceId, protocol::SignalProtocolError},
+    libsignal_service::{protocol::InvalidDeviceId, protocol::SignalProtocolError},
 };
 use presage_store_bitpart::BitpartStoreError;
 use prost;

@@ -3,7 +3,7 @@
 ####################################################################################################
 FROM rust:bookworm AS builder
 
-RUN apt update && apt install -y protobuf-compiler
+RUN apt update && apt install -y protobuf-compiler cmake clang
 RUN update-ca-certificates
 
 # Create appuser

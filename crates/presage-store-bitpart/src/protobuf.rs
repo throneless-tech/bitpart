@@ -27,9 +27,9 @@ use std::str::FromStr;
 use presage::libsignal_service::content::Content;
 use presage::libsignal_service::content::ContentBody;
 use presage::libsignal_service::content::Metadata;
-use presage::libsignal_service::prelude::DeviceId;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto;
+use presage::libsignal_service::protocol::DeviceId;
 use presage::libsignal_service::protocol::ServiceId;
 
 use crate::BitpartStoreError;
