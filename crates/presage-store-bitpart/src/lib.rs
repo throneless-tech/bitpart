@@ -20,7 +20,7 @@
 use base64::prelude::*;
 use presage::{
     libsignal_service::{
-        prelude::{ProfileKey, Uuid},
+        prelude::{MasterKey, ProfileKey, Uuid},
         protocol::{IdentityKeyPair, SenderCertificate},
     },
     manager::RegistrationData,
@@ -49,6 +49,7 @@ const BITPART_TREE_STATE: &str = "state";
 
 const BITPART_KEY_REGISTRATION: &str = "registration";
 const BITPART_KEY_SENDER_CERTIFICATE: &str = "sender_certificate";
+const BITPART_KEY_MASTER: &str = "master";
 
 #[derive(Clone)]
 pub struct BitpartStore {
@@ -305,6 +306,27 @@ impl StateStore for BitpartStore {
             BITPART_TREE_STATE,
             BITPART_KEY_SENDER_CERTIFICATE,
             certificate.serialized()?,
+        )
+        .await?;
+        Ok(())
+    }
+
+    async fn fetch_master_key(&self) -> Result<Option<MasterKey>, Self::StateStoreError> {
+        let value: Option<Vec<u8>> = self.get(BITPART_TREE_STATE, BITPART_KEY_MASTER).await?;
+        value
+            .map(|value| MasterKey::from_slice(&value))
+            .transpose()
+            .map_err(From::from)
+    }
+
+    async fn store_master_key(
+        &self,
+        master_key: Option<&MasterKey>,
+    ) -> Result<(), Self::StateStoreError> {
+        self.insert(
+            BITPART_TREE_STATE,
+            BITPART_KEY_MASTER,
+            master_key.map(|k| &k.inner[..]),
         )
         .await?;
         Ok(())

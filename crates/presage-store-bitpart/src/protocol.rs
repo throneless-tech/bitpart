@@ -24,9 +24,9 @@ use async_trait::async_trait;
 use presage::{
     libsignal_service::{
         pre_keys::{KyberPreKeyStoreExt, PreKeysStore},
-        prelude::{DeviceId, Uuid},
+        prelude::Uuid,
         protocol::{
-            Direction, GenericSignedPreKey, IdentityChange, IdentityKey, IdentityKeyPair,
+            DeviceId, Direction, GenericSignedPreKey, IdentityChange, IdentityKey, IdentityKeyPair,
             IdentityKeyStore, KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyId,
             PreKeyRecord, PreKeyStore, ProtocolAddress, ProtocolStore, PublicKey, SenderKeyRecord,
             SenderKeyStore, ServiceId, SessionRecord, SessionStore, SignalProtocolError,

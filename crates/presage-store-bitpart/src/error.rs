@@ -18,10 +18,11 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use presage::{
-    libsignal_service::{prelude::InvalidDeviceId, protocol::SignalProtocolError},
+    libsignal_service::{protocol::InvalidDeviceId, protocol::SignalProtocolError},
     store::StoreError,
 };
 use sea_orm::DbErr;
+use std::array::TryFromSliceError;
 use std::str;
 use tracing::error;
 
@@ -53,6 +54,8 @@ pub enum BitpartStoreError {
     SignalProtocol(#[from] SignalProtocolError),
     #[error("Invalid device ID: `{0}`")]
     InvalidDeviceId(#[from] InvalidDeviceId),
+    #[error("Invalid master key: `{0}`")]
+    InvalidMasterKey(#[from] TryFromSliceError),
 }
 
 impl StoreError for BitpartStoreError {}
