@@ -56,7 +56,8 @@ jobs:
       - name: Setup Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48
       - name: Build
-        run: cargo build --all --release && strip target/release/bitpart && strip target/release/bitpart-cli
+        # run: cargo build --all --release && strip target/release/bitpart && strip target/release/bitpart-cli
+        run: cargo build --all --release && strip target/release/bitpart
       - name: Release
         uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
         with:
@@ -64,7 +65,6 @@ jobs:
           tag_name: ${{ needs.bump_version.outputs.version }}
           files: |
             target/release/bitpart
-            target/release/bitpart-cli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build_image:
