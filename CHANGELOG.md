@@ -1,3 +1,10 @@
+## 1.0.6 (2026-03-01)
+
+### Fix
+
+- Update README
+- Add additional usage documentation to the README
+
 ## 1.0.5 (2026-02-27)
 
 ### Fix
