@@ -718,7 +718,7 @@ async fn receive(
                 }
                 Err(err) => {
                     error!("Failed to receive messages: {:?}", err);
-                    sleep(Duration::from_secs(1)).await;
+                    sleep(Duration::from_secs(30)).await;
                     break 'inner;
                 }
             }
