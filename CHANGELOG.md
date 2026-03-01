@@ -1,3 +1,9 @@
+## 1.0.7 (2026-03-01)
+
+### Fix
+
+- Increase retry timeout for restarting signal manager.
+
 ## 1.0.6 (2026-03-01)
 
 ### Fix
