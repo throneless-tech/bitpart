@@ -12,6 +12,7 @@ keywords.workspace = true
 [dependencies]
 anyhow = "1.0"
 async-recursion = "1.1.1"
+async-trait = "0.1"
 axum = { version = "^0.8.8", features = ["http2", "macros", "ws"] }
 base64 = "0.22.1"
 bincode = "1.3.3"

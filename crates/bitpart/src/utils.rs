@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #[cfg(test)]
-use crate::channels::signal;
+use crate::channels::signal::{ChannelBackend, ChannelMessage};
 #[cfg(test)]
 use crate::db;
 #[cfg(test)]
@@ -24,6 +24,8 @@ use crate::{api::ApiState, socket};
 use axum::{Router, routing::any};
 #[cfg(test)]
 use axum_test::{TestServer, TestWebSocket};
+#[cfg(test)]
+use bitpart_common::error::Result;
 #[cfg(test)]
 use sea_orm::Database;
 #[cfg(test)]
@@ -40,6 +42,18 @@ use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 #[cfg(test)]
+pub struct MockChannelBackend;
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl ChannelBackend for MockChannelBackend {
+    async fn send(&self, msg: ChannelMessage) -> Result<()> {
+        let _ = msg.sender.send("".to_owned());
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 pub async fn get_test_socket() -> TestWebSocket {
     let db = Database::connect("sqlite::memory:").await.unwrap();
     db::migration::Migrator::refresh(&db).await.unwrap();
@@ -54,7 +68,7 @@ pub async fn get_test_socket() -> TestWebSocket {
         tracker: tracker.clone(),
         auth: "test".into(),
         attachments_dir: "/tmp".into(),
-        manager: Box::new(signal::SignalManager::new()),
+        manager: Arc::new(MockChannelBackend),
     };
 
     let app = Router::new()

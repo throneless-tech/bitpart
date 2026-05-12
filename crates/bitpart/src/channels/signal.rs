@@ -94,9 +94,16 @@ pub struct ChannelMessage {
     pub sender: tokio_oneshot::Sender<String>,
 }
 
+const CHANNEL_MESSAGE_BUFFER: usize = 32;
+
+#[async_trait::async_trait]
+pub trait ChannelBackend: Send + Sync {
+    async fn send(&self, msg: ChannelMessage) -> Result<()>;
+}
+
 #[derive(Clone)]
 pub struct SignalManager {
-    inner: mpsc::UnboundedSender<ChannelMessage>,
+    inner: mpsc::Sender<ChannelMessage>,
 }
 
 impl Default for SignalManager {
@@ -107,7 +114,7 @@ impl Default for SignalManager {
 
 impl SignalManager {
     pub fn new() -> Self {
-        let (send, mut recv) = mpsc::unbounded_channel();
+        let (send, mut recv) = mpsc::channel(CHANNEL_MESSAGE_BUFFER);
 
         let rt = TokioBuilder::new_current_thread()
             .enable_all()
@@ -130,9 +137,16 @@ impl SignalManager {
 
         Self { inner: send }
     }
+}
 
-    pub fn send(&self, msg: ChannelMessage) {
-        self.inner.send(msg).expect("Thread has shutdown")
+#[async_trait::async_trait]
+impl ChannelBackend for SignalManager {
+    async fn send(&self, msg: ChannelMessage) -> Result<()> {
+        self.inner
+            .send(msg)
+            .await
+            .map_err(|_| BitpartErrorKind::Signal("SignalManager has shut down".to_owned()))?;
+        Ok(())
     }
 }
 
@@ -259,10 +273,12 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                     for (address, _) in sessions {
                         let timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
-                            .expect("Time went backwards")
+                            .unwrap_or(Duration::ZERO)
                             .as_millis() as u64;
-                        let addr: Vec<&str> = address.split('.').collect();
-                        let uuid = uuid::Uuid::parse_str(addr[0])?;
+                        let addr = address.split('.').next().ok_or_else(|| {
+                            BitpartErrorKind::Signal(format!("Empty session address: {address}"))
+                        })?;
+                        let uuid = uuid::Uuid::parse_str(addr)?;
                         manager
                             .send_session_reset(&ServiceId::Aci(uuid.into()), timestamp)
                             .await?
@@ -294,7 +310,7 @@ async fn send<S: Store>(
 ) -> Result<()> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
+        .unwrap_or(Duration::ZERO)
         .as_millis() as u64;
 
     match recipient {

@@ -200,7 +200,7 @@ async fn main() -> Result<()> {
         tokens: Arc::new(Mutex::new(tokens)),
         tracker: tracker.clone(),
         attachments_dir: proj_dirs.cache_dir().to_path_buf(),
-        manager: Box::new(signal::SignalManager::new()),
+        manager: Arc::new(signal::SignalManager::new()),
     };
     for channel in channels.iter() {
         let res = api::start_channel(&channel.id, &channel.bot_id, &mut state).await?;

@@ -550,6 +550,7 @@ version = "1.0.7"
 dependencies = [
  "anyhow",
  "async-recursion",
+ "async-trait",
  "axum",
  "axum-test",
  "base64 0.22.1",

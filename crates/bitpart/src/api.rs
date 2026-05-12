@@ -45,7 +45,7 @@ pub struct ApiState {
     pub tokens: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
     pub tracker: TaskTracker,
     pub attachments_dir: PathBuf,
-    pub manager: Box<signal::SignalManager>,
+    pub manager: Arc<dyn signal::ChannelBackend>,
 }
 
 /*
@@ -423,7 +423,7 @@ pub async fn link_channel(
         tracker: state.tracker.clone(),
         sender: send,
     };
-    state.manager.send(msg);
+    state.manager.send(msg).await?;
     Ok(recv.await?)
 }
 
@@ -444,7 +444,7 @@ pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
         tracker: state.tracker.clone(),
         sender: send,
     };
-    state.manager.send(msg);
+    state.manager.send(msg).await?;
     Ok(recv.await?)
 }
 
@@ -465,7 +465,7 @@ pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
             tracker: state.tracker.clone(),
             sender: send,
         };
-        state.manager.send(msg);
+        state.manager.send(msg).await?;
         Ok(recv.await?)
     } else {
         Err(BitpartErrorKind::Api("Resetting non-existent channel".into()).into())
