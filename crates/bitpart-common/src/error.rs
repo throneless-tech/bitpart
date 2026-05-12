@@ -51,8 +51,8 @@ pub enum BitpartErrorKind {
     Figment(#[from] figment::Error),
     #[error("Channel Receive error: `{0}`")]
     ChannelRecv(#[from] tokio::sync::oneshot::error::RecvError),
-    #[error("Presage store error")]
-    PresageStore,
+    #[error("Presage store error: `{0}`")]
+    PresageStore(String),
     #[error("Attachment error: `{0}`")]
     Attachment(#[from] presage::libsignal_service::sender::AttachmentUploadError),
     #[error("Serialization/deserialization error")]
@@ -90,8 +90,8 @@ pub enum BitpartErrorKind {
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartErrorKind {
-    fn from(_err: presage::Error<S>) -> Self {
-        Self::PresageStore
+    fn from(err: presage::Error<S>) -> Self {
+        Self::PresageStore(err.to_string())
     }
 }
 

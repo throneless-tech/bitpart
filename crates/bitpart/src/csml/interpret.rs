@@ -28,8 +28,8 @@ use csml_interpreter::interpret;
 use sea_orm::DatabaseConnection;
 use serde_json::{Value, map::Map};
 use std::collections::HashMap;
-use std::sync::mpsc;
-use std::thread;
+use std::sync::mpsc as std_mpsc;
+use tokio::sync::mpsc as tokio_mpsc;
 use tracing::{debug, error, info, trace, warn};
 
 use super::data::{ConversationData, SwitchBot};
@@ -55,7 +55,8 @@ pub async fn step(
     let mut current_flow: &CsmlFlow = get_flow_by_id(&data.context.flow, &bot.flows)?;
     let mut interaction_order = 0;
     let mut conversation_end = false;
-    let (sender, receiver) = mpsc::channel::<MSG>();
+    let (interpret_sender, interpret_receiver) = std_mpsc::channel::<MSG>();
+    let (sender, mut receiver) = tokio_mpsc::channel::<MSG>(32);
     let context = data.context.clone();
     let mut switch_bot = None;
     info!(
@@ -71,13 +72,20 @@ pub async fn step(
         bot.id
     );
     let new_bot = bot.clone();
-    thread::spawn(move || {
-        interpret(new_bot, context, event, Some(sender));
+    tokio::task::spawn_blocking(move || {
+        interpret(new_bot, context, event, Some(interpret_sender));
+    });
+    tokio::task::spawn_blocking(move || {
+        while let Ok(msg) = interpret_receiver.recv() {
+            if sender.blocking_send(msg).is_err() {
+                break;
+            }
+        }
     });
 
     let mut memories = HashMap::new();
 
-    for received in receiver {
+    while let Some(received) = receiver.recv().await {
         match received {
             MSG::Remember(mem) => {
                 memories.insert(mem.key.clone(), mem);
