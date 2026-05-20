@@ -44,45 +44,7 @@ impl TryInto<BotOpt> for Request {
     type Error = BitpartError;
 
     fn try_into(self) -> Result<BotOpt, Self::Error> {
-        match self {
-            // Bot
-            Request {
-                bot: Some(mut csml_bot),
-                multibot,
-                ..
-            } => {
-                csml_bot.multibot = multibot;
-
-                Ok(BotOpt::CsmlBot(Box::new(csml_bot)))
-            }
-
-            // version id
-            Request {
-                version_id: Some(version_id),
-                bot_id: Some(bot_id),
-                apps_endpoint,
-                multibot,
-                ..
-            } => Ok(BotOpt::Id {
-                version_id,
-                bot_id,
-                apps_endpoint,
-                multibot,
-            }),
-
-            // get bot by id will search for the last version id
-            Request {
-                bot_id: Some(bot_id),
-                apps_endpoint,
-                multibot,
-                ..
-            } => Ok(BotOpt::BotId {
-                bot_id,
-                apps_endpoint,
-                multibot,
-            }),
-            _ => Err(BitpartErrorKind::Interpreter("Invalid bot_opt format".to_owned()).into()),
-        }
+        (&self).try_into()
     }
 }
 

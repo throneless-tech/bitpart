@@ -70,6 +70,8 @@ use uuid;
 use crate::api;
 use crate::db;
 
+// === manager + dispatch ===
+
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
     LinkChannel {
@@ -155,6 +157,8 @@ pub struct ChannelState {
     id: String,
     db: DatabaseConnection,
 }
+
+// === device linking ===
 
 async fn start_channel_recv(
     id: String,
@@ -298,6 +302,8 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
     }
 }
 
+// === outbound send ===
+
 enum Recipient {
     Contact(Uuid),
     Group(GroupMasterKeyBytes),
@@ -353,6 +359,8 @@ async fn send<S: Store>(
 
     Ok(())
 }
+
+// === message formatting ===
 
 async fn process_signal_message<S: Store>(
     manager: &mut Manager<S, Registered>,
@@ -572,6 +580,8 @@ async fn process_signal_message<S: Store>(
     }
     Ok(())
 }
+
+// === message listener ===
 
 async fn reply<S: Store>(
     user_id: String,
