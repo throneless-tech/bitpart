@@ -36,9 +36,8 @@ presage = { git = "https://github.com/whisperfish/presage", rev = "52057088c979e
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"
 regex = "1.11.2"
+rusqlite = { git = "https://github.com/whisperfish/rusqlite", rev = "2a42b3354c9194700d08aa070f70a131a470e7dc", features = ["bundled-sqlcipher-custom-crypto"] }
 sanitise-file-name = "1.0.0"
-sea-orm = { git = "https://github.com/throneless-tech/sea-orm", rev = "0c889ce5643fa1431f5107fe597070f3248a95e6", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
-sea-orm-migration = { git = "https://github.com/throneless-tech/sea-orm", rev = "0c889ce5643fa1431f5107fe597070f3248a95e6" }
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.117"
 subtle = { version = "2.6.1", features = ["const-generics"] }

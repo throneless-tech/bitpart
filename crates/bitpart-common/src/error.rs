@@ -26,7 +26,6 @@ use presage::{
 };
 use presage_store_bitpart::BitpartStoreError;
 use prost;
-use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
 use std::{array, io, num::ParseIntError};
 use thiserror::Error;
@@ -41,8 +40,14 @@ pub enum BitpartErrorKind {
     Api(String),
     #[error("Interpreter error: `{0}`")]
     Interpreter(String),
-    #[error("Database error: `{0}`")]
-    Db(#[from] DbErr),
+    #[error("Rusqlite error: `{0}`")]
+    Rusqlite(#[from] rusqlite::Error),
+    // Deadpool's `PoolError` / `InteractError` are stringified here
+    // rather than carried typed, because adding `deadpool` to every
+    // crate's error-pattern-match surface is not worth it for a
+    // transient transitional state.
+    #[error("DB pool error: `{0}`")]
+    Pool(String),
     #[error("I/O error: `{0}`")]
     Io(#[from] io::Error),
     #[error("Directory error: `{0}`")]

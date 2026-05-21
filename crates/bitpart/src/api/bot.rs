@@ -42,7 +42,7 @@ pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion
             ..
         } => Err(BitpartErrorKind::Api(format!("{:?}", errors)).into()),
         CsmlResult { .. } => {
-            let created = db::bot::create(bot, &state.db).await?;
+            let created = db::bot::create(bot, &state.pool).await?;
             Ok(created)
         }
     }
@@ -53,12 +53,12 @@ pub async fn list_bots(
     offset: Option<u64>,
     state: &ApiState,
 ) -> Result<Vec<String>> {
-    let list = db::bot::list(limit, offset, &state.db).await?;
+    let list = db::bot::list(limit, offset, &state.pool).await?;
     Ok(list)
 }
 
 pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> {
-    if let Some(bot) = db::bot::get_latest_by_bot_id(id, &state.db).await? {
+    if let Some(bot) = db::bot::get_latest_by_bot_id(id, &state.pool).await? {
         Ok(Some(bot))
     } else {
         Ok(None)
@@ -66,9 +66,9 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> 
 }
 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
-    db::bot::delete_by_bot_id(id, &state.db).await?;
-    db::memory::delete_by_bot_id(id, &state.db).await?;
-    let channels = db::channel::get_by_bot_id(id, &state.db).await?;
+    db::bot::delete_by_bot_id(id, &state.pool).await?;
+    db::memory::delete_by_bot_id(id, &state.pool).await?;
+    let channels = db::channel::get_by_bot_id(id, &state.pool).await?;
     for channel in channels.iter() {
         crate::api::channel::delete_channel(&channel.channel_id, id, state).await?;
     }
@@ -81,11 +81,11 @@ pub async fn get_bot_versions(
     offset: Option<u64>,
     state: &ApiState,
 ) -> Result<Vec<BotVersion>> {
-    db::bot::get(id, limit, offset, &state.db).await
+    db::bot::get(id, limit, offset, &state.pool).await
 }
 
 pub async fn get_bot_version(id: &str, state: &ApiState) -> Result<Option<BotVersion>> {
-    db::bot::get_by_id(id, &state.db).await
+    db::bot::get_by_id(id, &state.pool).await
 }
 
 pub async fn touch_bot_version(
@@ -93,7 +93,7 @@ pub async fn touch_bot_version(
     version_id: &str,
     state: &ApiState,
 ) -> Result<Option<BotVersion>> {
-    db::bot::touch(id, version_id, &state.db).await
+    db::bot::touch(id, version_id, &state.pool).await
 }
 
 pub async fn get_bot_diff(
@@ -101,13 +101,13 @@ pub async fn get_bot_diff(
     version_b: &str,
     state: &ApiState,
 ) -> Result<(Option<BotVersion>, Option<BotVersion>)> {
-    let a = db::bot::get_by_id(version_a, &state.db).await?;
-    let b = db::bot::get_by_id(version_b, &state.db).await?;
+    let a = db::bot::get_by_id(version_a, &state.pool).await?;
+    let b = db::bot::get_by_id(version_b, &state.pool).await?;
     Ok((a, b))
 }
 
 pub async fn delete_bot_version(id: &str, state: &ApiState) -> Result<()> {
-    db::bot::delete_by_id(id, &state.db).await
+    db::bot::delete_by_id(id, &state.pool).await
 }
 
 #[cfg(test)]

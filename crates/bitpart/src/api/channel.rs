@@ -23,11 +23,11 @@ use crate::{
     api::ApiState,
     channels::signal,
     db,
-    db::entities::channel,
+    db::channel,
 };
 
 pub async fn create_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<String> {
-    db::channel::create(id, bot_id, &state.db).await
+    db::channel::create(id, bot_id, &state.pool).await
 }
 
 pub async fn link_channel(
@@ -37,7 +37,7 @@ pub async fn link_channel(
     attachments_dir: PathBuf,
     state: &mut ApiState,
 ) -> Result<String> {
-    let db_id = db::channel::create(id, bot_id, &state.db).await?;
+    let db_id = db::channel::create(id, bot_id, &state.pool).await?;
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::LinkChannel {
         id: db_id.clone(),
@@ -50,7 +50,7 @@ pub async fn link_channel(
     data.insert((bot_id.to_owned(), id.to_owned()), token);
     let msg = signal::ChannelMessage {
         msg: contents,
-        db: state.db.clone(),
+        pool: state.pool.clone(),
         token: msg_token,
         tracker: state.tracker.clone(),
         sender: send,
@@ -71,7 +71,7 @@ pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
         .or_insert(state.parent_token.child_token());
     let msg = signal::ChannelMessage {
         msg: contents,
-        db: state.db.clone(),
+        pool: state.pool.clone(),
         token: token.clone(),
         tracker: state.tracker.clone(),
         sender: send,
@@ -81,7 +81,7 @@ pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
 }
 
 pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState) -> Result<String> {
-    if let Some(channel) = db::channel::get(channel_id, bot_id, &state.db).await? {
+    if let Some(channel) = db::channel::get(channel_id, bot_id, &state.pool).await? {
         let (send, recv) = oneshot::channel();
         let contents = signal::ChannelMessageContents::ResetSessions {
             id: channel.id.to_owned(),
@@ -92,7 +92,7 @@ pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
             .or_insert(state.parent_token.child_token());
         let msg = signal::ChannelMessage {
             msg: contents,
-            db: state.db.clone(),
+            pool: state.pool.clone(),
             token: token.clone(),
             tracker: state.tracker.clone(),
             sender: send,
@@ -109,7 +109,7 @@ pub async fn read_channel(
     bot_id: &str,
     state: &ApiState,
 ) -> Result<Option<channel::Model>> {
-    let channel = db::channel::get(id, bot_id, &state.db).await?;
+    let channel = db::channel::get(id, bot_id, &state.pool).await?;
     Ok(channel)
 }
 
@@ -118,14 +118,14 @@ pub async fn list_channels(
     offset: Option<u64>,
     state: &ApiState,
 ) -> Result<Option<Vec<channel::Model>>> {
-    match db::channel::list(limit, offset, &state.db).await {
+    match db::channel::list(limit, offset, &state.pool).await {
         Ok(v) if !v.is_empty() => Ok(Some(v)),
         _ => Ok(None),
     }
 }
 
 pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<()> {
-    db::channel::delete(id, bot_id, &state.db).await?;
+    db::channel::delete(id, bot_id, &state.pool).await?;
     let data = state.tokens.lock().await;
     if let Some(token) = data.get(&(bot_id.to_owned(), id.to_owned())) {
         token.cancel();

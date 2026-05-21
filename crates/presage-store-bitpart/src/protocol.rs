@@ -73,7 +73,7 @@ impl BitpartProtocolStore<PniBitpartStore> {
 
 impl<T: BitpartTrees> BitpartProtocolStore<T> {
     async fn max_key_id(&self, tree: &str) -> Result<Option<u32>, SignalProtocolError> {
-        let mut keys = db::channel_state::get_all(&self.store.id, tree, &self.store.db)
+        let mut keys = db::channel_state::get_all(&self.store.id, tree, &self.store.pool)
             .await?
             .into_iter()
             .filter_map(|(key, _)| {
@@ -347,7 +347,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
 
     async fn signed_pre_keys_count(&self) -> Result<usize, SignalProtocolError> {
         Ok(
-            db::channel_state::get_all(&self.store.id, T::signed_pre_keys(), &self.store.db)
+            db::channel_state::get_all(&self.store.id, T::signed_pre_keys(), &self.store.pool)
                 .await
                 .map_err(|error| {
                     error!(%error, "store error");
@@ -361,7 +361,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
     async fn kyber_pre_keys_count(&self, _last_resort: bool) -> Result<usize, SignalProtocolError> {
         debug!("kyber_pre_keys_count");
         Ok(
-            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
+            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.pool)
                 .await
                 .map_err(|error| {
                     error!(%error, "store error");
@@ -380,7 +380,7 @@ impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
     ) -> Result<Option<KyberPreKeyId>, SignalProtocolError> {
         debug!("last_resort_kyber_prekey_id");
         let mut keys =
-            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
+            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.pool)
                 .await?
                 .into_iter()
                 .filter_map(|(key, value)| {
@@ -695,7 +695,7 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
         trace!(session_prefix, "get_sub_device_sessions");
         let device_id: u32 = (*DEFAULT_DEVICE_ID).into();
         let session_ids: Vec<DeviceId> =
-            db::channel_state::get_all(&self.store.id, T::sessions(), &self.store.db)
+            db::channel_state::get_all(&self.store.id, T::sessions(), &self.store.pool)
                 .await?
                 .iter()
                 .filter_map(|(key, _)| {
@@ -721,7 +721,7 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
             &self.store.id,
             T::sessions(),
             &address.to_string(),
-            &self.store.db,
+            &self.store.pool,
         )
         .await?;
 
@@ -733,7 +733,7 @@ impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
             &self.store.id,
             T::sessions(),
             &address.raw_uuid().to_string(),
-            &self.store.db,
+            &self.store.pool,
         )
         .await?;
 

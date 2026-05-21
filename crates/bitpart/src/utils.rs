@@ -17,19 +17,16 @@
 #[cfg(test)]
 use crate::channels::signal::{ChannelBackend, ChannelMessage};
 #[cfg(test)]
-use crate::db;
-#[cfg(test)]
 use crate::{api::ApiState, socket};
 #[cfg(test)]
 use axum::{Router, routing::any};
 #[cfg(test)]
 use axum_test::{TestServer, TestWebSocket};
 #[cfg(test)]
-use bitpart_common::error::Result;
-#[cfg(test)]
-use sea_orm::Database;
-#[cfg(test)]
-use sea_orm_migration::MigratorTrait;
+use bitpart_common::{
+    db::{build_pool, migration::migrate},
+    error::Result,
+};
 #[cfg(test)]
 use std::collections::HashMap;
 #[cfg(test)]
@@ -55,14 +52,20 @@ impl ChannelBackend for MockChannelBackend {
 
 #[cfg(test)]
 pub async fn get_test_socket() -> TestWebSocket {
-    let db = Database::connect("sqlite::memory:").await.unwrap();
-    db::migration::Migrator::refresh(&db).await.unwrap();
+    // File-backed: deadpool's `:memory:` gives each connection its own
+    // private DB.
+    let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
+    let path = dir.path().join("bitpart-test.sqlite");
+    let key = "bitparttestkey";
+
+    let pool = build_pool(&path, key.to_owned(), 4).expect("build pool");
+    migrate(&pool).await.expect("rusqlite migrator");
 
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
     let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
     let state = ApiState {
-        db,
+        pool,
         parent_token: token.clone(),
         tokens: Arc::new(Mutex::new(tokens)),
         tracker: tracker.clone(),

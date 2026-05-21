@@ -47,7 +47,6 @@ use presage::{
 };
 use presage_store_bitpart::BitpartStore;
 use sanitise_file_name::sanitise;
-use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time::UNIX_EPOCH;
@@ -68,7 +67,6 @@ use tracing::{debug, error, info};
 use uuid;
 
 use crate::api;
-use crate::db;
 
 // === manager + dispatch ===
 
@@ -90,7 +88,7 @@ pub enum ChannelMessageContents {
 
 pub struct ChannelMessage {
     pub msg: ChannelMessageContents,
-    pub db: DatabaseConnection,
+    pub pool: bitpart_common::db::Pool,
     pub token: CancellationToken,
     pub tracker: TaskTracker,
     pub sender: tokio_oneshot::Sender<String>,
@@ -155,7 +153,7 @@ impl ChannelBackend for SignalManager {
 #[derive(Debug)]
 pub struct ChannelState {
     id: String,
-    db: DatabaseConnection,
+    pool: bitpart_common::db::Pool,
 }
 
 // === device linking ===
@@ -163,15 +161,15 @@ pub struct ChannelState {
 async fn start_channel_recv(
     id: String,
     attachments_dir: PathBuf,
-    db: DatabaseConnection,
+    pool: bitpart_common::db::Pool,
     manager: &mut Cell<Manager<BitpartStore, Registered>>,
 ) -> Result<()> {
-    let channel = db::channel::get_by_id(&id, &db)
+    let channel = crate::db::channel::get_by_id(&id, &pool)
         .await?
         .ok_or_else(|| BitpartErrorKind::Signal("No such channel.".to_owned()))?;
     let state = ChannelState {
         id: channel.bot_id,
-        db,
+        pool,
     };
     receive(manager, &attachments_dir, &state).await?;
     Ok(())
@@ -180,7 +178,7 @@ async fn start_channel_recv(
 async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
     let ChannelMessage {
         msg,
-        db,
+        pool,
         token,
         tracker: _,
         sender,
@@ -191,7 +189,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             attachments_dir,
             device_name,
         } => {
-            let config_store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
+            let config_store = BitpartStore::open(&id, &pool, OnNewIdentity::Trust).await?;
             let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
 
             spawn_local(async move {
@@ -213,7 +211,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                                 let res = start_channel_recv(
                                     id,
                                     attachments_dir,
-                                    db.clone(),
+                                    pool.clone(),
                                     &mut manager_ref).await;
                                 error!("Link device receiver channel exited early: {:?}", res);
                             }
@@ -236,7 +234,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             id,
             attachments_dir,
         } => {
-            let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
+            let store = BitpartStore::open(&id, &pool, OnNewIdentity::Trust).await?;
 
             spawn_local(async move {
                 tokio::select! {
@@ -245,7 +243,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                             Ok(manager) => {
                                 let mut manager_ref = Cell::new(manager);
                                 let res =
-                                    start_channel_recv(id, attachments_dir, db.clone(), &mut manager_ref).await;
+                                    start_channel_recv(id, attachments_dir, pool.clone(), &mut manager_ref).await;
 
                                 error!(
                                     "Channel message StartChannel receive task exited early: {:?}",
@@ -268,7 +266,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                 .map_err(BitpartErrorKind::Signal)?)
         }
         ChannelMessageContents::ResetSessions { id } => {
-            let store = BitpartStore::open(&id, &db, OnNewIdentity::Trust).await?;
+            let store = BitpartStore::open(&id, &pool, OnNewIdentity::Trust).await?;
 
             match Manager::load_registered(store).await {
                 Ok(mut manager) => {
@@ -620,7 +618,7 @@ async fn reply<S: Store>(
         event,
     };
 
-    let res = api::process_request(&request, &state.db).await?;
+    let res = api::process_request(&request, &state.pool).await?;
     if let Some(messages) = res.get("messages") {
         for i in messages
             .as_array()
@@ -725,7 +723,7 @@ async fn receive(
                 }
             }
         }
-        let store = BitpartStore::open(&state.id, &state.db, OnNewIdentity::Trust).await?;
+        let store = BitpartStore::open(&state.id, &state.pool, OnNewIdentity::Trust).await?;
         // if let Ok(manager) = Manager::load_registered(store).await {
         //     warn!("Replacing manager!");
         //     manager_ref.replace(manager);

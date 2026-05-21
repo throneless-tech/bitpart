@@ -33,7 +33,7 @@ use csml_interpreter::interpreter::json_to_literal;
 use md5::{Digest, Md5};
 use rand::{Rng, thread_rng};
 use regex::Regex;
-use sea_orm::DatabaseConnection;
+use bitpart_common::db::Pool;
 use serde_json::{Value, json, map::Map};
 use std::collections::HashMap;
 use std::env;
@@ -185,9 +185,9 @@ pub fn get_default_flow(bot: &CsmlBot) -> Result<&CsmlFlow> {
 
 pub async fn clean_hold_and_restart(
     data: &mut ConversationData,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<()> {
-    db::state::delete(&data.client, "hold", "position", db).await?;
+    db::state::delete(&data.client, "hold", "position", pool).await?;
     data.context.hold = None;
     Ok(())
 }
@@ -339,11 +339,11 @@ pub async fn search_flow<'a>(
     event: &Event,
     bot: &'a CsmlBot,
     client: &Client,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<(&'a CsmlFlow, String)> {
     match event {
         event if event.content_type == "flow_trigger" => {
-            db::state::delete(client, "hold", "position", db).await?;
+            db::state::delete(client, "hold", "position", pool).await?;
 
             let flow_trigger: FlowTrigger = serde_json::from_str(&event.content_value)?;
 
@@ -383,7 +383,7 @@ pub async fn search_flow<'a>(
             };
             match random_flows.get(random) {
                 Some(flow) => {
-                    db::state::delete(client, "hold", "position", db).await?;
+                    db::state::delete(client, "hold", "position", pool).await?;
                     Ok((flow, "start".to_owned()))
                 }
                 None => Err(BitpartErrorKind::Interpreter(format!(
@@ -415,7 +415,7 @@ pub async fn search_flow<'a>(
             };
             match random_flows.get(random) {
                 Some(flow) => {
-                    db::state::delete(client, "hold", "position", db).await?;
+                    db::state::delete(client, "hold", "position", pool).await?;
                     Ok((flow, "start".to_owned()))
                 }
                 None => Err(BitpartErrorKind::Interpreter(format!(

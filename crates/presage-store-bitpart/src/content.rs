@@ -69,7 +69,7 @@ impl ContentsStore for BitpartStore {
             self.remove_all(BITPART_TREE_CONTACTS).await?;
             self.remove_all(BITPART_TREE_GROUPS).await?;
 
-            for tree in db::channel_state::get_trees(&self.id, &self.db)
+            for tree in db::channel_state::get_trees(&self.id, &self.pool)
                 .await?
                 .into_iter()
                 .filter(|n| n.starts_with(BITPART_TREE_THREADS_PREFIX))
@@ -95,7 +95,7 @@ impl ContentsStore for BitpartStore {
 
     async fn contacts(&self) -> Result<Self::ContactsIter, BitpartStoreError> {
         Ok(BitpartContactsIter {
-            data: db::channel_state::get_all(&self.id, BITPART_TREE_CONTACTS, &self.db)
+            data: db::channel_state::get_all(&self.id, BITPART_TREE_CONTACTS, &self.pool)
                 .await?
                 .into_iter()
                 .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
@@ -117,7 +117,7 @@ impl ContentsStore for BitpartStore {
 
     async fn groups(&self) -> Result<Self::GroupsIter, BitpartStoreError> {
         Ok(BitpartGroupsIter {
-            data: db::channel_state::get_all(&self.id, BITPART_TREE_GROUPS, &self.db)
+            data: db::channel_state::get_all(&self.id, BITPART_TREE_GROUPS, &self.pool)
                 .await?
                 .into_iter()
                 .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
@@ -163,9 +163,9 @@ impl ContentsStore for BitpartStore {
     // Messages
 
     async fn clear_messages(&mut self) -> Result<(), BitpartStoreError> {
-        for name in db::channel_state::get_trees(&self.id, &self.db).await? {
+        for name in db::channel_state::get_trees(&self.id, &self.pool).await? {
             if name.starts_with(BITPART_TREE_THREADS_PREFIX) {
-                db::channel_state::remove_all(&self.id, &name, &self.db).await?;
+                db::channel_state::remove_all(&self.id, &name, &self.pool).await?;
             }
         }
         Ok(())
@@ -298,7 +298,7 @@ impl ContentsStore for BitpartStore {
             BITPART_TREE_PROFILE_KEYS,
             &uuid.to_string(),
             String::from_utf8_lossy(&key.get_bytes()),
-            &self.db,
+            &self.pool,
         )
         .await
         .map(|_| true)
@@ -371,7 +371,7 @@ impl ContentsStore for BitpartStore {
 
     async fn sticker_packs(&self) -> Result<Self::StickerPacksIter, BitpartStoreError> {
         Ok(BitpartStickerPacksIter {
-            data: db::channel_state::get_all(&self.id, BITPART_TREE_STICKER_PACKS, &self.db)
+            data: db::channel_state::get_all(&self.id, BITPART_TREE_STICKER_PACKS, &self.pool)
                 .await?
                 .into_iter()
                 .map(|(k, v)| (k.into_bytes(), v.into_bytes()))

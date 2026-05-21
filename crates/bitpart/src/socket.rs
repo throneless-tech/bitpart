@@ -169,7 +169,7 @@ async fn process_message(
                         .await
                         .into_ws("DeleteChannel")
                 }
-                SocketMessage::ChatRequest(req) => api::process_request(&req, &state.db)
+                SocketMessage::ChatRequest(req) => api::process_request(&req, &state.pool)
                     .await
                     .into_ws("ChatRequest"),
                 SocketMessage::LinkChannel {

@@ -40,7 +40,6 @@ use figment::{
 use figment_file_provider_adapter::FileAdapter;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracer};
-use sea_orm::{ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -56,7 +55,7 @@ use tracing_subscriber::prelude::*;
 
 use api::ApiState;
 use channels::signal;
-use db::migration::migrate;
+use bitpart_common::db::migration::migrate;
 
 /// Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders.
 #[derive(Parser, Serialize, Deserialize)]
@@ -210,20 +209,21 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    // Initialize database
-    let uri = format!("sqlite://{}?mode=rwc", server.database);
-    let mut opts = ConnectOptions::new(&uri);
-    opts.sqlcipher_key(server.key);
-    let db = Database::connect(opts).await?;
-    migrate(&db).await?;
+    // Initialize database.
+    let pool = bitpart_common::db::build_pool(
+        std::path::Path::new(&server.database),
+        server.key.clone(),
+        bitpart_common::db::DEFAULT_POOL_SIZE,
+    )?;
+    migrate(&pool).await?;
 
     // Start incoming message channels
-    let channels = db::channel::list(None, None, &db).await?;
+    let channels = db::channel::list(None, None, &pool).await?;
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
     let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
     let mut state = ApiState {
-        db,
+        pool,
         auth: server.auth,
         parent_token: token.clone(),
         tokens: Arc::new(Mutex::new(tokens)),

@@ -29,7 +29,7 @@ use presage::{
 };
 use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
 
-use sea_orm::DatabaseConnection;
+use deadpool_sqlite::Pool;
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::str;
@@ -42,9 +42,6 @@ mod protocol;
 
 pub use error::BitpartStoreError;
 
-#[cfg(test)]
-use sea_orm::ConnectionTrait;
-
 const BITPART_TREE_STATE: &str = "state";
 
 const BITPART_KEY_REGISTRATION: &str = "registration";
@@ -55,7 +52,7 @@ const BITPART_KEY_MASTER: &str = "master";
 pub struct BitpartStore {
     id: String, // database ID
 
-    db: DatabaseConnection,
+    pool: Pool,
 
     /// Whether to trust new identities automatically (for instance, when a somebody's phone has changed)
     trust_new_identities: OnNewIdentity,
@@ -64,62 +61,95 @@ pub struct BitpartStore {
 impl BitpartStore {
     pub async fn open(
         id: &str,
-        database: &DatabaseConnection,
+        pool: &Pool,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
         Ok(BitpartStore {
             id: id.to_owned(),
-            db: database.clone(),
+            pool: pool.clone(),
             trust_new_identities,
         })
     }
 
     #[cfg(test)]
     async fn temporary() -> Result<Self, BitpartStoreError> {
-        let db = sea_orm::Database::connect("sqlite::memory:").await?;
-        db.execute_unprepared(
-            "CREATE TABLE channel (
-                    id TEXT PRIMARY KEY,
-                    bot_id TEXT,
-                    channel_id TEXT,
-                    created_at TEXT,
-                    updated_at TEXT
-                );
-                INSERT INTO channel (
-                    id,
-                    bot_id,
-                    channel_id,
-                    created_at,
-                    updated_at
-                ) VALUES(
-                    'test',
-                    'bot_id',
-                    'signal',
-                    '1678295210',
-                    '1678295210'
-                );
-                CREATE TABLE channel_state (
-                    id TEXT PRIMARY KEY,
-                    channel_id TEXT,
-                    tree TEXT,
-                    key TEXT,
-                    value TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TRIGGER channel_state_updated_at
-                AFTER UPDATE ON channel_state
-                FOR EACH ROW
-                BEGIN
-                    UPDATE channel_state
-                    SET updated_at = (datetime('now','localtime'))
-                    WHERE id = NEW.id;
-                END;",
-        )
-        .await?;
+        use deadpool_sqlite::{Config, Hook, HookError, Runtime};
+
+        // File-backed: deadpool's `:memory:` gives each connection its
+        // own private DB.
+        let dir = Box::leak(Box::new(
+            tempfile::tempdir()
+                .map_err(|e| BitpartStoreError::Pool(format!("tempdir: {e}")))?,
+        ));
+        let path = dir.path().join("presage-test.sqlite");
+
+        // DDL inlined: bitpart-common depends on this crate, so we
+        // can't reuse its migrator.
+        const TEMP_DDL: &str = "
+            CREATE TABLE channel (
+                id TEXT PRIMARY KEY,
+                bot_id TEXT,
+                channel_id TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            );
+            INSERT INTO channel (id, bot_id, channel_id, created_at, updated_at)
+                VALUES ('test', 'bot_id', 'signal', '1678295210', '1678295210');
+            CREATE TABLE channel_state (
+                id TEXT PRIMARY KEY,
+                channel_id TEXT,
+                tree TEXT,
+                key TEXT,
+                value TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TRIGGER channel_state_updated_at
+            AFTER UPDATE ON channel_state
+            FOR EACH ROW
+            BEGIN
+                UPDATE channel_state
+                SET updated_at = (datetime('now','localtime'))
+                WHERE id = NEW.id;
+            END;
+        ";
+
+        let cfg = Config::new(&path);
+        let ddl_once = std::sync::Arc::new(std::sync::Once::new());
+        let ddl_once_for_hook = ddl_once.clone();
+        let pool = cfg
+            .builder(Runtime::Tokio1)
+            .map_err(|e| BitpartStoreError::Pool(format!("builder: {e}")))?
+            .max_size(4)
+            .post_create(Hook::async_fn(move |obj, _metrics| {
+                let once = ddl_once_for_hook.clone();
+                Box::pin(async move {
+                    obj.interact(move |c| -> rusqlite::Result<()> {
+                        let mut result = Ok(());
+                        once.call_once(|| {
+                            result = c.execute_batch(TEMP_DDL);
+                        });
+                        result
+                    })
+                    .await
+                    .map_err(|e| HookError::message(format!("interact: {e}")))?
+                    .map_err(|e| HookError::message(format!("ddl: {e}")))?;
+                    Ok(())
+                })
+            }))
+            .build()
+            .map_err(|e| BitpartStoreError::Pool(format!("build: {e}")))?;
+
+        // Force the first connection so the DDL runs before any test
+        // code grabs the pool.
+        let _conn = pool
+            .get()
+            .await
+            .map_err(|e| BitpartStoreError::Pool(format!("warm-up get: {e}")))?;
+
         Ok(Self {
             id: "test".to_owned(),
-            db,
+            pool,
             trust_new_identities: OnNewIdentity::Reject,
         })
     }
@@ -130,7 +160,7 @@ impl BitpartStore {
         V: DeserializeOwned,
     {
         let key = serde_json::to_string(key.as_ref())?;
-        if let Some(value) = db::channel_state::get(&self.id, tree, &key, &self.db).await? {
+        if let Some(value) = db::channel_state::get(&self.id, tree, &key, &self.pool).await? {
             Ok(Some(serde_json::from_str(&value)?))
         } else {
             Ok(None)
@@ -142,7 +172,7 @@ impl BitpartStore {
         K: AsRef<[u8]> + DeserializeOwned + std::fmt::Debug,
         V: DeserializeOwned + std::fmt::Debug,
     {
-        Ok(db::channel_state::get_all(&self.id, tree, &self.db)
+        Ok(db::channel_state::get_all(&self.id, tree, &self.pool)
             .await?
             .into_iter()
             .flat_map(move |(key, value)| {
@@ -158,7 +188,7 @@ impl BitpartStore {
         &'a self,
         tree: &str,
     ) -> Result<impl Iterator<Item = Result<V, BitpartStoreError>> + 'a, BitpartStoreError> {
-        Ok(db::channel_state::get_all(&self.id, tree, &self.db)
+        Ok(db::channel_state::get_all(&self.id, tree, &self.pool)
             .await?
             .into_iter()
             .map(move |(_, value)| Ok(serde_json::from_str::<V>(&value)?)))
@@ -175,7 +205,7 @@ impl BitpartStore {
             tree,
             &key,
             serde_json::to_string(&value)?,
-            &self.db,
+            &self.pool,
         )
         .await?;
 
@@ -188,7 +218,7 @@ impl BitpartStore {
         V: DeserializeOwned,
     {
         let key = serde_json::to_string(key.as_ref())?;
-        if let Some(removed) = db::channel_state::remove(&self.id, tree, &key, &self.db).await? {
+        if let Some(removed) = db::channel_state::remove(&self.id, tree, &key, &self.pool).await? {
             Ok(Some(serde_json::from_str(&removed)?))
         } else {
             Ok(None)
@@ -196,7 +226,7 @@ impl BitpartStore {
     }
 
     async fn remove_all(&self, tree: &str) -> Result<bool, BitpartStoreError> {
-        let removed = db::channel_state::remove_all(&self.id, tree, &self.db).await?;
+        let removed = db::channel_state::remove_all(&self.id, tree, &self.pool).await?;
         Ok(removed > 0)
     }
 
@@ -277,7 +307,7 @@ impl StateStore for BitpartStore {
 
     async fn clear_registration(&mut self) -> Result<(), Self::StateStoreError> {
         // drop registration data (includes identity keys)
-        db::channel_state::remove_all(&self.id, BITPART_TREE_STATE, &self.db).await?;
+        db::channel_state::remove_all(&self.id, BITPART_TREE_STATE, &self.pool).await?;
         // drop all saved profile (+avatards) and profile keys
         self.clear_profiles().await?;
 

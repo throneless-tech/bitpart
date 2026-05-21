@@ -14,16 +14,15 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bitpart_common::{csml::Request, error::Result};
-use sea_orm::DatabaseConnection;
+use bitpart_common::{csml::Request, db::Pool, error::Result};
 
 use crate::csml::conversation;
 
 pub async fn process_request(
     body: &Request,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<serde_json::Map<String, serde_json::Value>> {
-    match conversation::start(body, db).await {
+    match conversation::start(body, pool).await {
         Ok(res) => Ok(res),
         Err(err) => Err(err),
     }

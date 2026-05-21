@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use sea_orm::DatabaseConnection;
+use bitpart_common::db::Pool;
 use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
@@ -40,7 +40,7 @@ pub use request::process_request;
 
 #[derive(Clone)]
 pub struct ApiState {
-    pub db: DatabaseConnection,
+    pub pool: Pool,
     pub auth: String,
     pub parent_token: CancellationToken,
     pub tokens: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
