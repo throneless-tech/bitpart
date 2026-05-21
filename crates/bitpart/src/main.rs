@@ -59,7 +59,7 @@ use channels::signal;
 use db::migration::migrate;
 
 /// Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders.
-#[derive(Debug, Parser, Serialize, Deserialize)]
+#[derive(Parser, Serialize, Deserialize)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Verbosity
@@ -91,7 +91,7 @@ struct Cli {
     opentelemetry: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Config {
     /// Verbosity
     verbose: Verbosity,
@@ -110,6 +110,35 @@ struct Config {
 
     /// Enable Opentelemetry
     opentelemetry: bool,
+}
+
+/// Placeholder rendered in `Debug` output in place of sensitive values.
+const REDACTED: &str = "<redacted>";
+
+impl std::fmt::Debug for Cli {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cli")
+            .field("verbose", &self.verbose)
+            .field("auth", &self.auth.as_ref().map(|_| REDACTED))
+            .field("bind", &self.bind)
+            .field("database", &self.database)
+            .field("key", &self.key.as_ref().map(|_| REDACTED))
+            .field("opentelemetry", &self.opentelemetry)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("verbose", &self.verbose)
+            .field("auth", &REDACTED)
+            .field("bind", &self.bind)
+            .field("database", &self.database)
+            .field("key", &REDACTED)
+            .field("opentelemetry", &self.opentelemetry)
+            .finish()
+    }
 }
 
 async fn authenticate(
