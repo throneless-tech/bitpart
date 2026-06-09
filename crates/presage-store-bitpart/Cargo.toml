@@ -15,7 +15,7 @@ base64 = "0.22"
 chrono = "0.4.35"
 fs_extra = "1.3"
 futures = "0.3.31"
-presage = { git = "https://github.com/whisperfish/presage", rev = "22251cc2d4503240df82aa27f1ba226324c05a29" }
+presage = { git = "https://github.com/throneless-tech/presage", rev = "d78c29920289d9eba0d29518fa1cc9f9f439d747" }
 prost = "0.13"
 quickcheck_macros = "1.0.0"
 rusqlite = { git = "https://github.com/whisperfish/rusqlite", rev = "2a42b3354c9194700d08aa070f70a131a470e7dc", features = ["bundled-sqlcipher-custom-crypto"] }

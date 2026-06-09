@@ -3146,7 +3146,7 @@ dependencies = [
 [[package]]
 name = "presage"
 version = "0.8.0-dev"
-source = "git+https://github.com/whisperfish/presage?rev=22251cc2d4503240df82aa27f1ba226324c05a29#22251cc2d4503240df82aa27f1ba226324c05a29"
+source = "git+https://github.com/throneless-tech/presage?rev=d78c29920289d9eba0d29518fa1cc9f9f439d747#d78c29920289d9eba0d29518fa1cc9f9f439d747"
 dependencies = [
  "base64 0.22.1",
  "bytes",
