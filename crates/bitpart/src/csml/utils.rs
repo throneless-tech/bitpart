@@ -18,6 +18,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use base64::prelude::*;
+use bitpart_common::db::Pool;
 use bitpart_common::{
     csml::FlowTrigger,
     error::{BitpartErrorKind, Result},
@@ -33,7 +34,6 @@ use csml_interpreter::interpreter::json_to_literal;
 use md5::{Digest, Md5};
 use rand::{Rng, thread_rng};
 use regex::Regex;
-use bitpart_common::db::Pool;
 use serde_json::{Value, json, map::Map};
 use std::collections::HashMap;
 use std::env;
@@ -183,10 +183,7 @@ pub fn get_default_flow(bot: &CsmlBot) -> Result<&CsmlFlow> {
     }
 }
 
-pub async fn clean_hold_and_restart(
-    data: &mut ConversationData,
-    pool: &Pool,
-) -> Result<()> {
+pub async fn clean_hold_and_restart(data: &mut ConversationData, pool: &Pool) -> Result<()> {
     db::state::delete(&data.client, "hold", "position", pool).await?;
     data.context.hold = None;
     Ok(())

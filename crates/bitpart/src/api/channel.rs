@@ -19,12 +19,7 @@ use std::path::PathBuf;
 use bitpart_common::error::{BitpartErrorKind, Result};
 use tokio::sync::oneshot;
 
-use crate::{
-    api::ApiState,
-    channels::signal,
-    db,
-    db::channel,
-};
+use crate::{api::ApiState, channels::signal, db, db::channel};
 
 pub async fn create_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<String> {
     db::channel::create(id, bot_id, &state.pool).await

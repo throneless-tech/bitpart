@@ -131,10 +131,7 @@ pub async fn delete_by_client(client: &Client, db: &Pool) -> Result<()> {
     let obj = db.get().await.map_err(pool_err)?;
     obj.interact(move |conn| -> rusqlite::Result<()> {
         for id in convo_ids {
-            conn.execute(
-                "DELETE FROM message WHERE conversation_id = ?",
-                params![id],
-            )?;
+            conn.execute("DELETE FROM message WHERE conversation_id = ?", params![id])?;
         }
         Ok(())
     })

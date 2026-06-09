@@ -17,4 +17,16 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pub mod channel_state;
+pub mod base_keys_seen;
+pub mod contacts;
+pub mod groups;
+pub mod identities;
+pub mod kyber_pre_keys;
+pub mod messages;
+pub mod pre_keys;
+pub mod profiles;
+pub mod sender_keys;
+pub mod sessions;
+pub mod signed_pre_keys;
+pub mod state;
+pub mod sticker_packs;

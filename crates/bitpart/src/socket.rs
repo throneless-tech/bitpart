@@ -110,13 +110,10 @@ async fn process_message(
                 SocketMessage::CreateBot(bot) => {
                     api::create_bot(*bot, state).await.into_ws("CreateBot")
                 }
-                SocketMessage::ReadBot { id } => {
-                    api::read_bot(&id, state).await.into_ws("ReadBot")
-                }
+                SocketMessage::ReadBot { id } => api::read_bot(&id, state).await.into_ws("ReadBot"),
                 SocketMessage::BotVersions { id, options } => {
-                    let (limit, offset) = options
-                        .map(|p| (p.limit, p.offset))
-                        .unwrap_or((None, None));
+                    let (limit, offset) =
+                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
                     api::get_bot_versions(&id, limit, offset, state)
                         .await
                         .into_ws("BotVersions")
@@ -136,30 +133,28 @@ async fn process_message(
                     api::delete_bot(&id, state).await.into_ws("DeleteBot")
                 }
                 SocketMessage::ListBots(options) => {
-                    let (limit, offset) = options
-                        .map(|p| (p.limit, p.offset))
-                        .unwrap_or((None, None));
-                    api::list_bots(limit, offset, state).await.into_ws("ListBots")
+                    let (limit, offset) =
+                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
+                    api::list_bots(limit, offset, state)
+                        .await
+                        .into_ws("ListBots")
                 }
                 SocketMessage::CreateChannel { id, bot_id } => {
                     api::create_channel(&id, &bot_id, state)
                         .await
                         .into_ws("CreateChannel")
                 }
-                SocketMessage::ReadChannel { id, bot_id } => {
-                    api::read_channel(&id, &bot_id, state)
-                        .await
-                        .into_ws("ReadChannel")
-                }
+                SocketMessage::ReadChannel { id, bot_id } => api::read_channel(&id, &bot_id, state)
+                    .await
+                    .into_ws("ReadChannel"),
                 SocketMessage::ResetChannel { id, bot_id } => {
                     api::reset_channel(&id, &bot_id, state)
                         .await
                         .into_ws("ResetChannel")
                 }
                 SocketMessage::ListChannels(options) => {
-                    let (limit, offset) = options
-                        .map(|p| (p.limit, p.offset))
-                        .unwrap_or((None, None));
+                    let (limit, offset) =
+                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
                     api::list_channels(limit, offset, state)
                         .await
                         .into_ws("ListChannels")

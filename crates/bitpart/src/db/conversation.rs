@@ -80,7 +80,13 @@ pub async fn create(
              (id, bot_id, channel_id, user_id, flow_id, step_id, status, expires_at) \
              VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?)",
             params![
-                id_clone, bot_id, channel_id, user_id, flow_id, step_id, expires_at_str,
+                id_clone,
+                bot_id,
+                channel_id,
+                user_id,
+                flow_id,
+                step_id,
+                expires_at_str,
             ],
         )?;
         Ok(())
@@ -175,8 +181,8 @@ pub async fn get_by_client(
                  LIMIT ? OFFSET ?"
             );
             let mut stmt = conn.prepare(&sql)?;
-            let rows = stmt
-                .query_map(params![bot_id, channel_id, user_id, lim, off], row_to_model)?;
+            let rows =
+                stmt.query_map(params![bot_id, channel_id, user_id, lim, off], row_to_model)?;
             let mut out = Vec::new();
             for row in rows {
                 out.push(row?);

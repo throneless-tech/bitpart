@@ -54,8 +54,8 @@ use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::prelude::*;
 
 use api::ApiState;
-use channels::signal;
 use bitpart_common::db::migration::migrate;
+use channels::signal;
 
 /// Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders.
 #[derive(Parser, Serialize, Deserialize)]

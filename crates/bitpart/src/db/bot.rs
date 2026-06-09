@@ -105,11 +105,7 @@ impl BotRow {
     }
 }
 
-pub async fn list(
-    limit: Option<u64>,
-    offset: Option<u64>,
-    db: &Pool,
-) -> Result<Vec<String>> {
+pub async fn list(limit: Option<u64>, offset: Option<u64>, db: &Pool) -> Result<Vec<String>> {
     let obj = db.get().await.map_err(pool_err)?;
     let res = obj
         .interact(move |conn| -> rusqlite::Result<Vec<String>> {
@@ -199,10 +195,7 @@ pub async fn get_by_id(id: &str, db: &Pool) -> Result<Option<BotVersion>> {
     }
 }
 
-pub async fn get_latest_by_bot_id(
-    bot_id: &str,
-    db: &Pool,
-) -> Result<Option<BotVersion>> {
+pub async fn get_latest_by_bot_id(bot_id: &str, db: &Pool) -> Result<Option<BotVersion>> {
     let bot_id = bot_id.to_owned();
     let obj = db.get().await.map_err(pool_err)?;
     let row = obj
@@ -276,9 +269,8 @@ pub async fn touch(id: &str, version_id: &str, db: &Pool) -> Result<Option<BotVe
     let obj = db.get().await.map_err(pool_err)?;
     let row = obj
         .interact(move |conn| -> rusqlite::Result<Option<BotRow>> {
-            let mut stmt = conn.prepare(
-                "SELECT id, bot_id, bot FROM bot WHERE id = ? AND bot_id = ?",
-            )?;
+            let mut stmt =
+                conn.prepare("SELECT id, bot_id, bot FROM bot WHERE id = ? AND bot_id = ?")?;
             let row = stmt
                 .query_row(params![version_id, id], |r| {
                     Ok(BotRow {
@@ -302,9 +294,7 @@ pub async fn touch(id: &str, version_id: &str, db: &Pool) -> Result<Option<BotVe
         .map_err(pool_err)??;
 
     match row {
-        Some(r) => {
-            Ok(Some(r.into_version_row_id()?))
-        }
+        Some(r) => Ok(Some(r.into_version_row_id()?)),
         None => Ok(None),
     }
 }
@@ -319,10 +309,7 @@ pub async fn delete_by_bot_id(bot_id: &str, db: &Pool) -> Result<()> {
         .await
         .map_err(pool_err)??;
     if affected == 0 {
-        Err(BitpartErrorKind::Api(format!(
-            "Record not found: bot_id={bot_id}"
-        ))
-        .into())
+        Err(BitpartErrorKind::Api(format!("Record not found: bot_id={bot_id}")).into())
     } else {
         Ok(())
     }

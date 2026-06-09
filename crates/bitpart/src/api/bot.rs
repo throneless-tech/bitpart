@@ -20,11 +20,7 @@ use csml_interpreter::{
     load_components, search_for_modules, validate_bot,
 };
 
-use crate::{
-    api::ApiState,
-    csml::data::BotVersion,
-    db,
-};
+use crate::{api::ApiState, csml::data::BotVersion, db};
 
 pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion> {
     bot.native_components = match load_components() {

@@ -150,8 +150,13 @@ async fn init_conversation_data<'a>(
     // Create a new interaction. An interaction is basically each request,
     // initiated from the bot or the user.
 
-    let mut context =
-        init_context(default_flow, request.client.clone(), &bot.apps_endpoint, pool).await;
+    let mut context = init_context(
+        default_flow,
+        request.client.clone(),
+        &bot.apps_endpoint,
+        pool,
+    )
+    .await;
     let ttl = utils::get_ttl_duration_value(Some(event));
     // let low_data = utils::get_low_data_mode_value(event); // We're always in low_data mode
 
@@ -162,7 +167,8 @@ async fn init_conversation_data<'a>(
         .await
         .ok();
     let conversation_id =
-        get_or_create_conversation(&mut context, bot, flow_found, &request.client, ttl, pool).await?;
+        get_or_create_conversation(&mut context, bot, flow_found, &request.client, ttl, pool)
+            .await?;
 
     context.metadata = get_hashmap_from_json(&request.metadata, &context.flow);
     let memories = db::memory::get_by_client(&request.client, None, None, pool).await?;
@@ -192,7 +198,13 @@ async fn init_conversation_data<'a>(
 
     // Now that everything is correctly setup, update the conversation with wherever
     // we are now and continue with the rest of the request!
-    db::conversation::update(&data.conversation_id, Some(flow), Some(step.get_step()), pool).await?;
+    db::conversation::update(
+        &data.conversation_id,
+        Some(flow),
+        Some(step.get_step()),
+        pool,
+    )
+    .await?;
 
     Ok(data)
 }
@@ -377,7 +389,8 @@ async fn check_switch_bot(
 
             let result = interpret::step(data, event.clone(), bot, pool).await;
 
-            let mut new_messages = check_switch_bot(result, data, bot, bot_opt, event, pool).await?;
+            let mut new_messages =
+                check_switch_bot(result, data, bot, bot_opt, event, pool).await?;
 
             messages.append(&mut new_messages);
 

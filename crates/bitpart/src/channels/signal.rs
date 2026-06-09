@@ -270,8 +270,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
 
             match Manager::load_registered(store).await {
                 Ok(mut manager) => {
-                    let sessions: Vec<(String, Vec<u8>)> =
-                        manager.store().get_all("sessions").await?;
+                    let sessions: Vec<(String, Vec<u8>)> = manager.store().aci_sessions().await?;
                     for (address, _) in sessions {
                         let timestamp = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
@@ -366,7 +365,7 @@ async fn process_signal_message<S: Store>(
     content: &Content,
     state: &ChannelState,
 ) -> Result<()> {
-    let thread = Thread::try_from(content)?;
+    let thread = Thread::try_from(content).map_err(|e| BitpartErrorKind::Signal(e.to_string()))?;
 
     async fn format_data_message<S: Store>(
         thread: &Thread,
@@ -417,10 +416,14 @@ async fn process_signal_message<S: Store>(
         }
     }
 
-    async fn format_contact<S: Store>(uuid: &Uuid, manager: &mut Manager<S, Registered>) -> String {
+    async fn format_contact<S: Store>(
+        service_id: &ServiceId,
+        manager: &mut Manager<S, Registered>,
+    ) -> String {
+        let uuid = service_id.raw_uuid();
         manager
             .store()
-            .contact_by_id(uuid)
+            .contact_by_id(service_id)
             .await
             .ok()
             .flatten()
@@ -506,6 +509,10 @@ async fn process_signal_message<S: Store>(
         ContentBody::PniSignatureMessage(_) => {
             Some(Msg::Received(&thread, "got PNI signature message".into()))
         }
+        ContentBody::DecryptionErrorMessage(_) => Some(Msg::Received(
+            &thread,
+            "got decryption error message".into(),
+        )),
     } {
         let ts = content.timestamp();
         let (prefix, _body) = match msg {
@@ -515,7 +522,9 @@ async fn process_signal_message<S: Store>(
             }
             Msg::Replyable(Thread::Contact(sender), body) => {
                 let contact = format_contact(sender, manager).await;
-                if let Err(err) = reply(sender.to_string(), body.clone(), state, manager).await {
+                if let Err(err) =
+                    reply(sender.raw_uuid().to_string(), body.clone(), state, manager).await
+                {
                     warn!("Problem with replying to message: {:?}", err);
                 }
                 (format!("From {contact} @ {ts}: "), body)
@@ -525,12 +534,12 @@ async fn process_signal_message<S: Store>(
                 (format!("To {contact} @ {ts}"), body)
             }
             Msg::Received(Thread::Group(key), body) => {
-                let sender = format_contact(&content.metadata.sender.raw_uuid(), manager).await;
+                let sender = format_contact(&content.metadata.sender, manager).await;
                 let group = format_group(*key, manager).await;
                 (format!("From {sender} to group {group} @ {ts}: "), body)
             }
             Msg::Replyable(Thread::Group(key), body) => {
-                let sender = format_contact(&content.metadata.sender.raw_uuid(), manager).await;
+                let sender = format_contact(&content.metadata.sender, manager).await;
                 let group = format_group(*key, manager).await;
                 (format!("From {sender} to group {group} @ {ts}: "), body)
             }

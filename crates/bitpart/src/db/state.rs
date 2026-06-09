@@ -27,12 +27,7 @@ fn render_expires(expires_at: Option<NaiveDateTime>) -> Option<String> {
     expires_at.map(|e| e.to_string())
 }
 
-pub async fn get(
-    client: &Client,
-    r#type: &str,
-    key: &str,
-    db: &Pool,
-) -> Result<Value> {
+pub async fn get(client: &Client, r#type: &str, key: &str, db: &Pool) -> Result<Value> {
     let bot_id = client.bot_id.clone();
     let channel_id = client.channel_id.clone();
     let user_id = client.user_id.clone();
@@ -48,10 +43,9 @@ pub async fn get(
                    AND type = ? AND key = ? \
                  LIMIT 1",
             )?;
-            stmt.query_row(
-                params![bot_id, channel_id, user_id, r#type, key],
-                |r| r.get::<_, String>(0),
-            )
+            stmt.query_row(params![bot_id, channel_id, user_id, r#type, key], |r| {
+                r.get::<_, String>(0)
+            })
             .optional()
         })
         .await
@@ -75,10 +69,9 @@ pub async fn get_by_client(client: &Client, db: &Pool) -> Result<Vec<Value>> {
                 "SELECT value FROM state \
                  WHERE bot_id = ? AND channel_id = ? AND user_id = ?",
             )?;
-            let rows = stmt.query_map(
-                params![bot_id, channel_id, user_id],
-                |r| r.get::<_, String>(0),
-            )?;
+            let rows = stmt.query_map(params![bot_id, channel_id, user_id], |r| {
+                r.get::<_, String>(0)
+            })?;
             let mut out = Vec::new();
             for row in rows {
                 out.push(row?);
@@ -117,10 +110,9 @@ pub async fn set(
                    AND type = ? AND key = ? \
                  LIMIT 1",
             )?;
-            stmt.query_row(
-                params![bot_id, channel_id, user_id, type_, key],
-                |r| r.get::<_, String>(0),
-            )
+            stmt.query_row(params![bot_id, channel_id, user_id, type_, key], |r| {
+                r.get::<_, String>(0)
+            })
             .optional()?
         };
 
@@ -159,12 +151,7 @@ pub async fn set(
     Ok(())
 }
 
-pub async fn delete(
-    client: &Client,
-    r#type: &str,
-    key: &str,
-    db: &Pool,
-) -> Result<()> {
+pub async fn delete(client: &Client, r#type: &str, key: &str, db: &Pool) -> Result<()> {
     let bot_id = client.bot_id.clone();
     let channel_id = client.channel_id.clone();
     let user_id = client.user_id.clone();
