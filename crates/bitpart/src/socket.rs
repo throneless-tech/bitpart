@@ -20,7 +20,7 @@ use axum::{
     response::IntoResponse,
 };
 use bitpart_common::{
-    error::{BitpartErrorKind, Result},
+    error::{BitpartError, BitpartErrorKind, Result},
     socket::{Response, SocketMessage},
 };
 use serde::Serialize;
@@ -84,6 +84,19 @@ fn wrap_response<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Me
     )))
 }
 
+trait ApiResultExt {
+    fn into_ws(self, response_type: &str) -> Result<Option<Message>>;
+}
+
+impl<T: Serialize> ApiResultExt for std::result::Result<T, BitpartError> {
+    fn into_ws(self, response_type: &str) -> Result<Option<Message>> {
+        match self {
+            Ok(res) => wrap_response(response_type, &res),
+            Err(err) => wrap_error(response_type, &err.to_string()),
+        }
+    }
+}
+
 async fn process_message(
     msg: Message,
     who: SocketAddr,
@@ -94,108 +107,71 @@ async fn process_message(
             debug!(">>> {who} sent str: {t:?}");
             let contents: SocketMessage<String> = serde_json::from_slice(t.as_bytes())?;
             match contents {
-                SocketMessage::CreateBot(bot) => match api::create_bot(*bot, state).await {
-                    Ok(res) => wrap_response("CreateBot", &res),
-                    Err(err) => wrap_error("CreateBot", &err.to_string()),
-                },
-                SocketMessage::ReadBot { id } => match api::read_bot(&id, state).await {
-                    Ok(res) => wrap_response("ReadBot", &res),
-                    Err(err) => wrap_error("ReadBot", &err.to_string()),
-                },
+                SocketMessage::CreateBot(bot) => {
+                    api::create_bot(*bot, state).await.into_ws("CreateBot")
+                }
+                SocketMessage::ReadBot { id } => api::read_bot(&id, state).await.into_ws("ReadBot"),
                 SocketMessage::BotVersions { id, options } => {
-                    if let Some(paginate) = options {
-                        match api::get_bot_versions(&id, paginate.limit, paginate.offset, state)
-                            .await
-                        {
-                            Ok(res) => wrap_response("BotVersions", &res),
-                            Err(err) => wrap_error("BotVersions", &err.to_string()),
-                        }
-                    } else {
-                        match api::get_bot_versions(&id, None, None, state).await {
-                            Ok(res) => wrap_response("BotVersions", &res),
-                            Err(err) => wrap_error("BotVersions", &err.to_string()),
-                        }
-                    }
+                    let (limit, offset) =
+                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
+                    api::get_bot_versions(&id, limit, offset, state)
+                        .await
+                        .into_ws("BotVersions")
                 }
                 SocketMessage::RollbackBot { id, version_id } => {
-                    match api::touch_bot_version(&id, &version_id, state).await {
-                        Ok(res) => wrap_response("RollbackBot", &res),
-                        Err(err) => wrap_error("RollbackBot", &err.to_string()),
-                    }
+                    api::touch_bot_version(&id, &version_id, state)
+                        .await
+                        .into_ws("RollbackBot")
                 }
                 SocketMessage::DiffBot {
                     version_a,
                     version_b,
-                } => match api::get_bot_diff(&version_a, &version_b, state).await {
-                    Ok(res) => wrap_response("DiffBot", &res),
-                    Err(err) => wrap_error("DiffBot", &err.to_string()),
-                },
-                SocketMessage::DeleteBot { id } => match api::delete_bot(&id, state).await {
-                    Ok(res) => wrap_response("DeleteBot", &res),
-                    Err(err) => wrap_error("DeleteBot", &err.to_string()),
-                },
+                } => api::get_bot_diff(&version_a, &version_b, state)
+                    .await
+                    .into_ws("DiffBot"),
+                SocketMessage::DeleteBot { id } => {
+                    api::delete_bot(&id, state).await.into_ws("DeleteBot")
+                }
                 SocketMessage::ListBots(options) => {
-                    if let Some(paginate) = options {
-                        match api::list_bots(paginate.limit, paginate.offset, state).await {
-                            Ok(res) => wrap_response("ListBots", &res),
-                            Err(err) => wrap_error("ListBots", &err.to_string()),
-                        }
-                    } else {
-                        match api::list_bots(None, None, state).await {
-                            Ok(res) => wrap_response("ListBots", &res),
-                            Err(err) => wrap_error("ListBots", &err.to_string()),
-                        }
-                    }
+                    let (limit, offset) =
+                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
+                    api::list_bots(limit, offset, state)
+                        .await
+                        .into_ws("ListBots")
                 }
                 SocketMessage::CreateChannel { id, bot_id } => {
-                    match api::create_channel(&id, &bot_id, state).await {
-                        Ok(res) => wrap_response("CreateChannel", &res),
-                        Err(err) => wrap_error("CreateChannel", &err.to_string()),
-                    }
+                    api::create_channel(&id, &bot_id, state)
+                        .await
+                        .into_ws("CreateChannel")
                 }
-                SocketMessage::ReadChannel { id, bot_id } => {
-                    match api::read_channel(&id, &bot_id, state).await {
-                        Ok(res) => wrap_response("ReadChannel", &res),
-                        Err(err) => wrap_error("ReadChannel", &err.to_string()),
-                    }
-                }
+                SocketMessage::ReadChannel { id, bot_id } => api::read_channel(&id, &bot_id, state)
+                    .await
+                    .into_ws("ReadChannel"),
                 SocketMessage::ResetChannel { id, bot_id } => {
-                    match api::reset_channel(&id, &bot_id, state).await {
-                        Ok(res) => wrap_response("ResetChannel", &res),
-                        Err(err) => wrap_error("ResetChannel", &err.to_string()),
-                    }
+                    api::reset_channel(&id, &bot_id, state)
+                        .await
+                        .into_ws("ResetChannel")
                 }
                 SocketMessage::ListChannels(options) => {
-                    if let Some(paginate) = options {
-                        match api::list_channels(paginate.limit, paginate.offset, state).await {
-                            Ok(res) => wrap_response("ListChannels", &res),
-                            Err(err) => wrap_error("ListChannels", &err.to_string()),
-                        }
-                    } else {
-                        match api::list_channels(None, None, state).await {
-                            Ok(res) => wrap_response("ListChannels", &res),
-                            Err(err) => wrap_error("ListChannels", &err.to_string()),
-                        }
-                    }
+                    let (limit, offset) =
+                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
+                    api::list_channels(limit, offset, state)
+                        .await
+                        .into_ws("ListChannels")
                 }
                 SocketMessage::DeleteChannel { id, bot_id } => {
-                    match api::delete_channel(&id, &bot_id, state).await {
-                        Ok(res) => wrap_response("DeleteChannel", &res),
-                        Err(err) => wrap_error("DeleteChannel", &err.to_string()),
-                    }
+                    api::delete_channel(&id, &bot_id, state)
+                        .await
+                        .into_ws("DeleteChannel")
                 }
-
-                SocketMessage::ChatRequest(req) => {
-                    match api::process_request(&req, &state.db).await {
-                        Ok(res) => wrap_response("ChatRequest", &res),
-                        Err(err) => wrap_error("ChatRequest", &err.to_string()),
-                    }
-                }
+                SocketMessage::ChatRequest(req) => api::process_request(&req, &state.pool)
+                    .await
+                    .into_ws("ChatRequest"),
                 SocketMessage::LinkChannel {
                     id,
                     bot_id,
                     device_name,
-                } => match api::link_channel(
+                } => api::link_channel(
                     &id,
                     &bot_id,
                     &device_name,
@@ -203,10 +179,7 @@ async fn process_message(
                     state,
                 )
                 .await
-                {
-                    Ok(res) => wrap_response("LinkChannel", &res),
-                    Err(err) => wrap_error("LinkChannel", &err.to_string()),
-                },
+                .into_ws("LinkChannel"),
                 _ => Ok(wrap_error(
                     "SocketMessage",
                     &"Invalid SocketMessage".to_owned(),

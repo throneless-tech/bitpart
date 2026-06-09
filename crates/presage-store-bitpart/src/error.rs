@@ -21,7 +21,7 @@ use presage::{
     libsignal_service::{protocol::InvalidDeviceId, protocol::SignalProtocolError},
     store::StoreError,
 };
-use sea_orm::DbErr;
+
 use std::array::TryFromSliceError;
 use std::str;
 use tracing::error;
@@ -31,7 +31,9 @@ pub enum BitpartStoreError {
     #[error("database migration is not supported")]
     MigrationConflict,
     #[error("database error: {0}")]
-    Db(#[from] DbErr),
+    Db(#[from] rusqlite::Error),
+    #[error("connection pool error: {0}")]
+    Pool(String),
     #[error("data store error: {0}")]
     Store(String),
     #[error("JSON error: {0}")]

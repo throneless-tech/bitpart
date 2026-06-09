@@ -27,10 +27,9 @@ use presage::{
     model::identity::OnNewIdentity,
     store::{ContentsStore, StateStore, Store},
 };
-use protocol::{AciBitpartStore, BitpartProtocolStore, BitpartTrees, PniBitpartStore};
+use protocol::BitpartProtocolStore;
 
-use sea_orm::DatabaseConnection;
-use serde::{Serialize, de::DeserializeOwned};
+use deadpool_sqlite::Pool;
 use sha2::{Digest, Sha256};
 use std::str;
 
@@ -42,11 +41,6 @@ mod protocol;
 
 pub use error::BitpartStoreError;
 
-#[cfg(test)]
-use sea_orm::ConnectionTrait;
-
-const BITPART_TREE_STATE: &str = "state";
-
 const BITPART_KEY_REGISTRATION: &str = "registration";
 const BITPART_KEY_SENDER_CERTIFICATE: &str = "sender_certificate";
 const BITPART_KEY_MASTER: &str = "master";
@@ -55,7 +49,7 @@ const BITPART_KEY_MASTER: &str = "master";
 pub struct BitpartStore {
     id: String, // database ID
 
-    db: DatabaseConnection,
+    pool: Pool,
 
     /// Whether to trust new identities automatically (for instance, when a somebody's phone has changed)
     trust_new_identities: OnNewIdentity,
@@ -64,140 +58,224 @@ pub struct BitpartStore {
 impl BitpartStore {
     pub async fn open(
         id: &str,
-        database: &DatabaseConnection,
+        pool: &Pool,
         trust_new_identities: OnNewIdentity,
     ) -> Result<Self, BitpartStoreError> {
         Ok(BitpartStore {
             id: id.to_owned(),
-            db: database.clone(),
+            pool: pool.clone(),
             trust_new_identities,
         })
     }
 
+    pub async fn aci_sessions(&self) -> Result<Vec<(String, Vec<u8>)>, BitpartStoreError> {
+        db::sessions::get_all_aci(&self.id, &self.pool).await
+    }
+
     #[cfg(test)]
     async fn temporary() -> Result<Self, BitpartStoreError> {
-        let db = sea_orm::Database::connect("sqlite::memory:").await?;
-        db.execute_unprepared(
-            "CREATE TABLE channel (
-                    id TEXT PRIMARY KEY,
-                    bot_id TEXT,
-                    channel_id TEXT,
-                    created_at TEXT,
-                    updated_at TEXT
-                );
-                INSERT INTO channel (
-                    id,
-                    bot_id,
-                    channel_id,
-                    created_at,
-                    updated_at
-                ) VALUES(
-                    'test',
-                    'bot_id',
-                    'signal',
-                    '1678295210',
-                    '1678295210'
-                );
-                CREATE TABLE channel_state (
-                    id TEXT PRIMARY KEY,
-                    channel_id TEXT,
-                    tree TEXT,
-                    key TEXT,
-                    value TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TRIGGER channel_state_updated_at
-                AFTER UPDATE ON channel_state
-                FOR EACH ROW
-                BEGIN
-                    UPDATE channel_state
-                    SET updated_at = (datetime('now','localtime'))
-                    WHERE id = NEW.id;
-                END;",
-        )
-        .await?;
+        use deadpool_sqlite::{Config, Hook, HookError, Runtime};
+
+        // File-backed: deadpool's `:memory:` gives each connection its
+        // own private DB.
+        let dir = Box::leak(Box::new(
+            tempfile::tempdir().map_err(|e| BitpartStoreError::Pool(format!("tempdir: {e}")))?,
+        ));
+        let path = dir.path().join("presage-test.sqlite");
+
+        // V2 schema DDL (from bitpart-common/src/db/schema_v2.sql)
+        const TEMP_DDL: &str = "
+            CREATE TABLE channel (
+                id TEXT PRIMARY KEY,
+                bot_id TEXT,
+                channel_id TEXT,
+                created_at TEXT,
+                updated_at TEXT
+            );
+            INSERT INTO channel (id, bot_id, channel_id, created_at, updated_at)
+                VALUES ('test', 'bot_id', 'signal', '1678295210', '1678295210');
+
+            -- Protocol tables for ACI
+            CREATE TABLE signal_identities (
+                channel_id varchar NOT NULL,
+                is_pni integer NOT NULL,
+                address varchar NOT NULL,
+                identity_key blob NOT NULL,
+                PRIMARY KEY (channel_id, is_pni, address)
+            );
+            CREATE TABLE signal_sessions (
+                channel_id varchar NOT NULL,
+                address varchar NOT NULL,
+                session_data blob NOT NULL,
+                PRIMARY KEY (channel_id, address)
+            );
+            CREATE TABLE signal_pre_keys (
+                channel_id varchar NOT NULL,
+                key_id integer NOT NULL,
+                record_data blob NOT NULL,
+                PRIMARY KEY (channel_id, key_id)
+            );
+            CREATE TABLE signal_signed_pre_keys (
+                channel_id varchar NOT NULL,
+                key_id integer NOT NULL,
+                record_data blob NOT NULL,
+                PRIMARY KEY (channel_id, key_id)
+            );
+            CREATE TABLE signal_kyber_pre_keys (
+                channel_id varchar NOT NULL,
+                key_id integer NOT NULL,
+                record_data blob NOT NULL,
+                is_last_resort integer NOT NULL DEFAULT 0,
+                PRIMARY KEY (channel_id, key_id)
+            );
+            CREATE TABLE signal_sender_keys (
+                channel_id varchar NOT NULL,
+                sender_key varchar NOT NULL,
+                record_data blob NOT NULL,
+                PRIMARY KEY (channel_id, sender_key)
+            );
+            CREATE TABLE signal_base_keys_seen (
+                channel_id varchar NOT NULL,
+                is_pni integer NOT NULL,
+                kyber_pre_key_id integer NOT NULL,
+                signed_pre_key_id integer NOT NULL,
+                base_key blob NOT NULL,
+                PRIMARY KEY (channel_id, is_pni, kyber_pre_key_id)
+            );
+            CREATE TABLE signal_state (
+                channel_id varchar NOT NULL,
+                key varchar NOT NULL,
+                value blob NOT NULL,
+                PRIMARY KEY (channel_id, key)
+            );
+            -- Protocol tables for PNI
+            CREATE TABLE signal_pni_sessions (
+                channel_id varchar NOT NULL,
+                address varchar NOT NULL,
+                session_data blob NOT NULL,
+                PRIMARY KEY (channel_id, address)
+            );
+            CREATE TABLE signal_pni_pre_keys (
+                channel_id varchar NOT NULL,
+                key_id integer NOT NULL,
+                record_data blob NOT NULL,
+                PRIMARY KEY (channel_id, key_id)
+            );
+            CREATE TABLE signal_pni_signed_pre_keys (
+                channel_id varchar NOT NULL,
+                key_id integer NOT NULL,
+                record_data blob NOT NULL,
+                PRIMARY KEY (channel_id, key_id)
+            );
+            CREATE TABLE signal_pni_kyber_pre_keys (
+                channel_id varchar NOT NULL,
+                key_id integer NOT NULL,
+                record_data blob NOT NULL,
+                is_last_resort integer NOT NULL DEFAULT 0,
+                PRIMARY KEY (channel_id, key_id)
+            );
+            CREATE TABLE signal_pni_sender_keys (
+                channel_id varchar NOT NULL,
+                sender_key varchar NOT NULL,
+                record_data blob NOT NULL,
+                PRIMARY KEY (channel_id, sender_key)
+            );
+            CREATE TABLE signal_pni_state (
+                channel_id varchar NOT NULL,
+                key varchar NOT NULL,
+                value blob NOT NULL,
+                PRIMARY KEY (channel_id, key)
+            );
+            -- Content tables
+            CREATE TABLE signal_profiles (
+                channel_id varchar NOT NULL,
+                profile_hash varchar NOT NULL,
+                profile_data blob NOT NULL,
+                PRIMARY KEY (channel_id, profile_hash)
+            );
+            CREATE TABLE signal_profile_keys (
+                channel_id varchar NOT NULL,
+                uuid blob NOT NULL,
+                profile_key blob NOT NULL,
+                PRIMARY KEY (channel_id, uuid)
+            );
+            CREATE TABLE signal_profile_avatars (
+                channel_id varchar NOT NULL,
+                profile_hash varchar NOT NULL,
+                avatar_data blob NOT NULL,
+                PRIMARY KEY (channel_id, profile_hash)
+            );
+            CREATE TABLE signal_contacts (
+                channel_id varchar NOT NULL,
+                uuid blob NOT NULL,
+                contact_data blob NOT NULL,
+                PRIMARY KEY (channel_id, uuid)
+            );
+            CREATE TABLE signal_groups (
+                channel_id varchar NOT NULL,
+                master_key blob NOT NULL,
+                group_data blob NOT NULL,
+                PRIMARY KEY (channel_id, master_key)
+            );
+            CREATE TABLE signal_group_avatars (
+                channel_id varchar NOT NULL,
+                master_key blob NOT NULL,
+                avatar_data blob NOT NULL,
+                PRIMARY KEY (channel_id, master_key)
+            );
+            CREATE TABLE signal_sticker_packs (
+                channel_id varchar NOT NULL,
+                pack_id blob NOT NULL,
+                pack_data blob NOT NULL,
+                PRIMARY KEY (channel_id, pack_id)
+            );
+            CREATE TABLE signal_messages (
+                channel_id varchar NOT NULL,
+                thread_id varchar NOT NULL,
+                timestamp integer NOT NULL,
+                content_data blob NOT NULL,
+                PRIMARY KEY (channel_id, thread_id, timestamp)
+            );
+        ";
+
+        let cfg = Config::new(&path);
+        let ddl_once = std::sync::Arc::new(std::sync::Once::new());
+        let ddl_once_for_hook = ddl_once.clone();
+        let pool = cfg
+            .builder(Runtime::Tokio1)
+            .map_err(|e| BitpartStoreError::Pool(format!("builder: {e}")))?
+            .max_size(4)
+            .post_create(Hook::async_fn(move |obj, _metrics| {
+                let once = ddl_once_for_hook.clone();
+                Box::pin(async move {
+                    obj.interact(move |c| -> rusqlite::Result<()> {
+                        let mut result = Ok(());
+                        once.call_once(|| {
+                            result = c.execute_batch(TEMP_DDL);
+                        });
+                        result
+                    })
+                    .await
+                    .map_err(|e| HookError::message(format!("interact: {e}")))?
+                    .map_err(|e| HookError::message(format!("ddl: {e}")))?;
+                    Ok(())
+                })
+            }))
+            .build()
+            .map_err(|e| BitpartStoreError::Pool(format!("build: {e}")))?;
+
+        // Force the first connection so the DDL runs before any test
+        // code grabs the pool.
+        let _conn = pool
+            .get()
+            .await
+            .map_err(|e| BitpartStoreError::Pool(format!("warm-up get: {e}")))?;
+
         Ok(Self {
             id: "test".to_owned(),
-            db,
+            pool,
             trust_new_identities: OnNewIdentity::Reject,
         })
-    }
-
-    pub async fn get<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
-    where
-        K: AsRef<[u8]>,
-        V: DeserializeOwned,
-    {
-        let key = serde_json::to_string(key.as_ref())?;
-        if let Some(value) = db::channel_state::get(&self.id, tree, &key, &self.db).await? {
-            Ok(Some(serde_json::from_str(&value)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub async fn get_all<K, V>(&self, tree: &str) -> Result<Vec<(K, V)>, BitpartStoreError>
-    where
-        K: AsRef<[u8]> + DeserializeOwned + std::fmt::Debug,
-        V: DeserializeOwned + std::fmt::Debug,
-    {
-        Ok(db::channel_state::get_all(&self.id, tree, &self.db)
-            .await?
-            .into_iter()
-            .flat_map(move |(key, value)| {
-                Ok::<(K, V), serde_json::Error>((
-                    serde_json::from_str::<K>(&key)?,
-                    serde_json::from_str::<V>(&value)?,
-                ))
-            })
-            .collect())
-    }
-
-    pub async fn iter<'a, V: DeserializeOwned + 'a>(
-        &'a self,
-        tree: &str,
-    ) -> Result<impl Iterator<Item = Result<V, BitpartStoreError>> + 'a, BitpartStoreError> {
-        Ok(db::channel_state::get_all(&self.id, tree, &self.db)
-            .await?
-            .into_iter()
-            .map(move |(_, value)| Ok(serde_json::from_str::<V>(&value)?)))
-    }
-
-    async fn insert<K, V>(&self, tree: &str, key: K, value: V) -> Result<bool, BitpartStoreError>
-    where
-        K: AsRef<[u8]>,
-        V: Serialize,
-    {
-        let key = serde_json::to_string(key.as_ref())?;
-        let replaced = db::channel_state::set(
-            &self.id,
-            tree,
-            &key,
-            serde_json::to_string(&value)?,
-            &self.db,
-        )
-        .await?;
-
-        Ok(replaced)
-    }
-
-    async fn remove<K, V>(&self, tree: &str, key: K) -> Result<Option<V>, BitpartStoreError>
-    where
-        K: AsRef<[u8]>,
-        V: DeserializeOwned,
-    {
-        let key = serde_json::to_string(key.as_ref())?;
-        if let Some(removed) = db::channel_state::remove(&self.id, tree, &key, &self.db).await? {
-            Ok(Some(serde_json::from_str(&removed)?))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn remove_all(&self, tree: &str) -> Result<bool, BitpartStoreError> {
-        let removed = db::channel_state::remove_all(&self.id, tree, &self.db).await?;
-        Ok(removed > 0)
     }
 
     fn profile_key_for_uuid(&self, uuid: Uuid, key: ProfileKey) -> String {
@@ -207,31 +285,6 @@ impl BitpartStore {
         hasher.update(key.collect::<Vec<_>>());
         format!("{:x}", hasher.finalize())
     }
-
-    async fn get_identity_key_pair<T: BitpartTrees>(
-        &self,
-    ) -> Result<Option<IdentityKeyPair>, BitpartStoreError> {
-        let key_base64: Option<String> =
-            self.get(BITPART_TREE_STATE, T::identity_keypair()).await?;
-        let Some(key_base64) = key_base64 else {
-            return Ok(None);
-        };
-        let key_bytes = BASE64_STANDARD.decode(key_base64)?;
-        IdentityKeyPair::try_from(&*key_bytes)
-            .map(Some)
-            .map_err(|e| BitpartStoreError::ProtobufDecode(prost::DecodeError::new(e.to_string())))
-    }
-
-    async fn set_identity_key_pair<T: BitpartTrees>(
-        &self,
-        key_pair: IdentityKeyPair,
-    ) -> Result<(), BitpartStoreError> {
-        let key_bytes = key_pair.serialize();
-        let key_base64 = BASE64_STANDARD.encode(key_bytes);
-        self.insert(BITPART_TREE_STATE, T::identity_keypair(), key_base64)
-            .await?;
-        Ok(())
-    }
 }
 
 impl StateStore for BitpartStore {
@@ -240,31 +293,53 @@ impl StateStore for BitpartStore {
     async fn load_registration_data(
         &self,
     ) -> Result<Option<RegistrationData>, Self::StateStoreError> {
-        self.get(BITPART_TREE_STATE, BITPART_KEY_REGISTRATION).await
+        if let Some(data) =
+            db::state::get_aci(&self.id, BITPART_KEY_REGISTRATION, &self.pool).await?
+        {
+            Ok(Some(serde_json::from_slice(&data)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn set_aci_identity_key_pair(
         &self,
         key_pair: IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
-        self.set_identity_key_pair::<AciBitpartStore>(key_pair)
-            .await
+        let key_bytes = key_pair.serialize();
+        let key_base64 = BASE64_STANDARD.encode(key_bytes);
+        db::state::set_aci(
+            &self.id,
+            "aci_identity_key_pair",
+            key_base64.as_bytes(),
+            &self.pool,
+        )
+        .await?;
+        Ok(())
     }
 
     async fn set_pni_identity_key_pair(
         &self,
         key_pair: IdentityKeyPair,
     ) -> Result<(), Self::StateStoreError> {
-        self.set_identity_key_pair::<PniBitpartStore>(key_pair)
-            .await
+        let key_bytes = key_pair.serialize();
+        let key_base64 = BASE64_STANDARD.encode(key_bytes);
+        db::state::set_pni(
+            &self.id,
+            "pni_identity_key_pair",
+            key_base64.as_bytes(),
+            &self.pool,
+        )
+        .await?;
+        Ok(())
     }
 
     async fn save_registration_data(
         &mut self,
         state: &RegistrationData,
     ) -> Result<(), Self::StateStoreError> {
-        self.insert(BITPART_TREE_STATE, BITPART_KEY_REGISTRATION, state)
-            .await?;
+        let data = serde_json::to_vec(state)?;
+        db::state::set_aci(&self.id, BITPART_KEY_REGISTRATION, &data, &self.pool).await?;
         Ok(())
     }
 
@@ -277,7 +352,8 @@ impl StateStore for BitpartStore {
 
     async fn clear_registration(&mut self) -> Result<(), Self::StateStoreError> {
         // drop registration data (includes identity keys)
-        db::channel_state::remove_all(&self.id, BITPART_TREE_STATE, &self.db).await?;
+        db::state::remove_all_aci(&self.id, &self.pool).await?;
+        db::state::remove_all_pni(&self.id, &self.pool).await?;
         // drop all saved profile (+avatards) and profile keys
         self.clear_profiles().await?;
 
@@ -289,54 +365,54 @@ impl StateStore for BitpartStore {
     }
 
     async fn sender_certificate(&self) -> Result<Option<SenderCertificate>, Self::StateStoreError> {
-        let value: Option<Vec<u8>> = self
-            .get(BITPART_TREE_STATE, BITPART_KEY_SENDER_CERTIFICATE)
-            .await?;
-        value
-            .map(|value| SenderCertificate::deserialize(&value))
-            .transpose()
-            .map_err(From::from)
+        if let Some(value) =
+            db::state::get_aci(&self.id, BITPART_KEY_SENDER_CERTIFICATE, &self.pool).await?
+        {
+            Ok(Some(SenderCertificate::deserialize(&value)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn save_sender_certificate(
         &self,
         certificate: &SenderCertificate,
     ) -> Result<(), Self::StateStoreError> {
-        self.insert(
-            BITPART_TREE_STATE,
+        db::state::set_aci(
+            &self.id,
             BITPART_KEY_SENDER_CERTIFICATE,
             certificate.serialized()?,
+            &self.pool,
         )
         .await?;
         Ok(())
     }
 
     async fn fetch_master_key(&self) -> Result<Option<MasterKey>, Self::StateStoreError> {
-        let value: Option<Vec<u8>> = self.get(BITPART_TREE_STATE, BITPART_KEY_MASTER).await?;
-        value
-            .map(|value| MasterKey::from_slice(&value))
-            .transpose()
-            .map_err(From::from)
+        if let Some(value) = db::state::get_aci(&self.id, BITPART_KEY_MASTER, &self.pool).await? {
+            Ok(Some(MasterKey::from_slice(&value)?))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn store_master_key(
         &self,
         master_key: Option<&MasterKey>,
     ) -> Result<(), Self::StateStoreError> {
-        self.insert(
-            BITPART_TREE_STATE,
-            BITPART_KEY_MASTER,
-            master_key.map(|k| &k.inner[..]),
-        )
-        .await?;
+        if let Some(key) = master_key {
+            db::state::set_aci(&self.id, BITPART_KEY_MASTER, &key.inner[..], &self.pool).await?;
+        } else {
+            db::state::remove_aci(&self.id, BITPART_KEY_MASTER, &self.pool).await?;
+        }
         Ok(())
     }
 }
 
 impl Store for BitpartStore {
     type Error = BitpartStoreError;
-    type AciStore = BitpartProtocolStore<AciBitpartStore>;
-    type PniStore = BitpartProtocolStore<PniBitpartStore>;
+    type AciStore = BitpartProtocolStore;
+    type PniStore = BitpartProtocolStore;
 
     async fn clear(&mut self) -> Result<(), BitpartStoreError> {
         self.clear_registration().await?;
@@ -360,10 +436,9 @@ mod tests {
         content::{ContentBody, Metadata},
         prelude::Uuid,
         proto::DataMessage,
-        protocol::{PreKeyId, ServiceId},
+        protocol::ServiceId,
     };
     use presage::store::ContentsStore;
-    use protocol::BitpartPreKeyId;
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
     use rand::prelude::*;
@@ -411,9 +486,11 @@ mod tests {
 
     impl Arbitrary for Thread {
         fn arbitrary(g: &mut Gen) -> Self {
-            Self(presage::store::Thread::Contact(Uuid::from_u128(
-                Arbitrary::arbitrary(g),
-            )))
+            Self(presage::store::Thread::Contact(
+                presage::libsignal_service::protocol::ServiceId::Aci(
+                    Uuid::from_u128(Arbitrary::arbitrary(g)).into(),
+                ),
+            ))
         }
     }
 
@@ -435,9 +512,7 @@ mod tests {
         if pre_key_id > next_pre_key_id {
             std::mem::swap(&mut pre_key_id, &mut next_pre_key_id);
         }
-        assert!(
-            PreKeyId::from(pre_key_id).store_key() <= PreKeyId::from(next_pre_key_id).store_key()
-        )
+        assert!(pre_key_id <= next_pre_key_id)
     }
 
     #[quickcheck_async::tokio]
@@ -488,6 +563,25 @@ mod tests {
                 .timestamp,
             1678295240
         );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_profile_key_round_trip() -> anyhow::Result<()> {
+        let mut store = BitpartStore::temporary().await?;
+
+        let test_uuid = Uuid::from_u128(0x12345678_9ABC_DEF0_1234_567890ABCDEF);
+        let test_key = ProfileKey::create([42u8; 32]);
+
+        store.upsert_profile_key(&test_uuid, test_key).await?;
+
+        let service_id = ServiceId::Aci(test_uuid.into());
+        let retrieved_key = store.profile_key(&service_id).await?;
+
+        assert!(retrieved_key.is_some());
+        let retrieved_key = retrieved_key.unwrap();
+        assert_eq!(retrieved_key.get_bytes(), test_key.get_bytes());
 
         Ok(())
     }

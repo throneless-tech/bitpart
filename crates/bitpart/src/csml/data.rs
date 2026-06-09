@@ -19,10 +19,10 @@
 
 use bitpart_common::{
     csml::BotOpt,
+    db::Pool,
     error::{BitpartErrorKind, Result},
 };
 use csml_interpreter::data::{Client, Context, CsmlBot, Message};
-use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::db;
@@ -55,7 +55,7 @@ pub struct ConversationData {
     pub low_data: bool,
 }
 
-pub async fn search_bot(bot: &BotOpt, db: &DatabaseConnection) -> Result<Box<CsmlBot>> {
+pub async fn search_bot(bot: &BotOpt, pool: &Pool) -> Result<Box<CsmlBot>> {
     match bot {
         BotOpt::CsmlBot(csml_bot) => Ok(csml_bot.to_owned()),
         BotOpt::BotId {
@@ -63,7 +63,7 @@ pub async fn search_bot(bot: &BotOpt, db: &DatabaseConnection) -> Result<Box<Csm
             apps_endpoint: _,
             multibot: _,
         } => {
-            let bot_version = db::bot::get_latest_by_bot_id(bot_id, db).await?;
+            let bot_version = db::bot::get_latest_by_bot_id(bot_id, pool).await?;
 
             match bot_version {
                 Some(bot_version) => {
@@ -84,7 +84,7 @@ pub async fn search_bot(bot: &BotOpt, db: &DatabaseConnection) -> Result<Box<Csm
             apps_endpoint: _,
             multibot: _,
         } => {
-            let bot_version = db::bot::get_by_id(version_id, db).await?;
+            let bot_version = db::bot::get_by_id(version_id, pool).await?;
 
             match bot_version {
                 Some(bot_version) => {

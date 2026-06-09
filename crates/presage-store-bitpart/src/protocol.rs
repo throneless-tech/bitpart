@@ -17,10 +17,8 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::fmt;
-use std::marker::PhantomData;
-
 use async_trait::async_trait;
+use base64::Engine;
 use presage::{
     libsignal_service::{
         pre_keys::{KyberPreKeyStoreExt, PreKeysStore},
@@ -28,7 +26,7 @@ use presage::{
         protocol::{
             DeviceId, Direction, GenericSignedPreKey, IdentityChange, IdentityKey, IdentityKeyPair,
             IdentityKeyStore, KyberPreKeyId, KyberPreKeyRecord, KyberPreKeyStore, PreKeyId,
-            PreKeyRecord, PreKeyStore, ProtocolAddress, ProtocolStore, PublicKey, SenderKeyRecord,
+            PreKeyRecord, PreKeyStore, ProtocolAddress, ProtocolStore, SenderKeyRecord,
             SenderKeyStore, ServiceId, SessionRecord, SessionStore, SignalProtocolError,
             SignedPreKeyId, SignedPreKeyRecord, SignedPreKeyStore,
         },
@@ -38,259 +36,62 @@ use presage::{
     proto::verified,
     store::{StateStore, save_trusted_identity_message},
 };
-use serde::{
-    Deserialize, Deserializer, Serialize,
-    de::{self, SeqAccess, Visitor},
-    ser,
-};
 use tracing::{debug, error, trace, warn};
 
 use crate::{BitpartStore, BitpartStoreError, OnNewIdentity, db};
 
 #[derive(Clone)]
-pub struct BitpartProtocolStore<T: BitpartTrees> {
+pub struct BitpartProtocolStore {
     pub(crate) store: BitpartStore,
-    _trees: PhantomData<T>,
+    is_pni: bool,
 }
 
-impl BitpartProtocolStore<AciBitpartStore> {
+impl BitpartProtocolStore {
     pub(crate) fn aci_protocol_store(store: BitpartStore) -> Self {
         Self {
             store,
-            _trees: Default::default(),
+            is_pni: false,
         }
     }
-}
 
-impl BitpartProtocolStore<PniBitpartStore> {
     pub(crate) fn pni_protocol_store(store: BitpartStore) -> Self {
         Self {
             store,
-            _trees: Default::default(),
+            is_pni: true,
         }
     }
-}
 
-impl<T: BitpartTrees> BitpartProtocolStore<T> {
-    async fn max_key_id(&self, tree: &str) -> Result<Option<u32>, SignalProtocolError> {
-        let mut keys = db::channel_state::get_all(&self.store.id, tree, &self.store.db)
-            .await?
-            .into_iter()
-            .filter_map(|(key, _)| {
-                Some(u32::from_be_bytes(
-                    serde_json::from_str::<[u8; 4]>(&key).ok()?,
-                ))
-            })
-            .collect::<Vec<u32>>();
-        keys.sort();
-        Ok(keys.last().copied())
-    }
-}
-
-pub trait BitpartTrees: Clone + Send + Sync {
-    fn identities() -> &'static str;
-    fn state() -> &'static str;
-    fn pre_keys() -> &'static str;
-    fn signed_pre_keys() -> &'static str;
-    fn kyber_pre_keys() -> &'static str;
-    fn kyber_pre_keys_last_resort() -> &'static str;
-    fn sender_keys() -> &'static str;
-    fn sessions() -> &'static str;
-    fn identity_keypair() -> &'static str;
-    fn base_keys_seen() -> &'static str;
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct BaseKeysSeen {
-    kyber_pre_key_id: u32,
-    signed_pre_key_id: u32,
-    base_key: [u8; 32],
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct KyberPreKey {
-    record: KyberPreKeyRecordWrapper,
-    is_last_resort: bool,
-}
-
-#[derive(Debug)]
-struct KyberPreKeyRecordWrapper(KyberPreKeyRecord);
-
-impl Serialize for KyberPreKeyRecordWrapper {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let record = self
-            .0
-            .serialize()
-            .map_err(|_| ser::Error::custom("KyberPreKeyRecord serialization error."))?;
-        serializer.serialize_bytes(&record)
-    }
-}
-
-impl<'de> Deserialize<'de> for KyberPreKeyRecordWrapper {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        struct KyberPreKeyVisitor;
-
-        impl<'de> Visitor<'de> for KyberPreKeyVisitor {
-            type Value = KyberPreKeyRecordWrapper;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a struct containing a KyberPreKeyRecord")
-            }
-
-            fn visit_seq<V>(self, mut seq: V) -> Result<Self::Value, V::Error>
-            where
-                V: SeqAccess<'de>,
-            {
-                let mut buf = Vec::<u8>::new();
-                while let Some(element) = seq.next_element()? {
-                    buf.push(element);
-                }
-                match KyberPreKeyRecord::deserialize(&buf) {
-                    Ok(record) => Ok(KyberPreKeyRecordWrapper(record)),
-                    Err(err) => {
-                        warn!("Skipping old-format Kyber prekey in storage.");
-                        Err(de::Error::custom(err))
-                    }
-                }
-            }
-        }
-
-        deserializer.deserialize_bytes(KyberPreKeyVisitor)
-    }
-}
-
-#[derive(Clone)]
-pub struct AciBitpartStore;
-
-impl BitpartTrees for AciBitpartStore {
-    fn identities() -> &'static str {
-        "identities"
-    }
-
-    fn state() -> &'static str {
-        "state"
-    }
-
-    fn pre_keys() -> &'static str {
-        "pre_keys"
-    }
-
-    fn signed_pre_keys() -> &'static str {
-        "sender_keys"
-    }
-
-    fn kyber_pre_keys() -> &'static str {
-        "signed_pre_keys"
-    }
-
-    fn kyber_pre_keys_last_resort() -> &'static str {
-        "kyber_pre_keys_last_resort"
-    }
-
-    fn sender_keys() -> &'static str {
-        "kyber_pre_keys"
-    }
-
-    fn sessions() -> &'static str {
-        "sessions"
-    }
-
-    fn identity_keypair() -> &'static str {
-        "aci_identity_key_pair"
-    }
-
-    fn base_keys_seen() -> &'static str {
-        "base_keys_seen"
-    }
-}
-
-#[derive(Clone)]
-pub struct PniBitpartStore;
-
-impl BitpartTrees for PniBitpartStore {
-    fn identities() -> &'static str {
-        "identities"
-    }
-
-    fn state() -> &'static str {
-        "pni_state"
-    }
-
-    fn pre_keys() -> &'static str {
-        "pni_pre_keys"
-    }
-
-    fn signed_pre_keys() -> &'static str {
-        "pni_sender_keys"
-    }
-
-    fn kyber_pre_keys() -> &'static str {
-        "pni_signed_pre_keys"
-    }
-
-    fn kyber_pre_keys_last_resort() -> &'static str {
-        "pni_kyber_pre_keys_last_resort"
-    }
-
-    fn sender_keys() -> &'static str {
-        "pni_kyber_pre_keys"
-    }
-
-    fn sessions() -> &'static str {
-        "pni_sessions"
-    }
-
-    fn identity_keypair() -> &'static str {
-        "pni_identity_key_pair"
-    }
-
-    fn base_keys_seen() -> &'static str {
-        "base_keys_seen"
-    }
-}
-
-pub(crate) trait BitpartPreKeyId: Into<u32> {
-    fn store_key(self) -> [u8; 4] {
-        let idx: u32 = self.into();
-        idx.to_be_bytes()
-    }
-}
-
-impl BitpartPreKeyId for PreKeyId {}
-impl BitpartPreKeyId for SignedPreKeyId {}
-impl BitpartPreKeyId for KyberPreKeyId {}
-
-impl<T: BitpartTrees> BitpartProtocolStore<T> {
     pub(crate) async fn clear(&self, clear_sessions: bool) -> Result<(), BitpartStoreError> {
-        self.store.remove_all(T::pre_keys()).await?;
-        self.store.remove_all(T::sender_keys()).await?;
-        self.store.remove_all(T::signed_pre_keys()).await?;
-        self.store.remove_all(T::kyber_pre_keys()).await?;
-        if clear_sessions {
-            self.store.remove_all(T::sessions()).await?;
+        if self.is_pni {
+            db::pre_keys::remove_all_pni(&self.store.id, &self.store.pool).await?;
+            db::signed_pre_keys::remove_all_pni(&self.store.id, &self.store.pool).await?;
+            db::kyber_pre_keys::remove_all_pni(&self.store.id, &self.store.pool).await?;
+            db::sender_keys::remove_all_pni(&self.store.id, &self.store.pool).await?;
+            if clear_sessions {
+                db::sessions::remove_all_pni(&self.store.id, &self.store.pool).await?;
+            }
+        } else {
+            db::pre_keys::remove_all_aci(&self.store.id, &self.store.pool).await?;
+            db::signed_pre_keys::remove_all_aci(&self.store.id, &self.store.pool).await?;
+            db::kyber_pre_keys::remove_all_aci(&self.store.id, &self.store.pool).await?;
+            db::sender_keys::remove_all_aci(&self.store.id, &self.store.pool).await?;
+            if clear_sessions {
+                db::sessions::remove_all_aci(&self.store.id, &self.store.pool).await?;
+            }
         }
         Ok(())
     }
 }
 
-impl<T: BitpartTrees> ProtocolStore for BitpartProtocolStore<T> {}
-
 #[async_trait(?Send)]
-impl<T: BitpartTrees + Send + Sync> PreKeyStore for BitpartProtocolStore<T> {
+impl PreKeyStore for BitpartProtocolStore {
     async fn get_pre_key(&self, prekey_id: PreKeyId) -> Result<PreKeyRecord, SignalProtocolError> {
-        let buf: Vec<u8> = self
-            .store
-            .get(T::pre_keys(), prekey_id.store_key())
-            .await
-            .ok()
-            .flatten()
-            .ok_or(SignalProtocolError::InvalidPreKeyId)?;
+        let buf = if self.is_pni {
+            db::pre_keys::get_pni(&self.store.id, prekey_id.into(), &self.store.pool).await
+        } else {
+            db::pre_keys::get_aci(&self.store.id, prekey_id.into(), &self.store.pool).await
+        }?
+        .ok_or(SignalProtocolError::InvalidPreKeyId)?;
 
         PreKeyRecord::deserialize(&buf)
     }
@@ -300,118 +101,67 @@ impl<T: BitpartTrees + Send + Sync> PreKeyStore for BitpartProtocolStore<T> {
         prekey_id: PreKeyId,
         record: &PreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
-        self.store
-            .insert(T::pre_keys(), prekey_id.store_key(), record.serialize()?)
+        let record_data = record.serialize()?;
+        if self.is_pni {
+            db::pre_keys::set_pni(
+                &self.store.id,
+                prekey_id.into(),
+                &record_data,
+                &self.store.pool,
+            )
             .await
-            .map_err(|error| {
-                error!(%error, "store error");
-                SignalProtocolError::InvalidState("save_pre_key", "store error".into())
-            })?;
+        } else {
+            db::pre_keys::set_aci(
+                &self.store.id,
+                prekey_id.into(),
+                &record_data,
+                &self.store.pool,
+            )
+            .await
+        }
+        .map_err(|error| {
+            error!(%error, "store error");
+            SignalProtocolError::InvalidState("save_pre_key", "store error".into())
+        })?;
         Ok(())
     }
 
     async fn remove_pre_key(&mut self, prekey_id: PreKeyId) -> Result<(), SignalProtocolError> {
-        let _: Vec<u8> = self
-            .store
-            .remove(T::pre_keys(), prekey_id.store_key())
-            .await
-            .ok()
-            .flatten()
-            .ok_or(SignalProtocolError::InvalidState(
+        let removed = if self.is_pni {
+            db::pre_keys::remove_pni(&self.store.id, prekey_id.into(), &self.store.pool).await
+        } else {
+            db::pre_keys::remove_aci(&self.store.id, prekey_id.into(), &self.store.pool).await
+        }
+        .map_err(|error| {
+            error!(%error, "store error");
+            SignalProtocolError::InvalidState("remove_pre_key", "store error".into())
+        })?;
+
+        if removed.is_none() {
+            return Err(SignalProtocolError::InvalidState(
                 "remove_pre_key",
-                "store error".into(),
-            ))?;
+                "key not found".into(),
+            ));
+        }
         Ok(())
     }
 }
 
 #[async_trait(?Send)]
-impl<T: BitpartTrees + Send + Sync> PreKeysStore for BitpartProtocolStore<T> {
-    async fn next_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
-        Ok(self.max_key_id(T::pre_keys()).await?.map_or(0, |id| id + 1))
-    }
-
-    async fn next_signed_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
-        Ok(self
-            .max_key_id(T::signed_pre_keys())
-            .await?
-            .map_or(0, |id| id + 1))
-    }
-
-    async fn next_pq_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
-        Ok(self
-            .max_key_id(T::kyber_pre_keys())
-            .await?
-            .map_or(0, |id| id + 1))
-    }
-
-    async fn signed_pre_keys_count(&self) -> Result<usize, SignalProtocolError> {
-        Ok(
-            db::channel_state::get_all(&self.store.id, T::signed_pre_keys(), &self.store.db)
-                .await
-                .map_err(|error| {
-                    error!(%error, "store error");
-                    SignalProtocolError::InvalidState("signed_pre_keys_count", "store error".into())
-                })?
-                .len(),
-        )
-    }
-
-    /// number of kyber pre-keys we currently have in store
-    async fn kyber_pre_keys_count(&self, _last_resort: bool) -> Result<usize, SignalProtocolError> {
-        debug!("kyber_pre_keys_count");
-        Ok(
-            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
-                .await
-                .map_err(|error| {
-                    error!(%error, "store error");
-                    SignalProtocolError::InvalidState("save_signed_pre_key", "store error".into())
-                })?
-                .len(),
-        )
-    }
-
-    async fn signed_prekey_id(&self) -> Result<Option<SignedPreKeyId>, SignalProtocolError> {
-        Ok(self.max_key_id(T::signed_pre_keys()).await?.map(From::from))
-    }
-
-    async fn last_resort_kyber_prekey_id(
-        &self,
-    ) -> Result<Option<KyberPreKeyId>, SignalProtocolError> {
-        debug!("last_resort_kyber_prekey_id");
-        let mut keys =
-            db::channel_state::get_all(&self.store.id, T::kyber_pre_keys(), &self.store.db)
-                .await?
-                .into_iter()
-                .filter_map(|(key, value)| {
-                    let value: KyberPreKey = serde_json::from_str(&value).ok()?;
-                    if value.is_last_resort {
-                        Some(u32::from_be_bytes(
-                            serde_json::from_str::<[u8; 4]>(&key).ok()?,
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect::<Vec<u32>>();
-        keys.sort();
-        Ok(keys.last().copied().map(From::from))
-    }
-}
-
-#[async_trait(?Send)]
-impl<T: BitpartTrees> SignedPreKeyStore for BitpartProtocolStore<T> {
+impl SignedPreKeyStore for BitpartProtocolStore {
     async fn get_signed_pre_key(
         &self,
         signed_prekey_id: SignedPreKeyId,
     ) -> Result<SignedPreKeyRecord, SignalProtocolError> {
-        let buf: Vec<u8> = self
-            .store
-            .get(T::signed_pre_keys(), signed_prekey_id.store_key())
-            .await
-            .ok()
-            .flatten()
-            .ok_or(SignalProtocolError::InvalidSignedPreKeyId)?;
+        let buf = if self.is_pni {
+            db::signed_pre_keys::get_pni(&self.store.id, signed_prekey_id.into(), &self.store.pool)
+                .await
+        } else {
+            db::signed_pre_keys::get_aci(&self.store.id, signed_prekey_id.into(), &self.store.pool)
+                .await
+        }?
+        .ok_or(SignalProtocolError::InvalidSignedPreKeyId)?;
+
         SignedPreKeyRecord::deserialize(&buf)
     }
 
@@ -420,81 +170,51 @@ impl<T: BitpartTrees> SignedPreKeyStore for BitpartProtocolStore<T> {
         signed_prekey_id: SignedPreKeyId,
         record: &SignedPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
-        self.store
-            .insert(
-                T::signed_pre_keys(),
-                signed_prekey_id.store_key(),
-                record.serialize()?,
+        let record_data = record.serialize()?;
+        if self.is_pni {
+            db::signed_pre_keys::set_pni(
+                &self.store.id,
+                signed_prekey_id.into(),
+                &record_data,
+                &self.store.pool,
             )
             .await
-            .map_err(|error| {
-                error!(%error, "store error");
-                SignalProtocolError::InvalidState("save_signed_pre_key", "store error".into())
-            })?;
+        } else {
+            db::signed_pre_keys::set_aci(
+                &self.store.id,
+                signed_prekey_id.into(),
+                &record_data,
+                &self.store.pool,
+            )
+            .await
+        }
+        .map_err(|error| {
+            error!(%error, "store error");
+            SignalProtocolError::InvalidState("save_signed_pre_key", "store error".into())
+        })?;
         Ok(())
     }
 }
 
 #[async_trait(?Send)]
-impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
+impl KyberPreKeyStore for BitpartProtocolStore {
     async fn get_kyber_pre_key(
         &self,
         kyber_prekey_id: KyberPreKeyId,
     ) -> Result<KyberPreKeyRecord, SignalProtocolError> {
         debug!("get_kyber_pre_key");
-        if let Some(entry) = self
-            .store
-            .get::<[u8; 4], KyberPreKey>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-            .await
-            .ok()
-            .flatten()
-        {
-            Ok(entry.record.0)
-        } else {
-            // Stored in the old format
-            match self
-                .store
-                .get::<[u8; 4], Vec<u8>>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
+
+        if let Some(buf) = if self.is_pni {
+            db::kyber_pre_keys::get_pni(&self.store.id, kyber_prekey_id.into(), &self.store.pool)
                 .await
-            {
-                Ok(Some(buf)) => KyberPreKeyRecord::deserialize(&buf),
-                Err(err) => {
-                    error!("Error deserializing old format kyber prekey: {:?}", err);
-                    Err(SignalProtocolError::InvalidKyberPreKeyId)
-                }
-                Ok(None) => {
-                    match self
-                        .store
-                        .get::<[u8; 4], Vec<u8>>(
-                            T::kyber_pre_keys_last_resort(),
-                            kyber_prekey_id.store_key(),
-                        )
-                        .await
-                    {
-                        Ok(Some(buf)) => KyberPreKeyRecord::deserialize(&buf),
-                        Err(err) => {
-                            error!(
-                                "Error deserializing old format kyber prekey (last resort): {:?}",
-                                err
-                            );
-                            Err(SignalProtocolError::InvalidKyberPreKeyId)
-                        }
-                        Ok(None) => {
-                            error!("Missing old format kyber prekey!");
-                            Err(SignalProtocolError::InvalidKyberPreKeyId)
-                        }
-                    }
-                }
-            }
-            // let buf: Vec<u8> = self
-            //     .store
-            //     .get(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-            //     .await
-            //     .ok()
-            //     .flatten()
-            //     .ok_or(SignalProtocolError::InvalidKyberPreKeyId)?;
-            // KyberPreKeyRecord::deserialize(&buf)
+        } else {
+            db::kyber_pre_keys::get_aci(&self.store.id, kyber_prekey_id.into(), &self.store.pool)
+                .await
+        }? {
+            return KyberPreKeyRecord::deserialize(&buf);
         }
+
+        Err(SignalProtocolError::InvalidKyberPreKeyId)
     }
 
     async fn save_kyber_pre_key(
@@ -503,17 +223,30 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         record: &KyberPreKeyRecord,
     ) -> Result<(), SignalProtocolError> {
         debug!("save_kyber_pre_key");
-        let storable = KyberPreKey {
-            record: KyberPreKeyRecordWrapper(record.clone()),
-            is_last_resort: false,
-        };
-        self.store
-            .insert(T::kyber_pre_keys(), kyber_prekey_id.store_key(), storable)
+        let record_data = record.serialize()?;
+        if self.is_pni {
+            db::kyber_pre_keys::set_pni(
+                &self.store.id,
+                kyber_prekey_id.into(),
+                &record_data,
+                false,
+                &self.store.pool,
+            )
             .await
-            .map_err(|error| {
-                error!(%error, "store error");
-                SignalProtocolError::InvalidState("save_kyber_pre_key", "store error".into())
-            })?;
+        } else {
+            db::kyber_pre_keys::set_aci(
+                &self.store.id,
+                kyber_prekey_id.into(),
+                &record_data,
+                false,
+                &self.store.pool,
+            )
+            .await
+        }
+        .map_err(|error| {
+            error!(%error, "store error");
+            SignalProtocolError::InvalidState("save_kyber_pre_key", "store error".into())
+        })?;
         Ok(())
     }
 
@@ -521,154 +254,86 @@ impl<T: BitpartTrees> KyberPreKeyStore for BitpartProtocolStore<T> {
         &mut self,
         kyber_prekey_id: KyberPreKeyId,
         ec_prekey_id: SignedPreKeyId,
-        base_key: &PublicKey,
+        base_key: &presage::libsignal_service::protocol::PublicKey,
     ) -> Result<(), SignalProtocolError> {
         debug!("mark_kyber_pre_key_used");
-        let key = if let Ok(Some(key)) = self
-            .store
-            .get::<[u8; 4], KyberPreKey>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-            .await
-            .map_err(|error| {
-                error!(%error, "store error");
-                SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "store error".into())
-            }) {
-            key
-        } else if let Ok(Some(buf)) = self
-            .store
-            .get::<[u8; 4], Vec<u8>>(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-            .await
-            .map_err(|error| {
-                error!(%error, "store error");
-                SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "store error".into())
-            })
-        {
-            let key = KyberPreKeyRecord::deserialize(&buf)?;
-            KyberPreKey {
-                record: KyberPreKeyRecordWrapper(key),
-                is_last_resort: false,
-            }
+
+        // Check if this is a last resort key by looking it up with is_last_resort filter
+        let last_resort_keys = if self.is_pni {
+            db::kyber_pre_keys::get_last_resort_pni(&self.store.id, &self.store.pool).await
         } else {
-            return Err(SignalProtocolError::InvalidState(
-                "mark_kyber_pre_key_used",
-                "store error".into(),
-            ));
-        };
-        if key.is_last_resort {
+            db::kyber_pre_keys::get_last_resort_aci(&self.store.id, &self.store.pool).await
+        }?;
+
+        let is_last_resort = last_resort_keys.iter().any(|(key_id, _)| {
+            let kyber_id: u32 = kyber_prekey_id.into();
+            *key_id == kyber_id
+        });
+
+        if is_last_resort {
             trace!(%kyber_prekey_id, "removed kyber pre-key");
-            let value = BaseKeysSeen {
-                kyber_pre_key_id: kyber_prekey_id.into(),
-                signed_pre_key_id: ec_prekey_id.into(),
-                base_key: base_key.public_key_bytes().try_into().map_err(|error| {
-                    error!(%error, "store error");
+            let base_key_bytes: [u8; 32] =
+                base_key.public_key_bytes().try_into().map_err(|_| {
                     SignalProtocolError::InvalidState(
                         "mark_kyber_pre_key_used",
-                        "store error".into(),
-                    )
-                })?,
-            };
-            self.store
-                .insert(T::base_keys_seen(), kyber_prekey_id.store_key(), value)
-                .await?;
-        } else {
-            let _: Option<KyberPreKey> = self
-                .store
-                .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-                .await
-                .map_err(|error| {
-                    error!(%error, "store error");
-                    SignalProtocolError::InvalidState(
-                        "mark_kyber_pre_key_used",
-                        "store error".into(),
+                        "invalid base key size".into(),
                     )
                 })?;
+
+            db::base_keys_seen::set(
+                &self.store.id,
+                self.is_pni,
+                kyber_prekey_id.into(),
+                ec_prekey_id.into(),
+                &base_key_bytes,
+                &self.store.pool,
+            )
+            .await?;
+        } else {
+            let _removed = if self.is_pni {
+                db::kyber_pre_keys::remove_pni(
+                    &self.store.id,
+                    kyber_prekey_id.into(),
+                    &self.store.pool,
+                )
+                .await
+            } else {
+                db::kyber_pre_keys::remove_aci(
+                    &self.store.id,
+                    kyber_prekey_id.into(),
+                    &self.store.pool,
+                )
+                .await
+            }
+            .map_err(|error| {
+                error!(%error, "store error");
+                SignalProtocolError::InvalidState("mark_kyber_pre_key_used", "store error".into())
+            })?;
         }
         Ok(())
     }
 }
 
 #[async_trait(?Send)]
-impl<T: BitpartTrees> KyberPreKeyStoreExt for BitpartProtocolStore<T> {
-    async fn store_last_resort_kyber_pre_key(
-        &mut self,
-        kyber_prekey_id: KyberPreKeyId,
-        record: &KyberPreKeyRecord,
-    ) -> Result<(), SignalProtocolError> {
-        debug!("store_last_resort_kyber_pre_key");
-        let storable = KyberPreKey {
-            record: KyberPreKeyRecordWrapper(record.clone()),
-            is_last_resort: true,
-        };
-        self.store
-            .insert(T::kyber_pre_keys(), kyber_prekey_id.store_key(), storable)
-            .await
-            .map_err(|error| {
-                error!(%error, "store error");
-                SignalProtocolError::InvalidState(
-                    "store_last_resort_kyber_pre_key",
-                    "store error".into(),
-                )
-            })?;
-        Ok(())
-    }
-
-    async fn load_last_resort_kyber_pre_keys(
-        &self,
-    ) -> Result<Vec<KyberPreKeyRecord>, SignalProtocolError> {
-        debug!("load_last_resort_kyber_pre_keys");
-        Ok(self
-            .store
-            .iter(T::kyber_pre_keys())
-            .await?
-            .filter_map(|data: Result<KyberPreKey, BitpartStoreError>| {
-                data.ok().filter(|k| k.is_last_resort)
-            })
-            .map(|data| data.record.0)
-            .collect())
-    }
-
-    async fn remove_kyber_pre_key(
-        &mut self,
-        kyber_prekey_id: KyberPreKeyId,
-    ) -> Result<(), SignalProtocolError> {
-        let _: Option<KyberPreKey> = self
-            .store
-            .remove(T::kyber_pre_keys(), kyber_prekey_id.store_key())
-            .await?;
-        Ok(())
-    }
-
-    /// Analogous to markAllOneTimeKyberPreKeysStaleIfNecessary
-    async fn mark_all_one_time_kyber_pre_keys_stale_if_necessary(
-        &mut self,
-        _stale_time: chrono::DateTime<chrono::Utc>,
-    ) -> Result<(), SignalProtocolError> {
-        unimplemented!("should not be used yet")
-    }
-
-    /// Analogue of deleteAllStaleOneTimeKyberPreKeys
-    async fn delete_all_stale_one_time_kyber_pre_keys(
-        &mut self,
-        _threshold: chrono::DateTime<chrono::Utc>,
-        _min_count: usize,
-    ) -> Result<(), SignalProtocolError> {
-        unimplemented!("should not be used yet")
-    }
-}
-
-#[async_trait(?Send)]
-impl<T: BitpartTrees> SessionStore for BitpartProtocolStore<T> {
+impl SessionStore for BitpartProtocolStore {
     async fn load_session(
         &self,
         address: &ProtocolAddress,
     ) -> Result<Option<SessionRecord>, SignalProtocolError> {
-        let session = self.store.get(T::sessions(), address.to_string()).await?;
+        let session_data = if self.is_pni {
+            db::sessions::get_pni(&self.store.id, &address.to_string(), &self.store.pool).await
+        } else {
+            db::sessions::get_aci(&self.store.id, &address.to_string(), &self.store.pool).await
+        }?;
+
         trace!(
             %address,
-            session_exists = session.is_some(),
+            session_exists = session_data.is_some(),
             "loading session",
         );
-        session
-            .map(|b: Vec<u8>| SessionRecord::deserialize(&b))
+
+        session_data
+            .map(|b| SessionRecord::deserialize(&b))
             .transpose()
     }
 
@@ -678,82 +343,54 @@ impl<T: BitpartTrees> SessionStore for BitpartProtocolStore<T> {
         record: &SessionRecord,
     ) -> Result<(), SignalProtocolError> {
         trace!(%address, "storing session");
-        self.store
-            .insert(T::sessions(), address.to_string(), record.serialize()?)
-            .await?;
+        let session_data = record.serialize()?;
+        if self.is_pni {
+            db::sessions::set_pni(
+                &self.store.id,
+                &address.to_string(),
+                &session_data,
+                &self.store.pool,
+            )
+            .await
+        } else {
+            db::sessions::set_aci(
+                &self.store.id,
+                &address.to_string(),
+                &session_data,
+                &self.store.pool,
+            )
+            .await
+        }?;
         Ok(())
     }
 }
 
 #[async_trait(?Send)]
-impl<T: BitpartTrees> SessionStoreExt for BitpartProtocolStore<T> {
-    async fn get_sub_device_sessions(
-        &self,
-        address: &ServiceId,
-    ) -> Result<Vec<DeviceId>, SignalProtocolError> {
-        let session_prefix = format!("{}.", address.raw_uuid());
-        trace!(session_prefix, "get_sub_device_sessions");
-        let device_id: u32 = (*DEFAULT_DEVICE_ID).into();
-        let session_ids: Vec<DeviceId> =
-            db::channel_state::get_all(&self.store.id, T::sessions(), &self.store.db)
-                .await?
-                .iter()
-                .filter_map(|(key, _)| {
-                    let key_str: Vec<u8> = serde_json::from_slice(key.as_ref()).ok()?;
-                    let key_str = String::from_utf8_lossy(&key_str);
-                    if !key_str.starts_with(&session_prefix) {
-                        return None;
-                    };
-                    if let Ok(did) = key_str.strip_prefix(&session_prefix)?.parse::<u32>()
-                        && did != device_id
-                    {
-                        return did.try_into().ok();
-                    }
-                    None
-                })
-                .collect();
-        Ok(session_ids)
-    }
-
-    async fn delete_session(&self, address: &ProtocolAddress) -> Result<(), SignalProtocolError> {
-        trace!(%address, "deleting session");
-        db::channel_state::remove(
-            &self.store.id,
-            T::sessions(),
-            &address.to_string(),
-            &self.store.db,
-        )
-        .await?;
-
-        Ok(())
-    }
-
-    async fn delete_all_sessions(&self, address: &ServiceId) -> Result<usize, SignalProtocolError> {
-        let len = db::channel_state::remove_like(
-            &self.store.id,
-            T::sessions(),
-            &address.raw_uuid().to_string(),
-            &self.store.db,
-        )
-        .await?;
-
-        Ok(len as usize)
-    }
-}
-
-#[async_trait(?Send)]
-impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
+impl IdentityKeyStore for BitpartProtocolStore {
     async fn get_identity_key_pair(&self) -> Result<IdentityKeyPair, SignalProtocolError> {
         trace!("getting identity_key_pair");
-        self.store
-            .get_identity_key_pair::<T>()
-            .await?
-            .ok_or_else(|| {
-                SignalProtocolError::InvalidState(
-                    "get_identity_key_pair",
-                    "no identity key pair found".to_owned(),
-                )
-            })
+        let key_data = if self.is_pni {
+            db::state::get_pni(&self.store.id, "pni_identity_key_pair", &self.store.pool).await
+        } else {
+            db::state::get_aci(&self.store.id, "aci_identity_key_pair", &self.store.pool).await
+        }?
+        .ok_or_else(|| {
+            SignalProtocolError::InvalidState(
+                "get_identity_key_pair",
+                "no identity key pair found".to_owned(),
+            )
+        })?;
+
+        let key_base64 = String::from_utf8(key_data).map_err(|e| {
+            SignalProtocolError::InvalidState("get_identity_key_pair", e.to_string())
+        })?;
+        let key_bytes = base64::prelude::BASE64_STANDARD
+            .decode(key_base64)
+            .map_err(|e| {
+                SignalProtocolError::InvalidState("get_identity_key_pair", e.to_string())
+            })?;
+        IdentityKeyPair::try_from(&*key_bytes)
+            .map_err(|e| SignalProtocolError::InvalidState("get_identity_key_pair", e.to_string()))
     }
 
     async fn get_local_registration_id(&self) -> Result<u32, SignalProtocolError> {
@@ -774,18 +411,32 @@ impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
         identity_key: &IdentityKey,
     ) -> Result<IdentityChange, SignalProtocolError> {
         trace!("saving identity");
-        let existed_before = self
-            .store
-            .insert(
-                T::identities(),
-                address.to_string(),
-                identity_key.serialize(),
-            )
-            .await
-            .map_err(|error| {
-                error!(%error, %address, "failed to save identity");
-                error
-            })?;
+
+        let existed_before = db::identities::get(
+            &self.store.id,
+            self.is_pni,
+            &address.to_string(),
+            &self.store.pool,
+        )
+        .await
+        .map_err(|error| {
+            error!(%error, %address, "failed to check existing identity");
+            error
+        })?
+        .is_some();
+
+        db::identities::set(
+            &self.store.id,
+            self.is_pni,
+            &address.to_string(),
+            &identity_key.serialize(),
+            &self.store.pool,
+        )
+        .await
+        .map_err(|error| {
+            error!(%error, %address, "failed to save identity");
+            error
+        })?;
 
         save_trusted_identity_message(
             &self.store,
@@ -812,19 +463,20 @@ impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
         right_identity_key: &IdentityKey,
         _direction: Direction,
     ) -> Result<bool, SignalProtocolError> {
-        match self
-            .store
-            .get(T::identities(), address.to_string())
-            .await?
-            .map(|b: Vec<u8>| IdentityKey::decode(&b))
-            .transpose()?
+        match db::identities::get(
+            &self.store.id,
+            self.is_pni,
+            &address.to_string(),
+            &self.store.pool,
+        )
+        .await?
+        .map(|b| IdentityKey::decode(&b))
+        .transpose()?
         {
             None => {
-                // when we encounter a new identity, we trust it by default
                 warn!(%address, "trusting new identity");
                 Ok(true)
             }
-            // when we encounter some identity we know, we need to decide whether we trust it or not
             Some(left_identity_key) => {
                 if left_identity_key == *right_identity_key {
                     Ok(true)
@@ -842,16 +494,20 @@ impl<T: BitpartTrees> IdentityKeyStore for BitpartProtocolStore<T> {
         &self,
         address: &ProtocolAddress,
     ) -> Result<Option<IdentityKey>, SignalProtocolError> {
-        self.store
-            .get(T::identities(), address.to_string())
-            .await?
-            .map(|b: Vec<u8>| IdentityKey::decode(&b))
-            .transpose()
+        db::identities::get(
+            &self.store.id,
+            self.is_pni,
+            &address.to_string(),
+            &self.store.pool,
+        )
+        .await?
+        .map(|b| IdentityKey::decode(&b))
+        .transpose()
     }
 }
 
 #[async_trait(?Send)]
-impl<T: BitpartTrees> SenderKeyStore for BitpartProtocolStore<T> {
+impl SenderKeyStore for BitpartProtocolStore {
     async fn store_sender_key(
         &mut self,
         sender: &ProtocolAddress,
@@ -864,9 +520,12 @@ impl<T: BitpartTrees> SenderKeyStore for BitpartProtocolStore<T> {
             sender.device_id(),
             distribution_id
         );
-        self.store
-            .insert(T::sender_keys(), key, record.serialize()?)
-            .await?;
+        let record_data = record.serialize()?;
+        if self.is_pni {
+            db::sender_keys::set_pni(&self.store.id, &key, &record_data, &self.store.pool).await
+        } else {
+            db::sender_keys::set_aci(&self.store.id, &key, &record_data, &self.store.pool).await
+        }?;
         Ok(())
     }
 
@@ -881,11 +540,238 @@ impl<T: BitpartTrees> SenderKeyStore for BitpartProtocolStore<T> {
             sender.device_id(),
             distribution_id
         );
-        self.store
-            .get(T::sender_keys(), key)
-            .await?
-            .map(|b: Vec<u8>| SenderKeyRecord::deserialize(&b))
+        let record_data = if self.is_pni {
+            db::sender_keys::get_pni(&self.store.id, &key, &self.store.pool).await
+        } else {
+            db::sender_keys::get_aci(&self.store.id, &key, &self.store.pool).await
+        }?;
+
+        record_data
+            .map(|b| SenderKeyRecord::deserialize(&b))
             .transpose()
+    }
+}
+
+impl ProtocolStore for BitpartProtocolStore {}
+
+#[async_trait(?Send)]
+impl PreKeysStore for BitpartProtocolStore {
+    async fn next_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
+        let max_id = if self.is_pni {
+            db::pre_keys::max_key_id_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::pre_keys::max_key_id_aci(&self.store.id, &self.store.pool).await
+        }?;
+        Ok(max_id.map_or(0, |id| id + 1))
+    }
+
+    async fn next_signed_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
+        let max_id = if self.is_pni {
+            db::signed_pre_keys::max_key_id_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::signed_pre_keys::max_key_id_aci(&self.store.id, &self.store.pool).await
+        }?;
+        Ok(max_id.map_or(0, |id| id + 1))
+    }
+
+    async fn next_pq_pre_key_id(&self) -> Result<u32, SignalProtocolError> {
+        let max_id = if self.is_pni {
+            db::kyber_pre_keys::max_key_id_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::kyber_pre_keys::max_key_id_aci(&self.store.id, &self.store.pool).await
+        }?;
+        Ok(max_id.map_or(0, |id| id + 1))
+    }
+
+    async fn signed_pre_keys_count(&self) -> Result<usize, SignalProtocolError> {
+        let all_keys = if self.is_pni {
+            db::signed_pre_keys::get_all_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::signed_pre_keys::get_all_aci(&self.store.id, &self.store.pool).await
+        }
+        .map_err(|error| {
+            error!(%error, "store error");
+            SignalProtocolError::InvalidState("signed_pre_keys_count", "store error".into())
+        })?;
+        Ok(all_keys.len())
+    }
+
+    async fn kyber_pre_keys_count(&self, _last_resort: bool) -> Result<usize, SignalProtocolError> {
+        debug!("kyber_pre_keys_count");
+        let all_keys = if self.is_pni {
+            db::kyber_pre_keys::get_all_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::kyber_pre_keys::get_all_aci(&self.store.id, &self.store.pool).await
+        }
+        .map_err(|error| {
+            error!(%error, "store error");
+            SignalProtocolError::InvalidState("kyber_pre_keys_count", "store error".into())
+        })?;
+        Ok(all_keys.len())
+    }
+
+    async fn signed_prekey_id(&self) -> Result<Option<SignedPreKeyId>, SignalProtocolError> {
+        let max_id = if self.is_pni {
+            db::signed_pre_keys::max_key_id_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::signed_pre_keys::max_key_id_aci(&self.store.id, &self.store.pool).await
+        }?;
+        Ok(max_id.map(From::from))
+    }
+
+    async fn last_resort_kyber_prekey_id(
+        &self,
+    ) -> Result<Option<KyberPreKeyId>, SignalProtocolError> {
+        debug!("last_resort_kyber_prekey_id");
+        let all_keys = if self.is_pni {
+            db::kyber_pre_keys::get_last_resort_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::kyber_pre_keys::get_last_resort_aci(&self.store.id, &self.store.pool).await
+        }?;
+
+        let mut keys: Vec<u32> = all_keys.iter().map(|(key_id, _)| *key_id).collect();
+        keys.sort();
+        Ok(keys.last().copied().map(From::from))
+    }
+}
+
+#[async_trait(?Send)]
+impl KyberPreKeyStoreExt for BitpartProtocolStore {
+    async fn store_last_resort_kyber_pre_key(
+        &mut self,
+        kyber_prekey_id: KyberPreKeyId,
+        record: &KyberPreKeyRecord,
+    ) -> Result<(), SignalProtocolError> {
+        debug!("store_last_resort_kyber_pre_key");
+        let record_data = record.serialize()?;
+        if self.is_pni {
+            db::kyber_pre_keys::set_pni(
+                &self.store.id,
+                kyber_prekey_id.into(),
+                &record_data,
+                true,
+                &self.store.pool,
+            )
+            .await
+        } else {
+            db::kyber_pre_keys::set_aci(
+                &self.store.id,
+                kyber_prekey_id.into(),
+                &record_data,
+                true,
+                &self.store.pool,
+            )
+            .await
+        }
+        .map_err(|error| {
+            error!(%error, "store error");
+            SignalProtocolError::InvalidState(
+                "store_last_resort_kyber_pre_key",
+                "store error".into(),
+            )
+        })?;
+        Ok(())
+    }
+
+    async fn load_last_resort_kyber_pre_keys(
+        &self,
+    ) -> Result<Vec<KyberPreKeyRecord>, SignalProtocolError> {
+        debug!("load_last_resort_kyber_pre_keys");
+        let last_resort_keys = if self.is_pni {
+            db::kyber_pre_keys::get_last_resort_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::kyber_pre_keys::get_last_resort_aci(&self.store.id, &self.store.pool).await
+        }?;
+
+        let mut records = Vec::new();
+        for (_, record_data) in last_resort_keys {
+            let record = KyberPreKeyRecord::deserialize(&record_data)?;
+            records.push(record);
+        }
+        Ok(records)
+    }
+
+    async fn remove_kyber_pre_key(
+        &mut self,
+        kyber_prekey_id: KyberPreKeyId,
+    ) -> Result<(), SignalProtocolError> {
+        let _removed = if self.is_pni {
+            db::kyber_pre_keys::remove_pni(&self.store.id, kyber_prekey_id.into(), &self.store.pool)
+                .await
+        } else {
+            db::kyber_pre_keys::remove_aci(&self.store.id, kyber_prekey_id.into(), &self.store.pool)
+                .await
+        }?;
+        Ok(())
+    }
+
+    async fn mark_all_one_time_kyber_pre_keys_stale_if_necessary(
+        &mut self,
+        _stale_time: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), SignalProtocolError> {
+        unimplemented!("should not be used yet")
+    }
+
+    async fn delete_all_stale_one_time_kyber_pre_keys(
+        &mut self,
+        _threshold: chrono::DateTime<chrono::Utc>,
+        _min_count: usize,
+    ) -> Result<(), SignalProtocolError> {
+        unimplemented!("should not be used yet")
+    }
+}
+
+#[async_trait(?Send)]
+impl SessionStoreExt for BitpartProtocolStore {
+    async fn get_sub_device_sessions(
+        &self,
+        address: &ServiceId,
+    ) -> Result<Vec<DeviceId>, SignalProtocolError> {
+        let session_prefix = format!("{}.", address.raw_uuid());
+        trace!(session_prefix, "get_sub_device_sessions");
+        let device_id: u32 = (*DEFAULT_DEVICE_ID).into();
+
+        let all_sessions = if self.is_pni {
+            db::sessions::get_all_pni(&self.store.id, &self.store.pool).await
+        } else {
+            db::sessions::get_all_aci(&self.store.id, &self.store.pool).await
+        }?;
+
+        let session_ids: Vec<DeviceId> = all_sessions
+            .iter()
+            .filter_map(|(address_str, _session_data): &(String, Vec<u8>)| {
+                if !address_str.starts_with(&session_prefix) {
+                    return None;
+                };
+                if let Ok(did) = address_str.strip_prefix(&session_prefix)?.parse::<u32>()
+                    && did != device_id
+                {
+                    return did.try_into().ok();
+                }
+                None
+            })
+            .collect();
+        Ok(session_ids)
+    }
+
+    async fn delete_session(&self, address: &ProtocolAddress) -> Result<(), SignalProtocolError> {
+        trace!(%address, "deleting session");
+        let _removed = if self.is_pni {
+            db::sessions::remove_pni(&self.store.id, &address.to_string(), &self.store.pool).await
+        } else {
+            db::sessions::remove_aci(&self.store.id, &address.to_string(), &self.store.pool).await
+        }?;
+        Ok(())
+    }
+
+    async fn delete_all_sessions(&self, address: &ServiceId) -> Result<usize, SignalProtocolError> {
+        let pattern = format!("{}%", address.raw_uuid());
+        let removed = if self.is_pni {
+            db::sessions::remove_like_pni(&self.store.id, &pattern, &self.store.pool).await
+        } else {
+            db::sessions::remove_like_aci(&self.store.id, &pattern, &self.store.pool).await
+        }?;
+        Ok(removed as usize)
     }
 }
 
@@ -945,7 +831,6 @@ mod tests {
 
     impl Arbitrary for KeyPair {
         fn arbitrary(_g: &mut Gen) -> Self {
-            // Gen is not rand::CryptoRng here, see https://github.com/BurntSushi/quickcheck/issues/241
             KeyPair(protocol::KeyPair::generate(&mut rand::rng()))
         }
     }

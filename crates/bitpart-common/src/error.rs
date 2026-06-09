@@ -26,7 +26,6 @@ use presage::{
 };
 use presage_store_bitpart::BitpartStoreError;
 use prost;
-use sea_orm::DbErr;
 use serde_json::Error as SerdeError;
 use std::{array, io, num::ParseIntError};
 use thiserror::Error;
@@ -41,8 +40,14 @@ pub enum BitpartErrorKind {
     Api(String),
     #[error("Interpreter error: `{0}`")]
     Interpreter(String),
-    #[error("Database error: `{0}`")]
-    Db(#[from] DbErr),
+    #[error("Rusqlite error: `{0}`")]
+    Rusqlite(#[from] rusqlite::Error),
+    // Deadpool's `PoolError` / `InteractError` are stringified here
+    // rather than carried typed, because adding `deadpool` to every
+    // crate's error-pattern-match surface is not worth it for a
+    // transient transitional state.
+    #[error("DB pool error: `{0}`")]
+    Pool(String),
     #[error("I/O error: `{0}`")]
     Io(#[from] io::Error),
     #[error("Directory error: `{0}`")]
@@ -51,8 +56,8 @@ pub enum BitpartErrorKind {
     Figment(#[from] figment::Error),
     #[error("Channel Receive error: `{0}`")]
     ChannelRecv(#[from] tokio::sync::oneshot::error::RecvError),
-    #[error("Presage store error")]
-    PresageStore,
+    #[error("Presage store error: `{0}`")]
+    PresageStore(String),
     #[error("Attachment error: `{0}`")]
     Attachment(#[from] presage::libsignal_service::sender::AttachmentUploadError),
     #[error("Serialization/deserialization error")]
@@ -90,8 +95,8 @@ pub enum BitpartErrorKind {
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartErrorKind {
-    fn from(_err: presage::Error<S>) -> Self {
-        Self::PresageStore
+    fn from(err: presage::Error<S>) -> Self {
+        Self::PresageStore(err.to_string())
     }
 }
 

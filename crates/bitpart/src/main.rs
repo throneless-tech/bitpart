@@ -40,7 +40,6 @@ use figment::{
 use figment_file_provider_adapter::FileAdapter;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracer};
-use sea_orm::{ConnectOptions, Database};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -55,11 +54,11 @@ use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::prelude::*;
 
 use api::ApiState;
+use bitpart_common::db::migration::migrate;
 use channels::signal;
-use db::migration::migrate;
 
 /// Bitpart is a messaging tool that runs on top of Signal to support activists, journalists, and human rights defenders.
-#[derive(Debug, Parser, Serialize, Deserialize)]
+#[derive(Parser, Serialize, Deserialize)]
 #[command(version, about, long_about = None)]
 struct Cli {
     /// Verbosity
@@ -91,7 +90,7 @@ struct Cli {
     opentelemetry: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 struct Config {
     /// Verbosity
     verbose: Verbosity,
@@ -110,6 +109,35 @@ struct Config {
 
     /// Enable Opentelemetry
     opentelemetry: bool,
+}
+
+/// Placeholder rendered in `Debug` output in place of sensitive values.
+const REDACTED: &str = "<redacted>";
+
+impl std::fmt::Debug for Cli {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Cli")
+            .field("verbose", &self.verbose)
+            .field("auth", &self.auth.as_ref().map(|_| REDACTED))
+            .field("bind", &self.bind)
+            .field("database", &self.database)
+            .field("key", &self.key.as_ref().map(|_| REDACTED))
+            .field("opentelemetry", &self.opentelemetry)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("verbose", &self.verbose)
+            .field("auth", &REDACTED)
+            .field("bind", &self.bind)
+            .field("database", &self.database)
+            .field("key", &REDACTED)
+            .field("opentelemetry", &self.opentelemetry)
+            .finish()
+    }
 }
 
 async fn authenticate(
@@ -181,26 +209,27 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    // Initialize database
-    let uri = format!("sqlite://{}?mode=rwc", server.database);
-    let mut opts = ConnectOptions::new(&uri);
-    opts.sqlcipher_key(server.key);
-    let db = Database::connect(opts).await?;
-    migrate(&db).await?;
+    // Initialize database.
+    let pool = bitpart_common::db::build_pool(
+        std::path::Path::new(&server.database),
+        server.key.clone(),
+        bitpart_common::db::DEFAULT_POOL_SIZE,
+    )?;
+    migrate(&pool).await?;
 
     // Start incoming message channels
-    let channels = db::channel::list(None, None, &db).await?;
+    let channels = db::channel::list(None, None, &pool).await?;
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
     let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
     let mut state = ApiState {
-        db,
+        pool,
         auth: server.auth,
         parent_token: token.clone(),
         tokens: Arc::new(Mutex::new(tokens)),
         tracker: tracker.clone(),
         attachments_dir: proj_dirs.cache_dir().to_path_buf(),
-        manager: Box::new(signal::SignalManager::new()),
+        manager: Arc::new(signal::SignalManager::new()),
     };
     for channel in channels.iter() {
         let res = api::start_channel(&channel.id, &channel.bot_id, &mut state).await?;

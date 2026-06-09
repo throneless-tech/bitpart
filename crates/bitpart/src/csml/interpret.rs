@@ -17,7 +17,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use bitpart_common::error::Result;
+use bitpart_common::{db::Pool, error::Result};
 use chrono::Utc;
 use csml_interpreter::csml_logs::LogLvl;
 use csml_interpreter::data::{
@@ -25,12 +25,11 @@ use csml_interpreter::data::{
     context::ContextStepInfo, event::Event,
 };
 use csml_interpreter::interpret;
-use sea_orm::DatabaseConnection;
 use serde_json::{Value, map::Map};
 use std::collections::HashMap;
-use std::sync::mpsc;
-use std::thread;
-use tracing::{debug, error, info, trace, warn};
+use std::sync::mpsc as std_mpsc;
+use tokio::sync::mpsc as tokio_mpsc;
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use super::data::{ConversationData, SwitchBot};
 use super::utils::{
@@ -46,38 +45,49 @@ enum InterpreterReturn {
     SwitchBot(SwitchBot),
 }
 
+#[instrument(
+    name = "csml.step",
+    skip_all,
+    fields(
+        bot_id = %data.client.bot_id,
+        user_id = %data.client.user_id,
+        channel_id = %data.client.channel_id,
+        flow = %data.context.flow,
+    ),
+)]
 pub async fn step(
     data: &mut ConversationData,
     event: Event,
     bot: &CsmlBot,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<(Map<String, Value>, Option<SwitchBot>)> {
     let mut current_flow: &CsmlFlow = get_flow_by_id(&data.context.flow, &bot.flows)?;
     let mut interaction_order = 0;
     let mut conversation_end = false;
-    let (sender, receiver) = mpsc::channel::<MSG>();
+    let (interpret_sender, interpret_receiver) = std_mpsc::channel::<MSG>();
+    let (sender, mut receiver) = tokio_mpsc::channel::<MSG>(32);
     let context = data.context.clone();
     let mut switch_bot = None;
-    info!(
-        flow = data.context.flow.to_string(),
-        "interpreter: start interpretations of bot {:?}", bot.id
-    );
+    info!("interpreter: start interpretations of bot {:?}", bot.id);
     debug!(
-        bot_id = data.client.bot_id.to_string(),
-        user_id = data.client.user_id.to_string(),
-        channel_id = data.client.channel_id.to_string(),
-        flow = data.context.flow.to_string(),
         "interpreter: start interpretations of bot {:?}, with ",
         bot.id
     );
     let new_bot = bot.clone();
-    thread::spawn(move || {
-        interpret(new_bot, context, event, Some(sender));
+    tokio::task::spawn_blocking(move || {
+        interpret(new_bot, context, event, Some(interpret_sender));
+    });
+    tokio::task::spawn_blocking(move || {
+        while let Ok(msg) = interpret_receiver.recv() {
+            if sender.blocking_send(msg).is_err() {
+                break;
+            }
+        }
     });
 
     let mut memories = HashMap::new();
 
-    for received in receiver {
+    while let Some(received) = receiver.recv().await {
         match received {
             MSG::Remember(mem) => {
                 memories.insert(mem.key.clone(), mem);
@@ -85,51 +95,37 @@ pub async fn step(
             MSG::Forget(mem) => match mem {
                 ForgetMemory::ALL => {
                     memories.clear();
-                    db::memory::delete_by_client(&data.client, db).await?;
+                    db::memory::delete_by_client(&data.client, pool).await?;
                 }
                 ForgetMemory::SINGLE(memory) => {
                     memories.remove(&memory.ident);
-                    db::memory::delete(&data.client, &memory.ident, db).await?;
+                    db::memory::delete(&data.client, &memory.ident, pool).await?;
                 }
                 ForgetMemory::LIST(mem_list) => {
                     for mem in mem_list.iter() {
                         memories.remove(&mem.ident);
-                        db::memory::delete(&data.client, &mem.ident, db).await?;
+                        db::memory::delete(&data.client, &mem.ident, pool).await?;
                     }
                 }
             },
             MSG::Message(msg) => {
-                info!(flow = data.context.flow.to_string(), "sending message");
-                debug!(
-                    bot_id = data.client.bot_id.to_string(),
-                    user_id = data.client.user_id.to_string(),
-                    channel_id = data.client.channel_id.to_string(),
-                    flow = data.context.flow.to_string(),
-                    "sending message {:?}",
-                    msg
-                );
+                info!("sending message");
+                debug!("sending message {:?}", msg);
 
                 debug!("CONTEXT {:?}", data.context);
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
                 data.messages.push(msg);
             }
             MSG::Shout(msg) => {
-                info!(flow = data.context.flow.to_string(), "sending message");
-                debug!(
-                    bot_id = data.client.bot_id.to_string(),
-                    user_id = data.client.user_id.to_string(),
-                    channel_id = data.client.channel_id.to_string(),
-                    flow = data.context.flow.to_string(),
-                    "shouting message {:?}",
-                    msg
-                );
+                info!("sending message");
+                debug!("shouting message {:?}", msg);
 
                 debug!("CONTEXT {:?}", data.context);
 
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
 
                 let convos =
-                    db::conversation::get_open_by_bot_id(&data.client.bot_id, None, None, db)
+                    db::conversation::get_open_by_bot_id(&data.client.bot_id, None, None, pool)
                         .await?;
 
                 for c in convos.iter() {
@@ -148,21 +144,14 @@ pub async fn step(
                 }
             }
             MSG::Whisper(msg) => {
-                info!(flow = data.context.flow.to_string(), "sending message");
-                debug!(
-                    bot_id = data.client.bot_id.to_string(),
-                    user_id = data.client.user_id.to_string(),
-                    channel_id = data.client.channel_id.to_string(),
-                    flow = data.context.flow.to_string(),
-                    "whispering message {:?}",
-                    msg
-                );
+                info!("sending message");
+                debug!("whispering message {:?}", msg);
 
                 debug!("CONTEXT {:?}", data.context);
 
                 send_msg_to_callback_url(data, vec![msg.clone()], interaction_order, false);
 
-                let clients = db::memory::get_by_memory("_whisperable", &data.client.bot_id, db)
+                let clients = db::memory::get_by_memory("_whisperable", &data.client.bot_id, pool)
                     .await?
                     .into_iter()
                     .map(|mem| Client {
@@ -184,19 +173,13 @@ pub async fn step(
                 }
             }
             MSG::Delete => {
-                info!(flow = data.context.flow.to_string(), "sending message");
-                debug!(
-                    bot_id = data.client.bot_id.to_string(),
-                    user_id = data.client.user_id.to_string(),
-                    channel_id = data.client.channel_id.to_string(),
-                    flow = data.context.flow.to_string(),
-                    "deleting client",
-                );
+                info!("sending message");
+                debug!("deleting client");
 
                 debug!("CONTEXT {:?}", data.context);
 
-                db::conversation::delete_by_client(&data.client, db).await?;
-                db::memory::delete_by_client(&data.client, db).await?;
+                db::conversation::delete_by_client(&data.client, pool).await?;
+                db::memory::delete_by_client(&data.client, pool).await?;
             }
             MSG::Log {
                 flow,
@@ -204,47 +187,15 @@ pub async fn step(
                 message,
                 log_lvl,
             } => {
+                // Note: `flow` here is the CSML script's own flow identifier,
+                // logged as `csml_flow` to disambiguate from the span's `flow`
+                // field which comes from `data.context.flow`.
                 match log_lvl {
-                    LogLvl::Error => error!(
-                        bot_id = data.client.bot_id.to_string(),
-                        user_id = data.client.user_id.to_string(),
-                        channel_id = data.client.channel_id.to_string(),
-                        flow,
-                        line,
-                        message
-                    ),
-                    LogLvl::Warn => warn!(
-                        bot_id = data.client.bot_id.to_string(),
-                        user_id = data.client.user_id.to_string(),
-                        channel_id = data.client.channel_id.to_string(),
-                        flow,
-                        line,
-                        message
-                    ),
-                    LogLvl::Info => info!(
-                        bot_id = data.client.bot_id.to_string(),
-                        user_id = data.client.user_id.to_string(),
-                        channel_id = data.client.channel_id.to_string(),
-                        flow,
-                        line,
-                        message
-                    ),
-                    LogLvl::Debug => debug!(
-                        bot_id = data.client.bot_id.to_string(),
-                        user_id = data.client.user_id.to_string(),
-                        channel_id = data.client.channel_id.to_string(),
-                        flow,
-                        line,
-                        message
-                    ),
-                    LogLvl::Trace => trace!(
-                        bot_id = data.client.bot_id.to_string(),
-                        user_id = data.client.user_id.to_string(),
-                        channel_id = data.client.channel_id.to_string(),
-                        flow,
-                        line,
-                        message
-                    ),
+                    LogLvl::Error => error!(csml_flow = flow, line, message),
+                    LogLvl::Warn => warn!(csml_flow = flow, line, message),
+                    LogLvl::Info => info!(csml_flow = flow, line, message),
+                    LogLvl::Debug => debug!(csml_flow = flow, line, message),
+                    LogLvl::Trace => trace!(csml_flow = flow, line, message),
                 };
             }
             MSG::Hold(Hold {
@@ -263,15 +214,8 @@ pub async fn step(
                     "previous": previous,
                     "secure": secure
                 });
-                info!(flow = data.context.flow.to_string(), "hold bot");
-                debug!(
-                    bot_id = data.client.bot_id.to_string(),
-                    user_id = data.client.user_id.to_string(),
-                    channel_id = data.client.channel_id.to_string(),
-                    flow = data.context.flow.to_string(),
-                    "hold bot, state_hold {:?}",
-                    state_hold
-                );
+                info!("hold bot");
+                debug!("hold bot, state_hold {:?}", state_hold);
 
                 db::state::set(
                     &data.client,
@@ -279,7 +223,7 @@ pub async fn step(
                     "position",
                     &state_hold,
                     data.ttl.map(|t| Utc::now().naive_utc() + t),
-                    db,
+                    pool,
                 )
                 .await?;
                 data.context.hold = Some(Hold {
@@ -305,7 +249,7 @@ pub async fn step(
                     &mut memories,
                     flow,
                     step,
-                    db,
+                    pool,
                 )
                 .await
                 {
@@ -325,7 +269,7 @@ pub async fn step(
                     flow,
                     step,
                     target_bot,
-                    db,
+                    pool,
                 )
                 .await
                 {
@@ -336,18 +280,11 @@ pub async fn step(
 
             MSG::Error(err_msg) => {
                 conversation_end = true;
-                error!(
-                    bot_id = data.client.bot_id.to_string(),
-                    user_id = data.client.user_id.to_string(),
-                    channel_id = data.client.channel_id.to_string(),
-                    flow = data.context.flow.to_string(),
-                    "interpreter error: {:?}",
-                    err_msg
-                );
+                error!("interpreter error: {:?}", err_msg);
 
                 send_msg_to_callback_url(data, vec![err_msg.clone()], interaction_order, true);
                 data.messages.push(err_msg);
-                db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", db).await?;
+                db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", pool).await?;
             }
         }
     }
@@ -360,10 +297,10 @@ pub async fn step(
             .map(|var| var.clone().message_to_json())
             .collect();
 
-        db::message::create(data, &msgs, interaction_order, "SEND", None, db).await?;
+        db::message::create(data, &msgs, interaction_order, "SEND", None, pool).await?;
     }
 
-    db::memory::create_many(&data.client, &memories, None, db).await?;
+    db::memory::create_many(&data.client, &memories, None, pool).await?;
 
     Ok((
         messages_formatter(
@@ -376,6 +313,17 @@ pub async fn step(
     ))
 }
 
+#[instrument(
+    name = "csml.manage_switch_bot",
+    skip_all,
+    fields(
+        bot_id = %data.client.bot_id,
+        user_id = %data.client.user_id,
+        channel_id = %data.client.channel_id,
+        flow = %data.context.flow,
+        target_bot = %target_bot,
+    ),
+)]
 async fn manage_switch_bot(
     data: &mut ConversationData,
     interaction_order: &mut i32,
@@ -383,7 +331,7 @@ async fn manage_switch_bot(
     flow: Option<String>,
     step: Option<ContextStepInfo>,
     target_bot: String,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<InterpreterReturn> {
     // check if we are allow to switch to 'target_bot'
 
@@ -419,61 +367,26 @@ async fn manage_switch_bot(
                 true,
             );
 
-            error!(
-                flow = data.context.flow.to_string(),
-                message = error_message
-            );
+            error!(message = error_message);
             return Ok(InterpreterReturn::End);
         }
     };
 
     let (flow, step) = match (flow, step) {
         (Some(flow), Some(step)) => {
-            info!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto step: {:?}",
-                data.context.step.get_step()
-            );
-
+            info!("goto step: {:?}", data.context.step.get_step());
             (Some(flow), step)
         }
         (Some(flow), None) => {
-            info!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto step: {:?}",
-                data.context.step.get_step()
-            );
-
+            info!("goto step: {:?}", data.context.step.get_step());
             (Some(flow), ContextStepInfo::Normal("start".to_owned()))
         }
         (None, Some(step)) => {
-            info!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto step: {:?}",
-                data.context.step.get_step()
-            );
-
+            info!("goto step: {:?}", data.context.step.get_step());
             (None, step)
         }
         (None, None) => {
-            info!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto step: {:?}",
-                data.context.step.get_step()
-            );
-
+            info!("goto step: {:?}", data.context.step.get_step());
             (None, ContextStepInfo::Normal("start".to_owned()))
         }
     };
@@ -484,9 +397,9 @@ async fn manage_switch_bot(
     // send message switch bot
     send_msg_to_callback_url(data, vec![message], *interaction_order, true);
 
-    info!(flow = data.context.flow.to_string(), "switch bot");
+    info!("switch bot");
 
-    db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", db).await?;
+    db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", pool).await?;
 
     let previous_bot: Value = serde_json::json!({
         "bot": data.client.bot_id,
@@ -504,7 +417,7 @@ async fn manage_switch_bot(
         "previous",
         &previous_bot,
         data.ttl.map(|t| Utc::now().naive_utc() + t),
-        db,
+        pool,
     )
     .await?;
 
@@ -517,6 +430,16 @@ async fn manage_switch_bot(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[instrument(
+    name = "csml.manage_internal_goto",
+    skip_all,
+    fields(
+        bot_id = %data.client.bot_id,
+        user_id = %data.client.user_id,
+        channel_id = %data.client.channel_id,
+        flow = %data.context.flow,
+    ),
+)]
 async fn manage_internal_goto<'a>(
     data: &mut ConversationData,
     conversation_end: &mut bool,
@@ -526,63 +449,30 @@ async fn manage_internal_goto<'a>(
     memories: &mut HashMap<String, Memory>,
     flow: Option<String>,
     step: Option<ContextStepInfo>,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<InterpreterReturn> {
     match (flow, step) {
         (Some(flow), Some(step)) => {
-            debug!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto step: {:?}",
-                data.context.step.get_step()
-            );
-
+            debug!("goto step: {:?}", data.context.step.get_step());
             update_current_context(data, memories)?;
-            goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
+            goto_flow(data, interaction_order, current_flow, bot, flow, step, pool).await?
         }
         (Some(flow), None) => {
-            debug!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto step: {:?}",
-                data.context.step.get_step()
-            );
-
+            debug!("goto step: {:?}", data.context.step.get_step());
             update_current_context(data, memories)?;
             let step = ContextStepInfo::Normal("start".to_owned());
-
-            goto_flow(data, interaction_order, current_flow, bot, flow, step, db).await?
+            goto_flow(data, interaction_order, current_flow, bot, flow, step, pool).await?
         }
         (None, Some(step)) => {
-            debug!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto step: {:?}",
-                data.context.step.get_step()
-            );
-
-            if goto_step(data, conversation_end, interaction_order, step, db).await? {
+            debug!("goto step: {:?}", data.context.step.get_step());
+            if goto_step(data, conversation_end, interaction_order, step, pool).await? {
                 return Ok(InterpreterReturn::End);
             }
         }
         (None, None) => {
-            debug!(
-                bot_id = data.client.bot_id.to_string(),
-                user_id = data.client.user_id.to_string(),
-                channel_id = data.client.channel_id.to_string(),
-                flow = data.context.flow.to_string(),
-                "goto end: {:?}",
-                data.context.step.get_step()
-            );
-
+            debug!("goto end: {:?}", data.context.step.get_step());
             let step = ContextStepInfo::Normal("end".to_owned());
-            if goto_step(data, conversation_end, interaction_order, step, db).await? {
+            if goto_step(data, conversation_end, interaction_order, step, pool).await? {
                 return Ok(InterpreterReturn::End);
             }
         }
@@ -601,7 +491,7 @@ async fn goto_flow<'a>(
     bot: &'a CsmlBot,
     nextflow: String,
     nextstep: ContextStepInfo,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<()> {
     *current_flow = get_flow_by_id(&nextflow, &bot.flows)?;
     data.context.flow = nextflow;
@@ -611,7 +501,7 @@ async fn goto_flow<'a>(
         &data.conversation_id,
         Some(current_flow.id.clone()),
         Some(data.context.step.get_step()),
-        db,
+        pool,
     )
     .await?;
 
@@ -628,14 +518,14 @@ async fn goto_step(
     conversation_end: &mut bool,
     interaction_order: &mut i32,
     nextstep: ContextStepInfo,
-    db: &DatabaseConnection,
+    pool: &Pool,
 ) -> Result<bool> {
     if nextstep.is_step("end") {
         *conversation_end = true;
 
         // send end of conversation
         send_msg_to_callback_url(data, vec![], *interaction_order, *conversation_end);
-        db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", db).await?;
+        db::conversation::set_status_by_id(&data.conversation_id, "CLOSED", pool).await?;
 
         // break interpret_step loop
         return Ok(*conversation_end);
@@ -645,7 +535,7 @@ async fn goto_step(
             &data.conversation_id,
             None,
             Some(data.context.step.get_step()),
-            db,
+            pool,
         )
         .await?;
     }

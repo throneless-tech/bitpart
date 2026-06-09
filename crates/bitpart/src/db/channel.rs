@@ -11,108 +11,183 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Affero General Public License for more details.
 
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
+use bitpart_common::db::Pool;
 use bitpart_common::error::{BitpartErrorKind, Result};
-use sea_orm::*;
-use uuid;
+use rusqlite::{OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use super::entities::{prelude::*, *};
-
-pub async fn create(channel_id: &str, bot_id: &str, db: &DatabaseConnection) -> Result<String> {
-    let Some(existing) = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id))
-        .filter(channel::Column::ChannelId.eq(channel_id))
-        .one(db)
-        .await?
-    else {
-        let id = uuid::Uuid::new_v4().to_string();
-        let entry = channel::ActiveModel {
-            id: ActiveValue::Set(id.clone()),
-            bot_id: ActiveValue::Set(bot_id.to_owned()),
-            channel_id: ActiveValue::Set(channel_id.to_owned()),
-            ..Default::default()
-        };
-        entry.insert(db).await?;
-        return Ok(id);
-    };
-    Ok(existing.id)
+fn pool_err(e: impl std::fmt::Display) -> BitpartErrorKind {
+    BitpartErrorKind::Pool(e.to_string())
 }
 
-pub async fn list(
-    limit: Option<u64>,
-    offset: Option<u64>,
-    db: &DatabaseConnection,
-) -> Result<Vec<channel::Model>> {
-    let entries = Channel::find()
-        .order_by(channel::Column::CreatedAt, Order::Desc)
-        .limit(limit)
-        .offset(offset)
-        .all(db)
-        .await?;
-
-    Ok(entries)
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Model {
+    pub id: String,
+    pub bot_id: String,
+    pub channel_id: String,
+    pub updated_at: String,
+    pub created_at: String,
 }
 
-pub async fn get(
-    channel_id: &str,
-    bot_id: &str,
-    db: &DatabaseConnection,
-) -> Result<Option<channel::Model>> {
-    let entries = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id))
-        .filter(channel::Column::ChannelId.eq(channel_id))
-        .one(db)
-        .await?;
-
-    Ok(entries)
+fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
+    Ok(Model {
+        id: r.get("id")?,
+        bot_id: r.get("bot_id")?,
+        channel_id: r.get("channel_id")?,
+        updated_at: r.get("updated_at")?,
+        created_at: r.get("created_at")?,
+    })
 }
 
-pub async fn get_by_id(id: &str, db: &DatabaseConnection) -> Result<Option<channel::Model>> {
-    let entries = Channel::find_by_id(id).one(db).await?;
+pub async fn create(channel_id: &str, bot_id: &str, db: &Pool) -> Result<String> {
+    let channel_id = channel_id.to_owned();
+    let bot_id = bot_id.to_owned();
 
-    Ok(entries)
+    let obj = db.get().await.map_err(pool_err)?;
+    let id = obj
+        .interact(move |conn| -> rusqlite::Result<String> {
+            let existing: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM channel WHERE bot_id = ? AND channel_id = ? LIMIT 1",
+                    params![bot_id, channel_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(id) = existing {
+                return Ok(id);
+            }
+            let new_id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO channel (id, bot_id, channel_id) VALUES (?, ?, ?)",
+                params![new_id, bot_id, channel_id],
+            )?;
+            Ok(new_id)
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(id)
 }
 
-pub async fn get_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<Vec<channel::Model>> {
-    let entries = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id.to_owned()))
-        .all(db)
-        .await?;
-
-    Ok(entries)
+pub async fn list(limit: Option<u64>, offset: Option<u64>, db: &Pool) -> Result<Vec<Model>> {
+    let obj = db.get().await.map_err(pool_err)?;
+    let rows = obj
+        .interact(move |conn| -> rusqlite::Result<Vec<Model>> {
+            let lim: i64 = limit.map(|n| n as i64).unwrap_or(-1);
+            let off: i64 = offset.map(|n| n as i64).unwrap_or(0);
+            let mut stmt = conn.prepare(
+                "SELECT id, bot_id, channel_id, updated_at, created_at FROM channel \
+                 ORDER BY created_at DESC \
+                 LIMIT ? OFFSET ?",
+            )?;
+            let rows = stmt.query_map(params![lim, off], row_to_model)?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(rows)
 }
 
-pub async fn delete(channel_id: &str, bot_id: &str, db: &DatabaseConnection) -> Result<()> {
-    let entry = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id.to_owned()))
-        .filter(channel::Column::ChannelId.eq(channel_id.to_owned()))
-        .one(db)
-        .await?;
+pub async fn get(channel_id: &str, bot_id: &str, db: &Pool) -> Result<Option<Model>> {
+    let channel_id = channel_id.to_owned();
+    let bot_id = bot_id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    let row = obj
+        .interact(move |conn| -> rusqlite::Result<Option<Model>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, bot_id, channel_id, updated_at, created_at FROM channel \
+                 WHERE bot_id = ? AND channel_id = ? LIMIT 1",
+            )?;
+            stmt.query_row(params![bot_id, channel_id], row_to_model)
+                .optional()
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(row)
+}
 
-    if let Some(e) = entry {
-        e.delete(db).await?;
-        Ok(())
+pub async fn get_by_id(id: &str, db: &Pool) -> Result<Option<Model>> {
+    let id = id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    let row = obj
+        .interact(move |conn| -> rusqlite::Result<Option<Model>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, bot_id, channel_id, updated_at, created_at FROM channel \
+                 WHERE id = ?",
+            )?;
+            stmt.query_row(params![id], row_to_model).optional()
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(row)
+}
+
+pub async fn get_by_bot_id(bot_id: &str, db: &Pool) -> Result<Vec<Model>> {
+    let bot_id = bot_id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    let rows = obj
+        .interact(move |conn| -> rusqlite::Result<Vec<Model>> {
+            let mut stmt = conn.prepare(
+                "SELECT id, bot_id, channel_id, updated_at, created_at FROM channel \
+                 WHERE bot_id = ?",
+            )?;
+            let rows = stmt.query_map(params![bot_id], row_to_model)?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(rows)
+}
+
+pub async fn delete(channel_id: &str, bot_id: &str, db: &Pool) -> Result<()> {
+    let channel_id_owned = channel_id.to_owned();
+    let bot_id_owned = bot_id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    let affected = obj
+        .interact(move |conn| -> rusqlite::Result<usize> {
+            conn.execute(
+                "DELETE FROM channel WHERE bot_id = ? AND channel_id = ?",
+                params![bot_id_owned, channel_id_owned],
+            )
+        })
+        .await
+        .map_err(pool_err)??;
+    if affected == 0 {
+        Err(BitpartErrorKind::Api(format!("Record not found: {bot_id}")).into())
     } else {
-        Err(BitpartErrorKind::Db(DbErr::RecordNotFound(bot_id.to_owned())).into())
+        Ok(())
     }
 }
 
-pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
-    let entry = Channel::find()
-        .filter(channel::Column::BotId.eq(bot_id.to_owned()))
-        .one(db)
-        .await?;
-
-    if let Some(e) = entry {
-        e.delete(db).await?;
-    }
-
+pub async fn delete_by_bot_id(bot_id: &str, db: &Pool) -> Result<()> {
+    let bot_id = bot_id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<usize> {
+        conn.execute(
+            "DELETE FROM channel WHERE id = (SELECT id FROM channel WHERE bot_id = ? LIMIT 1)",
+            params![bot_id],
+        )
+    })
+    .await
+    .map_err(pool_err)??;
     Ok(())
 }
 
-pub async fn delete_by_id(id: &str, db: &DatabaseConnection) -> Result<()> {
-    Channel::delete_by_id(id).exec(db).await?;
+pub async fn delete_by_id(id: &str, db: &Pool) -> Result<()> {
+    let id = id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<usize> {
+        conn.execute("DELETE FROM channel WHERE id = ?", params![id])
+    })
+    .await
+    .map_err(pool_err)??;
     Ok(())
 }

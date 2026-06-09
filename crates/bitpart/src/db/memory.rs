@@ -11,36 +11,93 @@
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU Affero General Public License for more details.
 
-// You should have received a copy of the GNU Affero General Public License
-// along with this program.  If not, see <http://www.gnu.org/licenses/>.
-
-use bitpart_common::error::Result;
+use bitpart_common::db::Pool;
+use bitpart_common::error::{BitpartErrorKind, Result};
 use chrono::NaiveDateTime;
 use csml_interpreter::data::{Client, Memory as CsmlMemory};
-use sea_orm::*;
+use rusqlite::{OptionalExtension, params};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
-use uuid;
+use uuid::Uuid;
 
-use super::entities::{prelude::*, *};
+fn pool_err(e: impl std::fmt::Display) -> BitpartErrorKind {
+    BitpartErrorKind::Pool(e.to_string())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Model {
+    pub id: String,
+    pub bot_id: String,
+    pub channel_id: String,
+    pub user_id: String,
+    pub key: String,
+    pub value: Value,
+    pub created_at: String,
+    pub updated_at: String,
+    pub expires_at: Option<String>,
+}
+
+const SELECT_COLS: &str =
+    "id, bot_id, channel_id, user_id, key, value, created_at, updated_at, expires_at";
+
+fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
+    let value_text: String = r.get("value")?;
+    let value: Value = serde_json::from_str(&value_text).map_err(|e| {
+        rusqlite::Error::FromSqlConversionFailure(
+            5, // 0-indexed position of `value` in SELECT_COLS
+            rusqlite::types::Type::Text,
+            Box::new(e),
+        )
+    })?;
+    Ok(Model {
+        id: r.get("id")?,
+        bot_id: r.get("bot_id")?,
+        channel_id: r.get("channel_id")?,
+        user_id: r.get("user_id")?,
+        key: r.get("key")?,
+        value,
+        created_at: r.get("created_at")?,
+        updated_at: r.get("updated_at")?,
+        expires_at: r.get("expires_at")?,
+    })
+}
 
 pub async fn create(
     client: &Client,
     key: &str,
-    value: &serde_json::Value,
+    value: &Value,
     expires_at: Option<NaiveDateTime>,
-    db: &DatabaseConnection,
+    db: &Pool,
 ) -> Result<()> {
-    let entry = memory::ActiveModel {
-        id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
-        bot_id: ActiveValue::Set(client.bot_id.to_owned()),
-        channel_id: ActiveValue::Set(client.channel_id.to_owned()),
-        user_id: ActiveValue::Set(client.user_id.to_owned()),
-        key: ActiveValue::Set(key.to_owned()),
-        value: ActiveValue::Set(value.to_owned()),
-        expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
-        ..Default::default()
-    };
-    Memory::insert(entry).exec(db).await?;
+    let id = Uuid::new_v4().to_string();
+    let bot_id = client.bot_id.clone();
+    let channel_id = client.channel_id.clone();
+    let user_id = client.user_id.clone();
+    let key = key.to_owned();
+    let value_str = value.to_string();
+    let expires_at_str = expires_at.map(|e| e.to_string());
+
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<()> {
+        conn.execute(
+            "INSERT INTO memory \
+             (id, bot_id, channel_id, user_id, key, value, expires_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            params![
+                id,
+                bot_id,
+                channel_id,
+                user_id,
+                key,
+                value_str,
+                expires_at_str,
+            ],
+        )?;
+        Ok(())
+    })
+    .await
+    .map_err(pool_err)??;
     Ok(())
 }
 
@@ -48,117 +105,192 @@ pub async fn create_many(
     client: &Client,
     memories: &HashMap<String, CsmlMemory>,
     expires_at: Option<NaiveDateTime>,
-    db: &DatabaseConnection,
+    db: &Pool,
 ) -> Result<()> {
-    let mut new_memories = vec![];
+    if memories.is_empty() {
+        return Ok(());
+    }
+    let bot_id = client.bot_id.clone();
+    let channel_id = client.channel_id.clone();
+    let user_id = client.user_id.clone();
+    let expires_at_str = expires_at.map(|e| e.to_string());
+    // Materialise the inputs as owned (key, json_text) so we can send
+    // them across the `interact` boundary.
+    let entries: Vec<(String, String)> = memories
+        .iter()
+        .map(|(k, v)| (k.clone(), v.value.to_string()))
+        .collect();
 
-    for (key, value) in memories.iter() {
-        match get(client, key, db).await {
-            Ok(Some(existing)) => {
-                let mut existing: memory::ActiveModel = existing.into();
-                existing.value = ActiveValue::Set(value.value.clone());
-                existing.update(db).await?;
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<()> {
+        let mut to_insert: Vec<(String, String)> = Vec::new();
+        for (key, value_str) in entries {
+            let existing_id: Option<String> = conn
+                .query_row(
+                    "SELECT id FROM memory \
+                     WHERE bot_id = ? AND channel_id = ? AND user_id = ? AND key = ? \
+                     LIMIT 1",
+                    params![bot_id, channel_id, user_id, key],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            match existing_id {
+                Some(id) => {
+                    conn.execute(
+                        "UPDATE memory SET value = ? WHERE id = ?",
+                        params![value_str, id],
+                    )?;
+                }
+                None => to_insert.push((key, value_str)),
             }
-            Ok(None) => {
-                let entry = memory::ActiveModel {
-                    id: ActiveValue::Set(uuid::Uuid::new_v4().to_string()),
-                    bot_id: ActiveValue::Set(client.bot_id.to_owned()),
-                    channel_id: ActiveValue::Set(client.channel_id.to_owned()),
-                    user_id: ActiveValue::Set(client.user_id.to_owned()),
-                    key: ActiveValue::Set(key.to_owned()),
-                    value: ActiveValue::Set(value.value.to_owned()),
-                    expires_at: ActiveValue::Set(expires_at.map(|e| e.to_string())),
-                    ..Default::default()
-                };
-                new_memories.push(entry);
-            }
-            Err(e) => return Err(e),
         }
-    }
-    if !new_memories.is_empty() {
-        Memory::insert_many(new_memories).exec(db).await?;
-    }
+        if !to_insert.is_empty() {
+            let mut sql = String::from(
+                "INSERT INTO memory \
+                 (id, bot_id, channel_id, user_id, key, value, expires_at) VALUES ",
+            );
+            let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
+            for (i, (key, value_str)) in to_insert.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(", ");
+                }
+                sql.push_str("(?, ?, ?, ?, ?, ?, ?)");
+                let new_id = Uuid::new_v4().to_string();
+                params_vec.push(new_id.into());
+                params_vec.push(bot_id.clone().into());
+                params_vec.push(channel_id.clone().into());
+                params_vec.push(user_id.clone().into());
+                params_vec.push(key.clone().into());
+                params_vec.push(value_str.clone().into());
+                params_vec.push(match &expires_at_str {
+                    Some(s) => s.clone().into(),
+                    None => rusqlite::types::Value::Null,
+                });
+            }
+            conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(pool_err)??;
     Ok(())
 }
 
-pub async fn get(
-    client: &Client,
-    key: &str,
-    db: &DatabaseConnection,
-) -> Result<Option<memory::Model>> {
-    let entry = Memory::find()
-        .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
-        .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
-        .filter(memory::Column::UserId.eq(client.user_id.to_owned()))
-        .filter(memory::Column::Key.eq(key))
-        .one(db)
-        .await?;
-
-    Ok(entry)
+pub async fn get(client: &Client, key: &str, db: &Pool) -> Result<Option<Model>> {
+    let bot_id = client.bot_id.clone();
+    let channel_id = client.channel_id.clone();
+    let user_id = client.user_id.clone();
+    let key = key.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    let row = obj
+        .interact(move |conn| -> rusqlite::Result<Option<Model>> {
+            let sql = format!(
+                "SELECT {SELECT_COLS} FROM memory \
+                 WHERE bot_id = ? AND channel_id = ? AND user_id = ? AND key = ? LIMIT 1"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_row(params![bot_id, channel_id, user_id, key], row_to_model)
+                .optional()
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(row)
 }
 
 pub async fn get_by_client(
     client: &Client,
     limit: Option<u64>,
     offset: Option<u64>,
-    db: &DatabaseConnection,
-) -> Result<Vec<memory::Model>> {
-    let entry = Memory::find()
-        .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
-        .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
-        .filter(memory::Column::UserId.eq(client.user_id.to_owned()))
-        .limit(limit)
-        .offset(offset)
-        .all(db)
-        .await?;
-
-    Ok(entry)
+    db: &Pool,
+) -> Result<Vec<Model>> {
+    let bot_id = client.bot_id.clone();
+    let channel_id = client.channel_id.clone();
+    let user_id = client.user_id.clone();
+    let obj = db.get().await.map_err(pool_err)?;
+    let rows = obj
+        .interact(move |conn| -> rusqlite::Result<Vec<Model>> {
+            let lim: i64 = limit.map(|n| n as i64).unwrap_or(-1);
+            let off: i64 = offset.map(|n| n as i64).unwrap_or(0);
+            let sql = format!(
+                "SELECT {SELECT_COLS} FROM memory \
+                 WHERE bot_id = ? AND channel_id = ? AND user_id = ? \
+                 LIMIT ? OFFSET ?"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let rows =
+                stmt.query_map(params![bot_id, channel_id, user_id, lim, off], row_to_model)?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(rows)
 }
 
-pub async fn get_by_memory(
-    key: &str,
-    bot_id: &str,
-    db: &DatabaseConnection,
-) -> Result<Vec<memory::Model>> {
-    let entry = Memory::find()
-        .filter(memory::Column::Key.eq(key))
-        .filter(memory::Column::BotId.eq(bot_id))
-        .all(db)
-        .await?;
-
-    Ok(entry)
+pub async fn get_by_memory(key: &str, bot_id: &str, db: &Pool) -> Result<Vec<Model>> {
+    let key = key.to_owned();
+    let bot_id = bot_id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    let rows = obj
+        .interact(move |conn| -> rusqlite::Result<Vec<Model>> {
+            let sql = format!("SELECT {SELECT_COLS} FROM memory WHERE key = ? AND bot_id = ?");
+            let mut stmt = conn.prepare(&sql)?;
+            let rows = stmt.query_map(params![key, bot_id], row_to_model)?;
+            let mut out = Vec::new();
+            for row in rows {
+                out.push(row?);
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(rows)
 }
 
-pub async fn delete(client: &Client, key: &str, db: &DatabaseConnection) -> Result<()> {
-    let entry = Memory::find()
-        .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
-        .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
-        .filter(memory::Column::UserId.eq(client.user_id.to_owned()))
-        .filter(memory::Column::Key.eq(key))
-        .one(db)
-        .await?;
-
-    if let Some(e) = entry {
-        e.delete(db).await?;
-    }
-
+pub async fn delete(client: &Client, key: &str, db: &Pool) -> Result<()> {
+    let bot_id = client.bot_id.clone();
+    let channel_id = client.channel_id.clone();
+    let user_id = client.user_id.clone();
+    let key = key.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<usize> {
+        conn.execute(
+            "DELETE FROM memory \
+             WHERE bot_id = ? AND channel_id = ? AND user_id = ? AND key = ?",
+            params![bot_id, channel_id, user_id, key],
+        )
+    })
+    .await
+    .map_err(pool_err)??;
     Ok(())
 }
 
-pub async fn delete_by_client(client: &Client, db: &DatabaseConnection) -> Result<()> {
-    Memory::delete_many()
-        .filter(memory::Column::BotId.eq(client.bot_id.to_owned()))
-        .filter(memory::Column::ChannelId.eq(client.channel_id.to_owned()))
-        .filter(memory::Column::UserId.eq(client.user_id.to_owned()))
-        .exec(db)
-        .await?;
+pub async fn delete_by_client(client: &Client, db: &Pool) -> Result<()> {
+    let bot_id = client.bot_id.clone();
+    let channel_id = client.channel_id.clone();
+    let user_id = client.user_id.clone();
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<usize> {
+        conn.execute(
+            "DELETE FROM memory WHERE bot_id = ? AND channel_id = ? AND user_id = ?",
+            params![bot_id, channel_id, user_id],
+        )
+    })
+    .await
+    .map_err(pool_err)??;
     Ok(())
 }
 
-pub async fn delete_by_bot_id(bot_id: &str, db: &DatabaseConnection) -> Result<()> {
-    Memory::delete_many()
-        .filter(memory::Column::BotId.eq(bot_id.to_owned()))
-        .exec(db)
-        .await?;
+pub async fn delete_by_bot_id(bot_id: &str, db: &Pool) -> Result<()> {
+    let bot_id = bot_id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<usize> {
+        conn.execute("DELETE FROM memory WHERE bot_id = ?", params![bot_id])
+    })
+    .await
+    .map_err(pool_err)??;
     Ok(())
 }
