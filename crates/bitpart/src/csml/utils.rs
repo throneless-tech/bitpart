@@ -23,14 +23,14 @@ use bitpart_common::{
     csml::FlowTrigger,
     error::{BitpartErrorKind, Result},
 };
-use chrono::{SecondsFormat, Utc};
-use csml_interpreter::data::{
+use bitpart_csml::data::{
     Client, Context, CsmlBot, CsmlFlow, Event, Interval, Memory, Message,
     ast::{Flow, InsertStep, InstructionScope},
     context::ContextStepInfo,
 };
-use csml_interpreter::get_step;
-use csml_interpreter::interpreter::json_to_literal;
+use bitpart_csml::get_step;
+use bitpart_csml::interpreter::json_to_literal;
+use chrono::{SecondsFormat, Utc};
 use md5::{Digest, Md5};
 use rand::{Rng, thread_rng};
 use regex::Regex;

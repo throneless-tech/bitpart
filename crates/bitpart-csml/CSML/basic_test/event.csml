@@ -1,0 +1,70 @@
+start:
+    goto end
+
+step_0:
+    say event
+    goto end
+
+step_1:
+    say event.toto
+    say event.toto.yolo
+    goto end
+
+step_2:
+    say event.get_type()
+    goto end
+
+step_3:
+    say event.get_content()
+    goto end
+
+step_4:
+    say event.is_number()
+    goto end
+
+step_5:
+    say event.is_email()
+    goto end
+
+step_6:
+    do a = Button("a")
+    do b = Button("b")
+    if (event.match(a, b) ){
+        say true
+    } else {
+        say false
+    }
+    goto end
+
+step_7:
+    do a = Button("a")
+    if (event.match(a) ){
+        say true
+    } else {
+        say false
+    }
+    goto end
+
+step_8:
+    do a = Button("a")
+    if (event.match(a) ){
+        say true
+    } else {
+        say false
+    }
+    goto end
+
+step_9:
+    do array = [Button("a"), Button("b")]
+    if (event.match_array(array) ){
+        say true
+    } else {
+        say false
+    }
+    goto end
+
+
+// only event type text && payload can be use as normal strings and use the string methos
+event_types:
+    say event.is_int()
+    goto end

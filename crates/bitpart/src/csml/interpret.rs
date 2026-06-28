@@ -18,13 +18,13 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bitpart_common::{db::Pool, error::Result};
-use chrono::Utc;
-use csml_interpreter::csml_logs::LogLvl;
-use csml_interpreter::data::{
+use bitpart_csml::csml_logs::LogLvl;
+use bitpart_csml::data::{
     Client, CsmlBot, CsmlFlow, Hold, MSG, Memory, Message, MultiBot, ast::ForgetMemory,
     context::ContextStepInfo, event::Event,
 };
-use csml_interpreter::interpret;
+use bitpart_csml::interpret;
+use chrono::Utc;
 use serde_json::{Value, map::Map};
 use std::collections::HashMap;
 use std::sync::mpsc as std_mpsc;
@@ -74,8 +74,8 @@ pub async fn step(
         bot.id
     );
     let new_bot = bot.clone();
-    tokio::task::spawn_blocking(move || {
-        interpret(new_bot, context, event, Some(interpret_sender));
+    tokio::spawn(async move {
+        interpret(new_bot, context, event, Some(interpret_sender)).await;
     });
     tokio::task::spawn_blocking(move || {
         while let Ok(msg) = interpret_receiver.recv() {

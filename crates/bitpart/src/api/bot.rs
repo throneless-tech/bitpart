@@ -15,7 +15,7 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use bitpart_common::error::{BitpartErrorKind, Result};
-use csml_interpreter::{
+use bitpart_csml::{
     data::{CsmlBot, CsmlResult},
     load_components, search_for_modules, validate_bot,
 };
@@ -28,7 +28,7 @@ pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion
         Err(err) => return Err(BitpartErrorKind::Interpreter(err.format_error()).into()),
     };
 
-    if let Err(err) = search_for_modules(&mut bot) {
+    if let Err(err) = search_for_modules(&mut bot).await {
         return Err(BitpartErrorKind::Api(format!("{:?}", err)).into());
     }
 

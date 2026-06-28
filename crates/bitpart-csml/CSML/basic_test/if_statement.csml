@@ -1,0 +1,72 @@
+start:
+    if (event == 20) {
+        say "event == 20"
+    } else if (event > 20 && event < 40 && true) {
+        say "event > 20 && event < 40"
+    } else if (event >= 50) {
+        say "event >= 50"
+    } else if (event < 20) {
+        say "event < 20"
+    } else if (event <= 45) {
+        say "event <= 45"
+    } else {
+        say "event is not int"
+    }
+    goto end
+
+step1:
+  if (var10 > 9) {
+      say "var10 > 9"
+  }
+  goto end
+
+step2:
+    if (var10 > var5) {
+        say "var10 > var5"
+    }
+    goto end
+
+step3:
+    do var9 = 9
+    if (var9 > var9) {
+        say "error"
+    } else {
+        say "var9 > var9"
+    }
+    goto end
+
+step4:
+  do plop = "hola quoi que tal ?"
+  if ( Find("quoi", in = plop ) ) {
+    say "quoi"
+  }
+  goto end
+
+step5:
+  if ( bool ) {
+    say "error bool if condition"
+  } else {
+    say "OK"
+  }
+  goto end
+
+step6:
+  if (Find("a", in = "xxx")) {
+    say "OK"
+  }
+  else {
+    say "pas OK"
+  }
+  goto end
+
+step7:
+  do vector = [1, 2]
+
+  if (2 == vector.length()) {
+    say "YES"
+  }
+  if (vector.length() == 2) {
+    say "YES"
+  }
+
+goto end

@@ -1,0 +1,53 @@
+start:
+    do array = ["Hello", "World"]
+    foreach (s, index) in array {
+            say s
+	    break
+    }
+    goto end
+
+break_test_0:
+    do array = ["Hello", "World"]
+    foreach (s) in array {
+        say s
+        foreach (s) in array {
+            break
+        }
+    }
+    goto end
+
+break_test_1:
+    do array = ["Hello", "World"]
+    foreach (s, index) in array {
+        say s
+        foreach (s, index) in array {
+            foreach (s, index) in array {
+                break
+            }
+            break
+        }
+    }
+    goto end
+
+break_test_2:
+    do array = ["Hello", "World"]
+    foreach (s, index) in array {
+        foreach (s, index) in array {
+            say s
+            if (index == 1) {
+                break
+            }
+        }
+    }
+    goto end
+
+break_test_3:
+    do array = ["Hello", "World"]
+    foreach (s) in array {
+        say s
+        goto end
+        foreach (s) in array {
+            break
+        }
+    }
+    goto end

@@ -1,0 +1,178 @@
+start:
+    goto end
+
+step_0:
+    remember vec = []
+
+    do vec.push(42)
+
+    goto end
+
+step_1:
+    remember vec = [42]
+
+    say vec.pop()
+    say vec
+
+    goto end
+
+step_2:
+    remember vec = [42]
+
+    say vec.is_empty()
+
+    do vec = []
+
+    say vec.is_empty()
+
+    goto end
+
+step_3:
+    remember vec = [42]
+
+    do vec.insert_at(0, 24)
+
+    say vec.length()
+
+    say vec[0]
+
+    do vec.remove_at(0)
+
+    say vec[0]
+
+    goto end
+
+step_4:
+    remember vec = []
+
+    do vec.insert_at(-1, 42)
+
+    goto end
+
+step_5:
+    remember vec = []
+
+    do vec.insert_at(1, 42)
+
+    goto end
+
+step_6:
+    remember vec = []
+
+    do vec.remove_at(-1)
+
+    goto end
+
+step_7:
+    remember vec = []
+
+    do vec.remove_at(1)
+
+    goto end
+
+step_8:
+    remember vec = []
+
+    say vec.join()
+
+    goto end
+
+step_9:
+    do vec = []
+
+    say vec.join(",")
+
+    goto end
+
+step_10:
+    do vec = [1]
+
+    say vec.join(",")
+
+    goto end
+
+step_11:
+    do vec = [1, 2]
+
+    say vec.join(",")
+
+    goto end
+
+array_index_of_0:
+    do vec = [1, 2]
+
+    say vec.index_of(3) // -1
+
+    goto end
+
+array_index_of_1:
+    do vec = [1, 2]
+
+    say vec.index_of(2) // 1
+
+    goto end
+
+array_index_of_2:
+    do vec = [1, 2, [1, 2]]
+
+    say vec.index_of([1, 2]) // 2
+
+    goto end
+
+array_find_0:
+    do vec = [1, 2]
+
+    say vec.find(3) // NULL
+
+    goto end
+
+array_find_1:
+    do vec = [1, 2, 3, 4, 5, 2]
+
+    say vec.find(2) // [2, 2]
+
+    goto end
+
+array_find_2:
+    do vec = [1, {"obj":"42"}, 4 / 2, [1, 2]]
+
+    say vec.find({"obj":"42"}) // [{"obj":"42"}]
+
+    goto end
+
+array_map:
+    say [1, 2].map((x) {
+        return x + 1
+    })
+    goto end
+
+array_reduce:
+    do func = (acc, val) {
+        return acc + val
+    }
+
+    say [1, 2, 3].reduce(4, func)
+
+    goto end
+
+array_filter:
+    say [1, 2, 3, 4, 5].filter((x) {
+        return x % 2 == 1
+    })
+
+    goto end
+
+array_map_index:
+    say [1, 2, 3, 4, 5].map((x, index) {
+        return index
+    })
+
+array_filter_index:
+    say [34, 232].filter((x, index) {
+        return 1
+    })
+
+array_reduce_index:
+    say [1, 2, 3].reduce(0, (x, index) {
+        return x + index
+    })

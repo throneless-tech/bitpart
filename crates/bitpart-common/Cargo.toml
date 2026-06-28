@@ -16,7 +16,7 @@ bincode = "1.3.3"
 deadpool-sqlite = "0.13"
 rusqlite = { git = "https://github.com/whisperfish/rusqlite", rev = "2a42b3354c9194700d08aa070f70a131a470e7dc", features = ["bundled-sqlcipher-custom-crypto"] }
 rusqlite_migration = "2.2"
-csml_interpreter = { git = "https://github.com/throneless-tech/csml-engine", branch = "bitpart" }
+bitpart-csml = { path = "../bitpart-csml" }
 figment = "0.10.19"
 futures = "0.3.31"
 hex = "0.4.3"

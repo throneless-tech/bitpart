@@ -4,6 +4,7 @@ members = [
   "crates/bitpart",
   "crates/bitpart-cli",
   "crates/bitpart-common",
+  "crates/bitpart-csml",
   "crates/presage-store-bitpart",
 ]
 

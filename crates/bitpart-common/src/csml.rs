@@ -1,4 +1,4 @@
-use csml_interpreter::data::{Client, CsmlBot, Event, MultiBot};
+use bitpart_csml::data::{Client, CsmlBot, Event, MultiBot};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 

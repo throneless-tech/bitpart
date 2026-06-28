@@ -1,4 +1,4 @@
-use csml_interpreter::data::CsmlBot;
+use bitpart_csml::data::CsmlBot;
 use serde::{Deserialize, Serialize};
 
 use crate::csml::Request;

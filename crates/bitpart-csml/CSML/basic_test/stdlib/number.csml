@@ -1,0 +1,78 @@
+start:
+    goto end
+
+int_0:
+    use 42 as int
+
+    do result = int.pow(2)
+
+    say result
+    say result.type_of()
+
+    goto end
+
+int_1:
+    use 42 as int
+
+    do result = int.pow(2.2)
+
+    say result
+    say result.type_of()
+
+    goto end
+
+int_2:
+    use 42 as int
+
+    do result = int.pow("2.2")
+
+    say result
+    say result.type_of()
+
+    goto end
+
+float_0:
+    use 42.0 as float
+
+    do result = float.pow(2)
+
+    say result
+    say result.type_of()
+
+    goto end
+
+float_1:
+    use 42.0 as float
+
+    do result = float.pow(2.2)
+
+    say result
+    say result.type_of()
+
+    goto end
+
+float_2:
+
+    say (100 / 3).floor()
+
+    goto end
+
+string_0:
+    use "42" as string
+
+    do result = string.pow(2)
+
+    say result
+    say result.type_of()
+
+    goto end
+
+string_1:
+    use "42.0" as string
+
+    do result = string.pow(2.2)
+
+    say result
+    say result.type_of()
+
+    goto end
