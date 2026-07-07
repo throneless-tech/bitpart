@@ -51,6 +51,16 @@ impl ContentsStore for BitpartStore {
         Ok(())
     }
 
+    // TODO: signal_messages has no sender column (sender lives inside the encoded
+    // content_data blob), so a lookup by (sender, timestamp) is not yet supported.
+    async fn thread_for_sender_and_timestamp(
+        &self,
+        _sender: &ServiceId,
+        _timestamp: u64,
+    ) -> Result<Option<Thread>, Self::ContentsStoreError> {
+        Ok(None)
+    }
+
     async fn clear_contents(&mut self) -> Result<(), Self::ContentsStoreError> {
         db::contacts::remove_all(&self.id, &self.pool).await?;
         db::groups::remove_all_groups(&self.id, &self.pool).await?;
