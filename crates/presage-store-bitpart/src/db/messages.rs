@@ -98,6 +98,30 @@ pub async fn get_all(
     .map_err(BitpartStoreError::from)
 }
 
+pub async fn get_by_timestamp(
+    channel_id: &str,
+    timestamp: i64,
+    pool: &Pool,
+) -> Result<Vec<Vec<u8>>, BitpartStoreError> {
+    let conn = pool.get().await.map_err(pool_err)?;
+    let channel_id = channel_id.to_owned();
+    conn.interact(move |c| -> rusqlite::Result<Vec<Vec<u8>>> {
+        let mut stmt = c.prepare(
+            "SELECT content_data FROM signal_messages 
+             WHERE channel_id = ?1 AND timestamp = ?2",
+        )?;
+        let rows = stmt
+            .query_map(params![channel_id, timestamp], |row| {
+                row.get::<_, Vec<u8>>(0)
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    })
+    .await
+    .map_err(pool_err)?
+    .map_err(BitpartStoreError::from)
+}
+
 pub async fn get_range(
     channel_id: &str,
     thread_id: &str,

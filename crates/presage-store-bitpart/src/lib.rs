@@ -467,13 +467,13 @@ impl Store for BitpartStore {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{TimeZone, Utc};
     use presage::libsignal_service::{
         content::{ContentBody, Metadata},
         prelude::Uuid,
         proto::DataMessage,
         protocol::ServiceId,
     };
-    use chrono::{TimeZone, Utc};
     use presage::store::ContentsStore;
     use quickcheck::{Arbitrary, Gen};
     use quickcheck_macros::quickcheck;
@@ -602,6 +602,32 @@ mod tests {
                 .timestamp,
             Utc.timestamp_millis_opt(1678295240).unwrap()
         );
+
+        Ok(())
+    }
+
+    #[quickcheck_async::tokio]
+    async fn test_thread_for_sender_and_timestamp(content: Content) -> anyhow::Result<()> {
+        let db = BitpartStore::temporary().await?;
+        let ts = 1678295210;
+        let content = content_with_timestamp(&content, ts);
+        let sender = content.metadata.sender;
+        let expected = presage::store::Thread::try_from(&content).ok();
+
+        // Store under the thread derived from the message itself, matching how
+        // presage saves incoming content.
+        if let Some(thread) = &expected {
+            db.save_message(thread, content.clone()).await?;
+        }
+
+        let found = db.thread_for_sender_and_timestamp(&sender, ts).await?;
+        assert_eq!(found, expected);
+
+        // A different sender at the same timestamp must not match.
+        let other = ServiceId::Aci(Uuid::from_u128(0xDEAD_BEEF).into());
+        if other != sender {
+            assert_eq!(db.thread_for_sender_and_timestamp(&other, ts).await?, None);
+        }
 
         Ok(())
     }

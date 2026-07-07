@@ -6,8 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::data::{ast::Interval, ArgsType, Literal};
 use crate::error_format::*;
-use uuid::v1::{Context, Timestamp};
-use uuid::Uuid;
+use uuid::{v1::Timestamp, ContextV1, Uuid};
 
 use rand::seq::SliceRandom;
 use rand::Rng;
@@ -219,7 +218,7 @@ pub fn uuid_command(
             match arg {
                 arg if arg == "v1" => {
                     let time = SystemTime::now().duration_since(UNIX_EPOCH)?;
-                    let context = Context::new(rand::thread_rng().gen());
+                    let context = ContextV1::new(rand::thread_rng().gen());
                     let ts = Timestamp::from_unix(&context, time.as_secs(), time.subsec_nanos());
 
                     let node_id = &[
