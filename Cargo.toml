@@ -4,11 +4,12 @@ members = [
   "crates/bitpart",
   "crates/bitpart-cli",
   "crates/bitpart-common",
+  "crates/bitpart-csml",
   "crates/presage-store-bitpart",
 ]
 
 [workspace.package]
-version = "1.0.7"
+version = "1.1.0"
 authors = ["Josh King <josh@throneless.tech>"]
 edition = "2024"
 license = "AGPL-3.0-or-later"

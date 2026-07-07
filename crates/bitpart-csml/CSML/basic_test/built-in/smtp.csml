@@ -1,0 +1,7 @@
+start:
+    say Smtp("smtp.example.com")
+    goto end
+
+chained:
+    say Smtp("smtp.example.com").auth("user", "pass").port(587).tls(false).starttls(true)
+    goto end

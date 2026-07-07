@@ -13,8 +13,8 @@
 
 use bitpart_common::db::Pool;
 use bitpart_common::error::{BitpartErrorKind, Result};
+use bitpart_csml::data::{Client, Memory as CsmlMemory};
 use chrono::NaiveDateTime;
-use csml_interpreter::data::{Client, Memory as CsmlMemory};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

@@ -20,7 +20,7 @@ bitpart-common = { path = "../bitpart-common" }
 chrono = "0.4"
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = { git = "https://github.com/joshka/clap-verbosity-flag", branch = "jm/serde", features = ["serde"] } # TODO Revisit when PR is merged
-csml_interpreter = { git = "https://github.com/throneless-tech/csml-engine", branch = "bitpart" }
+bitpart-csml = { path = "../bitpart-csml" }
 directories = "6.0.0"
 figment = { version = "0.10.19", features = ["env", "toml"] }
 figment_file_provider_adapter = "0.1.1"
@@ -32,7 +32,7 @@ mime_guess = "2.0.5"
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = ["reqwest-rustls"] }
 opentelemetry_sdk = "0.29.0"
-presage = { git = "https://github.com/throneless-tech/presage", rev = "d78c29920289d9eba0d29518fa1cc9f9f439d747" }
+presage = { git = "https://github.com/throneless-tech/presage", rev = "63482efd0cbdc0780baf0650517c7d55f1cac05d" }
 presage-store-bitpart= { path = "../presage-store-bitpart" }
 rand = "0.8.5"
 regex = "1.11.2"
@@ -49,7 +49,7 @@ tracing = "0.1.40"
 tracing-log = "0.2.0"
 tracing-opentelemetry = "0.30.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
-ureq = "2.8"
+ureq = { version = "2.8", features = ["json"] }
 url = "2.5.3"
 uuid = { version = "1.10.0", features = ["v4", "fast-rng", "macro-diagnostics"]}
 

@@ -21,8 +21,8 @@ use bitpart_common::{
     csml::{Request, SerializedEvent},
     error::{BitpartErrorKind, Result},
 };
+use bitpart_csml::data::Client;
 use chrono::Local;
-use csml_interpreter::data::Client;
 use futures::StreamExt;
 use futures::{channel::oneshot, pin_mut};
 use presage::libsignal_service::configuration::SignalServers;

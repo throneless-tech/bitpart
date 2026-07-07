@@ -1,0 +1,127 @@
+start:
+    goto end
+
+step_0:
+    remember s = "Hello "
+
+    do s = s.append("World")
+
+    say s
+
+    say s.to_uppercase()
+
+    say "HELLO WORLD".to_lowercase()
+
+    goto end
+
+step_1:
+    remember s = "Hello"
+
+    say s.contains("H")
+    say s.contains("Hello")
+    say s.contains_regex("(?i)He")
+
+    goto end
+
+step_2:
+    remember s = "Hello"
+
+    say s.starts_with_regex("(?i)He")
+    say s.ends_with("o")
+    say s.starts_with("el")
+    say s.starts_with("O")
+    say s.ends_with_regex("[l]")
+    goto end
+
+step_3:
+    say "Hello".contains("H")
+    goto end
+
+step_4:
+    say "{{\"Hello\".split(\"A\")}}"
+    say "{{\"Hello\".split(\"H\")}}"
+    say "{{\"Hello\".split(\"l\")}}"
+    say "{{\"Hello\".split(\"ll\")}}"
+    say "{{\"Hello\".split(\"o\")}}"
+    goto end
+
+step_5:
+    say "😃Hello World".slice(1)
+    say "😃Hello World".slice(1, 6)
+    goto end
+
+step_6:
+    say "hello World".capitalize()
+    goto end
+
+step_7:
+    foreach (char) in "😆Hello" {
+        say char
+    }
+    goto end
+
+step_8:
+    say "😆Hello World 😆"[0]
+    goto end
+
+step_9:
+    do toto = "😆Hello World 😆"
+    say toto[0]
+    say toto
+
+    goto end
+
+step_10:
+    do toto = "😆Hello World 😆"
+    do toto[0] = "test "
+    say toto
+
+    goto end
+
+
+step_11:
+    do toto = "Hello World"
+    say toto[0].is_number()
+    say toto
+
+    goto end
+
+step_12_slice:
+    say "Hello World".slice(0, 3)
+    goto end
+
+step_13_to_string:
+    say "\"4\"".to_string()
+
+step_14_to_string:
+    say "😆\"{{2}}\""
+
+step_15_xml:
+    do var = "<Item><name>Banana</name><source>Store</source></Item>"
+    do obj = var.to_json()
+
+    say obj.to_xml()
+
+step_16_yaml:
+    do var = "---\nx: 1.0\ny: 2.0"
+    do obj = var.to_json()
+
+    say obj.to_yaml()
+
+step_17_uri:
+    do var = "https://mozilla.org/?key=ы&key2=value2#fragid1=1,4,ы,6"
+
+    say var.encode_uri()
+
+    do var = var.encode_uri()
+
+    say var.decode_uri()
+
+step_18_html_escape:
+    do val = "<a><b>42</b></a>"
+
+    say val.encode_html_entities()
+
+    do val.encode_html_entities()
+
+    say val.decode_html_entities()

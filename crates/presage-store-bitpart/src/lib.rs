@@ -20,6 +20,7 @@
 use base64::prelude::*;
 use presage::{
     libsignal_service::{
+        libsignal_account_keys::AccountEntropyPool,
         prelude::{MasterKey, ProfileKey, Uuid},
         protocol::{IdentityKeyPair, SenderCertificate},
     },
@@ -32,6 +33,7 @@ use protocol::BitpartProtocolStore;
 use deadpool_sqlite::Pool;
 use sha2::{Digest, Sha256};
 use std::str;
+use std::str::FromStr;
 
 mod content;
 mod db;
@@ -44,6 +46,7 @@ pub use error::BitpartStoreError;
 const BITPART_KEY_REGISTRATION: &str = "registration";
 const BITPART_KEY_SENDER_CERTIFICATE: &str = "sender_certificate";
 const BITPART_KEY_MASTER: &str = "master";
+const BITPART_KEY_ACCOUNT_ENTROPY_POOL: &str = "account_entropy_pool";
 
 #[derive(Clone)]
 pub struct BitpartStore {
@@ -407,6 +410,38 @@ impl StateStore for BitpartStore {
         }
         Ok(())
     }
+
+    async fn fetch_account_entropy_pool(
+        &self,
+    ) -> Result<Option<AccountEntropyPool>, Self::StateStoreError> {
+        if let Some(value) =
+            db::state::get_aci(&self.id, BITPART_KEY_ACCOUNT_ENTROPY_POOL, &self.pool).await?
+        {
+            let pool = AccountEntropyPool::from_str(str::from_utf8(&value)?)
+                .map_err(|e| BitpartStoreError::Store(e.to_string()))?;
+            Ok(Some(pool))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn store_account_entropy_pool(
+        &self,
+        account_entropy_pool: Option<&AccountEntropyPool>,
+    ) -> Result<(), Self::StateStoreError> {
+        if let Some(pool) = account_entropy_pool {
+            db::state::set_aci(
+                &self.id,
+                BITPART_KEY_ACCOUNT_ENTROPY_POOL,
+                pool.to_string().as_bytes(),
+                &self.pool,
+            )
+            .await?;
+        } else {
+            db::state::remove_aci(&self.id, BITPART_KEY_ACCOUNT_ENTROPY_POOL, &self.pool).await?;
+        }
+        Ok(())
+    }
 }
 
 impl Store for BitpartStore {
@@ -432,6 +467,7 @@ impl Store for BitpartStore {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{TimeZone, Utc};
     use presage::libsignal_service::{
         content::{ContentBody, Metadata},
         prelude::Uuid,
@@ -453,7 +489,9 @@ mod tests {
 
     impl Arbitrary for Content {
         fn arbitrary(g: &mut Gen) -> Self {
-            let timestamp: u64 = Arbitrary::arbitrary(g);
+            // Bound to a representable millisecond range: DateTime<Utc> cannot hold an
+            // arbitrary u64, and Signal timestamps are epoch millis anyway.
+            let timestamp: u64 = u64::arbitrary(g) % 253_402_300_799_000;
             let contacts = [
                 Uuid::from_u128(Arbitrary::arbitrary(g)),
                 Uuid::from_u128(Arbitrary::arbitrary(g)),
@@ -467,7 +505,8 @@ mod tests {
                 destination: ServiceId::Aci(destination_uuid.into()),
                 sender_device: sender_device.try_into().unwrap(),
                 server_guid: None,
-                timestamp,
+                timestamp: Utc.timestamp_millis_opt(timestamp as i64).unwrap(),
+                server_timestamp: Utc.timestamp_millis_opt(timestamp as i64).unwrap(),
                 needs_receipt: Arbitrary::arbitrary(g),
                 unidentified_sender: Arbitrary::arbitrary(g),
                 was_plaintext: false,
@@ -500,7 +539,7 @@ mod tests {
     ) -> presage::libsignal_service::content::Content {
         presage::libsignal_service::content::Content {
             metadata: Metadata {
-                timestamp: ts,
+                timestamp: Utc.timestamp_millis_opt(ts as i64).unwrap(),
                 ..content.0.metadata.clone()
             },
             body: content.0.body.clone(),
@@ -552,7 +591,7 @@ mod tests {
                 .unwrap()?
                 .metadata
                 .timestamp,
-            1678280000
+            Utc.timestamp_millis_opt(1678280000).unwrap()
         );
         assert_eq!(
             db.messages(&thread, 0..=1678295240)
@@ -561,8 +600,34 @@ mod tests {
                 .unwrap()?
                 .metadata
                 .timestamp,
-            1678295240
+            Utc.timestamp_millis_opt(1678295240).unwrap()
         );
+
+        Ok(())
+    }
+
+    #[quickcheck_async::tokio]
+    async fn test_thread_for_sender_and_timestamp(content: Content) -> anyhow::Result<()> {
+        let db = BitpartStore::temporary().await?;
+        let ts = 1678295210;
+        let content = content_with_timestamp(&content, ts);
+        let sender = content.metadata.sender;
+        let expected = presage::store::Thread::try_from(&content).ok();
+
+        // Store under the thread derived from the message itself, matching how
+        // presage saves incoming content.
+        if let Some(thread) = &expected {
+            db.save_message(thread, content.clone()).await?;
+        }
+
+        let found = db.thread_for_sender_and_timestamp(&sender, ts).await?;
+        assert_eq!(found, expected);
+
+        // A different sender at the same timestamp must not match.
+        let other = ServiceId::Aci(Uuid::from_u128(0xDEAD_BEEF).into());
+        if other != sender {
+            assert_eq!(db.thread_for_sender_and_timestamp(&other, ts).await?, None);
+        }
 
         Ok(())
     }

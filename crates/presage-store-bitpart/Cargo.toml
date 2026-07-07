@@ -15,8 +15,8 @@ base64 = "0.22"
 chrono = "0.4.35"
 fs_extra = "1.3"
 futures = "0.3.31"
-presage = { git = "https://github.com/throneless-tech/presage", rev = "d78c29920289d9eba0d29518fa1cc9f9f439d747" }
-prost = "0.13"
+presage = { git = "https://github.com/throneless-tech/presage", rev = "63482efd0cbdc0780baf0650517c7d55f1cac05d" }
+prost = "0.14"
 quickcheck_macros = "1.0.0"
 rusqlite = { git = "https://github.com/whisperfish/rusqlite", rev = "2a42b3354c9194700d08aa070f70a131a470e7dc", features = ["bundled-sqlcipher-custom-crypto"] }
 deadpool-sqlite = "0.13"
@@ -29,7 +29,7 @@ tracing = "0.1"
 uuid = { version = "1.11.0", features = ["v4"] }
 
 [build-dependencies]
-prost-build = "0.13"
+prost-build = "0.14"
 
 [dev-dependencies]
 anyhow = "1.0"

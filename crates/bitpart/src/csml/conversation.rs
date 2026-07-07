@@ -24,14 +24,14 @@ use bitpart_common::{
     db::Pool,
     error::{BitpartErrorKind, Result},
 };
-use chrono::Utc;
-use csml_interpreter::data::{
+use bitpart_csml::data::{
     ApiInfo, Client, Context, CsmlBot, CsmlFlow, CsmlResult, Event, Hold, IndexInfo, Message,
     PreviousBot,
     ast::Flow,
     context::{ContextStepInfo, get_hashmap_from_json, get_hashmap_from_mem},
 };
-use csml_interpreter::{load_components, search_for_modules, validate_bot};
+use bitpart_csml::{load_components, search_for_modules, validate_bot};
+use chrono::Utc;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -212,14 +212,14 @@ async fn init_conversation_data<'a>(
 /**
  * Initialize the bot
  */
-fn init_bot(bot: &mut CsmlBot) -> Result<()> {
+async fn init_bot(bot: &mut CsmlBot) -> Result<()> {
     // load native components into the bot
     bot.native_components = match load_components() {
         Ok(components) => Some(components),
         Err(err) => return Err(BitpartErrorKind::Interpreter(err.format_error()).into()),
     };
 
-    if let Err(err) = search_for_modules(bot) {
+    if let Err(err) = search_for_modules(bot).await {
         return Err(BitpartErrorKind::Interpreter(format!("{:?}", err)).into());
     }
 
@@ -483,7 +483,7 @@ pub async fn start(
     let mut formatted_event = Event::try_from(&request)?;
 
     let mut bot = search_bot(&bot_opt, pool).await?;
-    init_bot(&mut bot)?;
+    init_bot(&mut bot).await?;
 
     let mut data = init_conversation_data(
         utils::get_default_flow(&bot)?.name.to_owned(),

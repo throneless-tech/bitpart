@@ -51,6 +51,22 @@ impl ContentsStore for BitpartStore {
         Ok(())
     }
 
+    async fn thread_for_sender_and_timestamp(
+        &self,
+        sender: &ServiceId,
+        timestamp: u64,
+    ) -> Result<Option<Thread>, Self::ContentsStoreError> {
+        let rows = db::messages::get_by_timestamp(&self.id, timestamp as i64, &self.pool).await?;
+        for data in rows {
+            let proto = ContentProto::decode(data.as_slice())?;
+            let content: Content = proto.try_into()?;
+            if content.metadata.sender == *sender {
+                return Ok(Thread::try_from(&content).ok());
+            }
+        }
+        Ok(None)
+    }
+
     async fn clear_contents(&mut self) -> Result<(), Self::ContentsStoreError> {
         db::contacts::remove_all(&self.id, &self.pool).await?;
         db::groups::remove_all_groups(&self.id, &self.pool).await?;

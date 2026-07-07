@@ -1,3 +1,18 @@
+## 1.1.0 (2026-06-09)
+
+### Feat
+
+- Migrate old tables to new format, and update presage dependencies.
+- Replace seaorm with rusqlite.
+- Code cleanup, split out API to be clearer and re-enable CLI build.
+- SignalManager now respects backpressure. Some additional cleanup to tests and socket dispatch.
+
+### Fix
+
+- Point presage dependency at our fork.
+- Redact additonal fields from debugging and move some tracing logs to instrumentation.
+- Move some of the extraneous threads to tasks instead.
+
 ## 1.0.7 (2026-03-01)
 
 ### Fix

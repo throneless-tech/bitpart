@@ -22,7 +22,7 @@ use bitpart_common::{
     db::Pool,
     error::{BitpartErrorKind, Result},
 };
-use csml_interpreter::data::{Client, Context, CsmlBot, Message};
+use bitpart_csml::data::{Client, Context, CsmlBot, Message};
 use serde::{Deserialize, Serialize};
 
 use crate::db;

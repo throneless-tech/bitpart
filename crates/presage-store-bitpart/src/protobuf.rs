@@ -24,6 +24,7 @@ mod textsecure {
 
 use std::str::FromStr;
 
+use chrono::{TimeZone, Utc};
 use presage::libsignal_service::content::Content;
 use presage::libsignal_service::content::ContentBody;
 use presage::libsignal_service::content::Metadata;
@@ -63,8 +64,8 @@ impl From<Metadata> for MetadataProto {
         MetadataProto {
             address: Some(m.sender.into()),
             sender_device: m.sender_device.try_into().ok(),
-            timestamp: m.timestamp.try_into().ok(),
-            server_received_timestamp: None,
+            timestamp: Some(m.timestamp.timestamp_millis()),
+            server_received_timestamp: Some(m.server_timestamp.timestamp_millis()),
             server_delivered_timestamp: None,
             needs_receipt: Some(m.needs_receipt),
             server_guid: None,
@@ -99,7 +100,12 @@ impl TryFrom<MetadataProto> for Metadata {
                 .and_then(|u| crate::Uuid::from_str(&u).ok()),
             timestamp: metadata
                 .timestamp
-                .and_then(|m| m.try_into().ok())
+                .and_then(|m| Utc.timestamp_millis_opt(m).single())
+                .unwrap_or_default(),
+            server_timestamp: metadata
+                .server_received_timestamp
+                .or(metadata.timestamp)
+                .and_then(|m| Utc.timestamp_millis_opt(m).single())
                 .unwrap_or_default(),
             needs_receipt: metadata.needs_receipt.unwrap_or_default(),
             unidentified_sender: false,

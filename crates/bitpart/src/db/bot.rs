@@ -16,7 +16,7 @@
 
 use bitpart_common::db::Pool;
 use bitpart_common::error::{BitpartErrorKind, Result};
-use csml_interpreter::data::{CsmlBot, CsmlFlow, Module, MultiBot};
+use bitpart_csml::data::{CsmlBot, CsmlFlow, Module, MultiBot};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::env;

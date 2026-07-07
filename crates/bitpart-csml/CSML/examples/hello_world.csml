@@ -1,0 +1,5 @@
+start:
+
+    say "Hello World 😆"
+
+    goto end
