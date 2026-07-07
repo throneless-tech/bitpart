@@ -443,11 +443,6 @@ fn string_step_14_to_string() {
 
 #[test]
 fn string_step_15_xml() {
-    let data = r#"{
-        "memories":[],
-        "messages":[
-            {"content_type":"text", "content":{"text": "<Item><name>Banana</name><source>Store</source></Item>"}}
-        ]}"#;
     let msg = format_message(
         Event::new("payload", "", serde_json::json!({})),
         Context::new(
@@ -463,18 +458,21 @@ fn string_step_15_xml() {
     );
 
     let v1: Value = message_to_json_value(msg);
-    let v2: Value = serde_json::from_str(data).unwrap();
+    let text = v1["messages"][0]["content"]["text"]
+        .as_str()
+        .expect("message text");
 
-    assert_eq!(v1, v2)
+    // to_xml() serializes an unordered object, so the two child elements may appear
+    // in either order. Both orderings are valid.
+    let valid = [
+        "<Item><name>Banana</name><source>Store</source></Item>",
+        "<Item><source>Store</source><name>Banana</name></Item>",
+    ];
+    assert!(valid.contains(&text), "unexpected xml output: {text}");
 }
 
 #[test]
 fn string_step_16_yaml() {
-    let data = r#"{
-        "memories":[],
-        "messages":[
-            {"content_type":"text", "content":{"text": "---\nx: 1.0\ny: 2.0\n"}}
-        ]}"#;
     let msg = format_message(
         Event::new("payload", "", serde_json::json!({})),
         Context::new(
@@ -490,9 +488,16 @@ fn string_step_16_yaml() {
     );
 
     let v1: Value = message_to_json_value(msg);
-    let v2: Value = serde_json::from_str(data).unwrap();
+    let text = v1["messages"][0]["content"]["text"]
+        .as_str()
+        .expect("message text");
 
-    assert_eq!(v1, v2)
+    // to_yaml() serializes an unordered object, so key order is not guaranteed.
+    // Parse both sides back to compare structurally rather than by byte order.
+    let produced: serde_yaml::Value = serde_yaml::from_str(text).expect("valid yaml");
+    let expected: serde_yaml::Value =
+        serde_yaml::from_str("---\nx: 1.0\ny: 2.0\n").expect("valid yaml");
+    assert_eq!(produced, expected);
 }
 
 #[test]
