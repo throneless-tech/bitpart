@@ -18,6 +18,7 @@ pub mod api;
 mod channels;
 mod csml;
 pub mod db;
+mod metrics;
 mod socket;
 mod utils;
 
@@ -178,6 +179,62 @@ fn telemetry_meter_init() -> Result<SdkMeterProvider> {
     Ok(meter_provider)
 }
 
+fn register_signal_metrics(
+    registry: &metrics::MetricsRegistry,
+) -> (
+    opentelemetry::metrics::ObservableCounter<u64>,
+    opentelemetry::metrics::ObservableCounter<u64>,
+    opentelemetry::metrics::ObservableGauge<u64>,
+) {
+    use opentelemetry::KeyValue;
+
+    let meter = opentelemetry::global::meter("bitpart_signal");
+
+    let sent = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_counter("bitpart.signal.messages.sent")
+            .with_description("Signal messages sent by a bot")
+            .with_callback(move |observer| {
+                for (bot_id, snap) in registry.snapshot_all() {
+                    observer.observe(snap.sent, &[KeyValue::new("bot_id", bot_id)]);
+                }
+            })
+            .build()
+    };
+
+    let received = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_counter("bitpart.signal.messages.received")
+            .with_description("Signal messages received by a bot")
+            .with_callback(move |observer| {
+                for (bot_id, snap) in registry.snapshot_all() {
+                    observer.observe(snap.received, &[KeyValue::new("bot_id", bot_id)]);
+                }
+            })
+            .build()
+    };
+
+    let status = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_gauge("bitpart.signal.connection_status")
+            .with_description("Signal connection status per bot (0=unlinked, 1=linked, 2=failing)")
+            .with_callback(move |observer| {
+                for (bot_id, snap) in registry.snapshot_all() {
+                    observer.observe(
+                        snap.status.as_u8() as u64,
+                        &[KeyValue::new("bot_id", bot_id)],
+                    );
+                }
+            })
+            .build()
+    };
+
+    (sent, received, status)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Set project directories
@@ -194,15 +251,20 @@ async fn main() -> Result<()> {
         .merge(Serialized::defaults(Cli::parse()))
         .extract()?;
 
-    // Setup logging and telemetry
+    let metrics_registry = metrics::MetricsRegistry::new();
+    let _signal_instruments;
     if server.opentelemetry {
+        let meter_provider = telemetry_meter_init()?;
+        opentelemetry::global::set_meter_provider(meter_provider.clone());
+        _signal_instruments = Some(register_signal_metrics(&metrics_registry));
         tracing_subscriber::registry()
             .with(server.verbose.log_level_filter().as_trace())
             .with(tracing_subscriber::fmt::layer())
             .with(tracing_opentelemetry::layer().with_tracer(telemetry_tracer_init()?))
-            .with(MetricsLayer::new(telemetry_meter_init()?))
+            .with(MetricsLayer::new(meter_provider))
             .init();
     } else {
+        _signal_instruments = None;
         tracing_subscriber::registry()
             .with(server.verbose.log_level_filter().as_trace())
             .with(tracing_subscriber::fmt::layer())
@@ -230,6 +292,7 @@ async fn main() -> Result<()> {
         tracker: tracker.clone(),
         attachments_dir: proj_dirs.cache_dir().to_path_buf(),
         manager: Arc::new(signal::SignalManager::new()),
+        metrics: metrics_registry,
     };
     for channel in channels.iter() {
         let res = api::start_channel(&channel.id, &channel.bot_id, &mut state).await?;

@@ -20,7 +20,15 @@ use bitpart_csml::{
     load_components, search_for_modules, validate_bot,
 };
 
-use crate::{api::ApiState, csml::data::BotVersion, db};
+use crate::{api::ApiState, csml::data::BotVersion, db, metrics::BotMetricsSnapshot};
+use serde::Serialize;
+
+#[derive(Debug, Serialize)]
+pub struct BotDescription {
+    #[serde(flatten)]
+    pub bot: BotVersion,
+    pub status: Option<BotMetricsSnapshot>,
+}
 
 pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion> {
     bot.native_components = match load_components() {
@@ -53,9 +61,12 @@ pub async fn list_bots(
     Ok(list)
 }
 
-pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> {
+pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotDescription>> {
     if let Some(bot) = db::bot::get_latest_by_bot_id(id, &state.pool).await? {
-        Ok(Some(bot))
+        Ok(Some(BotDescription {
+            bot,
+            status: state.metrics.snapshot(id),
+        }))
     } else {
         Ok(None)
     }

@@ -67,6 +67,8 @@ use tracing::{debug, error, info};
 use uuid;
 
 use crate::api;
+use crate::metrics::{BotMetrics, ConnectionStatus, MetricsRegistry};
+use std::sync::Arc;
 
 // === manager + dispatch ===
 
@@ -92,6 +94,7 @@ pub struct ChannelMessage {
     pub token: CancellationToken,
     pub tracker: TaskTracker,
     pub sender: tokio_oneshot::Sender<String>,
+    pub metrics: MetricsRegistry,
 }
 
 const CHANNEL_MESSAGE_BUFFER: usize = 32;
@@ -154,6 +157,7 @@ impl ChannelBackend for SignalManager {
 pub struct ChannelState {
     id: String,
     pool: bitpart_common::db::Pool,
+    metrics: Arc<BotMetrics>,
 }
 
 // === device linking ===
@@ -162,14 +166,17 @@ async fn start_channel_recv(
     id: String,
     attachments_dir: PathBuf,
     pool: bitpart_common::db::Pool,
+    metrics: MetricsRegistry,
     manager: &mut Cell<Manager<BitpartStore, Registered>>,
 ) -> Result<()> {
     let channel = crate::db::channel::get_by_id(&id, &pool)
         .await?
         .ok_or_else(|| BitpartErrorKind::Signal("No such channel.".to_owned()))?;
+    let bot_metrics = metrics.get_or_create(&channel.bot_id);
     let state = ChannelState {
         id: channel.bot_id,
         pool,
+        metrics: bot_metrics,
     };
     receive(manager, &attachments_dir, &state).await?;
     Ok(())
@@ -182,6 +189,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
         token,
         tracker: _,
         sender,
+        metrics,
     } = msg;
     match msg {
         ChannelMessageContents::LinkChannel {
@@ -212,6 +220,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                                     id,
                                     attachments_dir,
                                     pool.clone(),
+                                    metrics.clone(),
                                     &mut manager_ref).await;
                                 error!("Link device receiver channel exited early: {:?}", res);
                             }
@@ -243,7 +252,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                             Ok(manager) => {
                                 let mut manager_ref = Cell::new(manager);
                                 let res =
-                                    start_channel_recv(id, attachments_dir, pool.clone(), &mut manager_ref).await;
+                                    start_channel_recv(id, attachments_dir, pool.clone(), metrics.clone(), &mut manager_ref).await;
 
                                 error!(
                                     "Channel message StartChannel receive task exited early: {:?}",
@@ -671,6 +680,7 @@ async fn reply<S: Store>(
             )
             .await
             .map_err(|err| BitpartErrorKind::Signal(err.to_string()))?;
+            state.metrics.incr_sent();
         }
     }
 
@@ -733,12 +743,16 @@ async fn receive(
             let manager = manager_ref.get_mut();
             match manager.receive_messages().await {
                 Ok(messages) => {
+                    state.metrics.set_status(ConnectionStatus::Linked);
                     pin_mut!(messages);
                     while let Some(content) = messages.next().await {
                         match content {
                             Received::QueueEmpty => debug!("done with synchronization"),
                             Received::Contacts => debug!("got contacts synchronization"),
                             Received::Content(content) => {
+                                if matches!(content.body, ContentBody::DataMessage(_)) {
+                                    state.metrics.incr_received();
+                                }
                                 if let Err(err) = send_delivery_receipt(manager, &content).await {
                                     warn!("Failed to send delivery receipt: {:?}", err);
                                 }
@@ -758,18 +772,13 @@ async fn receive(
                 }
                 Err(err) => {
                     error!("Failed to receive messages: {:?}", err);
+                    state.metrics.set_status(ConnectionStatus::Failing);
                     sleep(Duration::from_secs(30)).await;
                     break 'inner;
                 }
             }
         }
         let store = BitpartStore::open(&state.id, &state.pool, OnNewIdentity::Trust).await?;
-        // if let Ok(manager) = Manager::load_registered(store).await {
-        //     warn!("Replacing manager!");
-        //     manager_ref.replace(manager);
-        // } else {
-        //     warn!("Failed to reload manager.");
-        // }
         match Manager::load_registered(store).await {
             Ok(manager) => {
                 warn!("Replacing manager!");
