@@ -357,6 +357,34 @@ async fn send<S: Store>(
     Ok(())
 }
 
+async fn send_delivery_receipt<S: Store>(
+    manager: &mut Manager<S, Registered>,
+    content: &Content,
+) -> Result<()> {
+    // Only acknowledge actual inbound messages, not sync/receipt/typing content.
+    if !matches!(content.body, ContentBody::DataMessage(_)) {
+        return Ok(());
+    }
+
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis() as u64;
+
+    let receipt: ContentBody = ReceiptMessage {
+        r#type: Some(receipt_message::Type::Delivery as i32),
+        timestamp: vec![content.metadata.timestamp.timestamp_millis() as u64],
+    }
+    .into();
+
+    manager
+        .send_message(content.metadata.sender, receipt, now)
+        .await
+        .map_err(|e| BitpartErrorKind::PresageStore(e.to_string()))?;
+
+    Ok(())
+}
+
 // === message formatting ===
 
 async fn process_signal_message<S: Store>(
@@ -711,6 +739,9 @@ async fn receive(
                             Received::QueueEmpty => debug!("done with synchronization"),
                             Received::Contacts => debug!("got contacts synchronization"),
                             Received::Content(content) => {
+                                if let Err(err) = send_delivery_receipt(manager, &content).await {
+                                    warn!("Failed to send delivery receipt: {:?}", err);
+                                }
                                 if let Err(err) = process_signal_message(
                                     manager,
                                     attachments_dir,
