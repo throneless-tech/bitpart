@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use bitpart_common::db::Pool;
@@ -46,7 +45,6 @@ pub struct ApiState {
     pub parent_token: CancellationToken,
     pub tokens: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
     pub tracker: TaskTracker,
-    pub attachments_dir: PathBuf,
     pub manager: Arc<dyn signal::ChannelBackend>,
     pub metrics: MetricsRegistry,
 }

@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
 
 use bitpart_common::error::{BitpartErrorKind, Result};
 use tokio::sync::oneshot;
@@ -29,7 +28,6 @@ pub async fn link_channel(
     id: &str,
     bot_id: &str,
     device_name: &str,
-    attachments_dir: PathBuf,
     state: &mut ApiState,
 ) -> Result<String> {
     let db_id = db::channel::create(id, bot_id, &state.pool).await?;
@@ -37,7 +35,6 @@ pub async fn link_channel(
     let contents = signal::ChannelMessageContents::LinkChannel {
         id: db_id.clone(),
         device_name: device_name.to_owned(),
-        attachments_dir,
     };
     let token = state.parent_token.child_token();
     let msg_token = token.clone();
@@ -59,7 +56,6 @@ pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::StartChannel {
         id: channel_id.to_owned(),
-        attachments_dir: state.attachments_dir.clone(),
     };
     let mut data = state.tokens.lock().await;
     let token = data

@@ -171,15 +171,9 @@ async fn process_message(
                     id,
                     bot_id,
                     device_name,
-                } => api::link_channel(
-                    &id,
-                    &bot_id,
-                    &device_name,
-                    state.attachments_dir.clone(),
-                    state,
-                )
-                .await
-                .into_ws("LinkChannel"),
+                } => api::link_channel(&id, &bot_id, &device_name, state)
+                    .await
+                    .into_ws("LinkChannel"),
                 _ => Ok(wrap_error(
                     "SocketMessage",
                     &"Invalid SocketMessage".to_owned(),

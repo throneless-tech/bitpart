@@ -419,7 +419,6 @@ dependencies = [
  "hex",
  "libsqlite3-sys",
  "md-5",
- "mime_guess",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
@@ -428,7 +427,6 @@ dependencies = [
  "rand 0.8.6",
  "regex",
  "rusqlite",
- "sanitise-file-name",
  "serde",
  "serde_json",
  "subtle",
@@ -4206,12 +4204,6 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
-
-[[package]]
-name = "sanitise-file-name"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19d36299972b96b8ae7e8f04ecbf75fb41a27bf3781af00abcf57609774cb911"
 
 [[package]]
 name = "schannel"

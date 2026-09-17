@@ -21,8 +21,8 @@ use bitpart_common::{
     csml::{Request, SerializedEvent},
     error::{BitpartErrorKind, Result},
 };
+use base64::prelude::{BASE64_STANDARD, Engine};
 use bitpart_csml::data::Client;
-use chrono::Local;
 use futures::StreamExt;
 use futures::{channel::oneshot, pin_mut};
 use presage::libsignal_service::configuration::SignalServers;
@@ -30,6 +30,8 @@ use presage::libsignal_service::content::Reaction;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto::data_message::Quote;
 use presage::libsignal_service::proto::sync_message::Sent;
+use presage::libsignal_service::proto::AttachmentPointer;
+use presage::libsignal_service::prelude::ProtobufMessage;
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
 use presage::model::identity::OnNewIdentity;
@@ -46,16 +48,11 @@ use presage::{
     store::{Store, Thread},
 };
 use presage_store_bitpart::BitpartStore;
-use sanitise_file_name::sanitise;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::cell::Cell;
 use std::time::UNIX_EPOCH;
-use std::{
-    cell::Cell,
-    path::{Path, PathBuf},
-};
 use tokio::{
-    fs,
     runtime::Builder as TokioBuilder,
     sync::{mpsc, oneshot as tokio_oneshot},
     task::{LocalSet, spawn_local},
@@ -76,12 +73,10 @@ use std::sync::Arc;
 pub enum ChannelMessageContents {
     LinkChannel {
         id: String,
-        attachments_dir: PathBuf,
         device_name: String,
     },
     StartChannel {
         id: String,
-        attachments_dir: PathBuf,
     },
     ResetSessions {
         id: String,
@@ -164,7 +159,6 @@ pub struct ChannelState {
 
 async fn start_channel_recv(
     id: String,
-    attachments_dir: PathBuf,
     pool: bitpart_common::db::Pool,
     metrics: MetricsRegistry,
     manager: &mut Cell<Manager<BitpartStore, Registered>>,
@@ -178,7 +172,7 @@ async fn start_channel_recv(
         pool,
         metrics: bot_metrics,
     };
-    receive(manager, &attachments_dir, &state).await?;
+    receive(manager, &state).await?;
     Ok(())
 }
 
@@ -192,11 +186,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
         metrics,
     } = msg;
     match msg {
-        ChannelMessageContents::LinkChannel {
-            id,
-            attachments_dir,
-            device_name,
-        } => {
+        ChannelMessageContents::LinkChannel { id, device_name } => {
             let config_store = BitpartStore::open(&id, &pool, OnNewIdentity::Trust).await?;
             let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
 
@@ -218,7 +208,6 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                                 let mut manager_ref = Cell::new(manager);
                                 let res = start_channel_recv(
                                     id,
-                                    attachments_dir,
                                     pool.clone(),
                                     metrics.clone(),
                                     &mut manager_ref).await;
@@ -239,10 +228,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                 .map_err(|_e| BitpartErrorKind::Signal("Linking error".to_owned()))?;
             Ok(sender.send(res).map_err(BitpartErrorKind::Signal)?)
         }
-        ChannelMessageContents::StartChannel {
-            id,
-            attachments_dir,
-        } => {
+        ChannelMessageContents::StartChannel { id } => {
             let store = BitpartStore::open(&id, &pool, OnNewIdentity::Trust).await?;
 
             spawn_local(async move {
@@ -252,7 +238,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                             Ok(manager) => {
                                 let mut manager_ref = Cell::new(manager);
                                 let res =
-                                    start_channel_recv(id, attachments_dir, pool.clone(), metrics.clone(), &mut manager_ref).await;
+                                    start_channel_recv(id, pool.clone(), metrics.clone(), &mut manager_ref).await;
 
                                 error!(
                                     "Channel message StartChannel receive task exited early: {:?}",
@@ -319,6 +305,7 @@ async fn send<S: Store>(
     manager: &mut Manager<S, Registered>,
     recipient: Recipient,
     msg: String,
+    attachments: Vec<AttachmentPointer>,
 ) -> Result<()> {
     let timestamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -330,6 +317,7 @@ async fn send<S: Store>(
             info!(recipient =% uuid, "sending message to contact");
             let mut data_message: ContentBody = DataMessage {
                 body: Some(msg),
+                attachments,
                 ..Default::default()
             }
             .into();
@@ -345,6 +333,7 @@ async fn send<S: Store>(
             info!("sending message to group");
             let mut data_message: ContentBody = DataMessage {
                 body: Some(msg),
+                attachments,
                 group_v2: Some(GroupContextV2 {
                     master_key: Some(master_key.to_vec()),
                     revision: Some(0),
@@ -398,11 +387,12 @@ async fn send_delivery_receipt<S: Store>(
 
 async fn process_signal_message<S: Store>(
     manager: &mut Manager<S, Registered>,
-    attachments_dir: &Path,
     content: &Content,
     state: &ChannelState,
 ) -> Result<()> {
     let thread = Thread::try_from(content).map_err(|e| BitpartErrorKind::Signal(e.to_string()))?;
+
+    let attachments = describe_attachments(content);
 
     async fn format_data_message<S: Store>(
         thread: &Thread,
@@ -559,8 +549,14 @@ async fn process_signal_message<S: Store>(
             }
             Msg::Replyable(Thread::Contact(sender), body) => {
                 let contact = format_contact(sender, manager).await;
-                if let Err(err) =
-                    reply(sender.raw_uuid().to_string(), body.clone(), state, manager).await
+                if let Err(err) = reply(
+                    sender.raw_uuid().to_string(),
+                    body.clone(),
+                    attachments.clone(),
+                    state,
+                    manager,
+                )
+                .await
                 {
                     warn!("Problem with replying to message: {:?}", err);
                 }
@@ -589,40 +585,32 @@ async fn process_signal_message<S: Store>(
         debug!("{prefix} / REDACTED");
     }
 
-    let sender = content.metadata.sender.raw_uuid();
-    if let ContentBody::DataMessage(DataMessage { attachments, .. }) = &content.body {
-        for attachment_pointer in attachments {
-            let Ok(attachment_data) = manager.get_attachment(attachment_pointer).await else {
-                warn!("failed to fetch attachment");
-                continue;
-            };
-
-            let extensions = mime_guess::get_mime_extensions_str(
-                attachment_pointer
-                    .content_type
-                    .as_deref()
-                    .unwrap_or("application/octet-stream"),
-            );
-            let extension = extensions.and_then(|e| e.first()).unwrap_or(&"bin");
-            let filename = sanitise(
-                &attachment_pointer
-                    .file_name
-                    .clone()
-                    .unwrap_or_else(|| Local::now().format("%Y-%m-%d-%H-%M-%s").to_string()),
-            );
-            let file_path = attachments_dir.join(format!("bitpart-{filename}.{extension}",));
-            match fs::write(&file_path, &attachment_data).await {
-                Ok(_) => info!(%sender, file_path =% file_path.display(), "saved attachment"),
-                Err(error) => error!(
-                    %sender,
-                    file_path =% file_path.display(),
-                    %error,
-                    "failed to write attachment"
-                ),
-            }
-        }
-    }
     Ok(())
+}
+
+fn describe_attachments(content: &Content) -> Vec<serde_json::Value> {
+    let ContentBody::DataMessage(DataMessage { attachments, .. }) = &content.body else {
+        return Vec::new();
+    };
+
+    attachments
+        .iter()
+        .map(|pointer| {
+            let mut described = json!({
+                "_ref": BASE64_STANDARD.encode(pointer.encode_to_vec()),
+            });
+            if let Some(content_type) = &pointer.content_type {
+                described["content_type"] = json!(content_type);
+            }
+            if let Some(file_name) = &pointer.file_name {
+                described["file_name"] = json!(file_name);
+            }
+            if let Some(size) = pointer.size {
+                described["size"] = json!(size);
+            }
+            described
+        })
+        .collect()
 }
 
 // === message listener ===
@@ -630,14 +618,18 @@ async fn process_signal_message<S: Store>(
 async fn reply<S: Store>(
     user_id: String,
     body: String,
+    attachments: Vec<serde_json::Value>,
     state: &ChannelState,
     manager: &mut Manager<S, Registered>,
 ) -> Result<()> {
+    let mut content = json!({ "text": body });
+    if !attachments.is_empty() {
+        content["attachments"] = json!(attachments);
+    }
+
     let payload = json!({
         "content_type": "text",
-        "content": {
-            "text": body
-        }
+        "content": content
     });
 
     let client = Client {
@@ -677,6 +669,7 @@ async fn reply<S: Store>(
                 manager,
                 try_user_id_to_recipient(&reply_get_user_id(i, &user_id))?,
                 reply_get_text(i),
+                reply_get_attachments(i),
             )
             .await
             .map_err(|err| BitpartErrorKind::Signal(err.to_string()))?;
@@ -727,15 +720,48 @@ fn reply_get_text(res: &serde_json::Value) -> String {
     "".to_owned()
 }
 
+fn reply_get_attachments(res: &serde_json::Value) -> Vec<AttachmentPointer> {
+    let Some(items) = res
+        .get("payload")
+        .and_then(|payload| payload.get("content"))
+        .and_then(|content| content.get("attachments"))
+        .and_then(|attachments| attachments.as_array())
+    else {
+        return Vec::new();
+    };
+
+    items
+        .iter()
+        .filter_map(|item| {
+            let encoded = match item.get("_ref").and_then(|r| r.as_str()) {
+                Some(encoded) => encoded,
+                None => {
+                    warn!("outgoing attachment has no _ref, skipping");
+                    return None;
+                }
+            };
+            let decoded = match BASE64_STANDARD.decode(encoded) {
+                Ok(decoded) => decoded,
+                Err(error) => {
+                    warn!(%error, "outgoing attachment _ref is not valid base64");
+                    return None;
+                }
+            };
+            match AttachmentPointer::decode(decoded.as_slice()) {
+                Ok(pointer) => Some(pointer),
+                Err(error) => {
+                    warn!(%error, "outgoing attachment _ref is not a valid pointer");
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
 async fn receive(
     manager_ref: &mut Cell<Manager<BitpartStore, Registered>>,
-    attachments_dir: &Path,
     state: &ChannelState,
 ) -> Result<()> {
-    info!(
-        path =% attachments_dir.display(),
-        "attachments will be stored"
-    );
 
     loop {
         'inner: loop {
@@ -756,13 +782,8 @@ async fn receive(
                                 if let Err(err) = send_delivery_receipt(manager, &content).await {
                                     warn!("Failed to send delivery receipt: {:?}", err);
                                 }
-                                if let Err(err) = process_signal_message(
-                                    manager,
-                                    attachments_dir,
-                                    &content,
-                                    state,
-                                )
-                                .await
+                                if let Err(err) =
+                                    process_signal_message(manager, &content, state).await
                                 {
                                     warn!("Failed to extract message thread: {:?}", err);
                                 }

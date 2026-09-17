@@ -237,7 +237,7 @@ fn get_result(
     hashmap: &HashMap<String, Literal>,
     interval: Interval,
 ) -> Literal {
-    if name.to_lowercase() == "text" {
+    if name.to_lowercase() == "text" && hashmap.len() == 1 {
         // only for text component reformat the literal
 
         let mut result = hashmap.get("text").unwrap().to_owned();

@@ -290,7 +290,6 @@ async fn main() -> Result<()> {
         parent_token: token.clone(),
         tokens: Arc::new(Mutex::new(tokens)),
         tracker: tracker.clone(),
-        attachments_dir: proj_dirs.cache_dir().to_path_buf(),
         manager: Arc::new(signal::SignalManager::new()),
         metrics: metrics_registry,
     };
