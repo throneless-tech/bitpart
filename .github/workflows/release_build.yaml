@@ -9,15 +9,16 @@ on:
 
 env:
   IMAGE_NAME: bitpart
-  BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+  BRANCH_NAME: ${{ github.event.workflow_run.head_branch }}
 
 jobs:
   bump_version:
     runs-on: ubuntu-latest
     name: "Bump version, create changelog"
+    if: github.event.workflow_run.conclusion == 'success'
     outputs:
       version: ${{ steps.cz.outputs.version }}
-      body: ${{ steps.cz.outputs.body}}
+      body: ${{ steps.get_body.outputs.body }}
     steps:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -33,16 +34,20 @@ jobs:
           commitizen_version: '4.6.3'
       - name: Read body.md file
         id: get_body
+        if: steps.cz.outputs.version != ''
         run: |
-          echo 'body<<EOF' >> $GITHUB_OUTPUT
-          echo "$(cat body.md)" >> $GITHUB_OUTPUT
-          echo 'EOF' >> $GITHUB_OUTPUT
+          {
+            echo 'body<<EOF'
+            cat body.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
       - name: Print Version
         run: echo "Bumped to version ${{ steps.cz.outputs.version }}"
   build_release:
     runs-on: ubuntu-latest
     name: "Build release artifacts"
     needs: bump_version
+    if: needs.bump_version.outputs.version != ''
     steps:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
@@ -71,6 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     name: "Build release image"
     needs: bump_version
+    if: needs.bump_version.outputs.version != ''
     steps:
       - name: Check out
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
