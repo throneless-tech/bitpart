@@ -17,108 +17,39 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-#[allow(clippy::derive_partial_eq_without_eq)]
-mod textsecure {
-    include!(concat!(env!("OUT_DIR"), "/textsecure.rs"));
-}
-
 use std::str::FromStr;
 
 use chrono::{TimeZone, Utc};
-use presage::libsignal_service::content::Content;
-use presage::libsignal_service::content::ContentBody;
-use presage::libsignal_service::content::Metadata;
+use presage::libsignal_service::content::{Content, ContentBody, Metadata};
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto;
-use presage::libsignal_service::protocol::DeviceId;
-use presage::libsignal_service::protocol::ServiceId;
+use presage::libsignal_service::protocol::{DeviceId, Pni, ServiceId};
 
 use crate::BitpartStoreError;
 
-use self::textsecure::AddressProto;
-use self::textsecure::MetadataProto;
-
-impl From<ServiceId> for AddressProto {
-    fn from(s: ServiceId) -> Self {
-        AddressProto {
-            uuid: Some(s.raw_uuid().as_bytes().to_vec()),
-        }
-    }
-}
-
-impl TryFrom<AddressProto> for ServiceId {
-    type Error = BitpartStoreError;
-
-    fn try_from(address: AddressProto) -> Result<Self, Self::Error> {
-        address
-            .uuid
-            .and_then(|bytes| Some(Uuid::from_bytes(bytes.try_into().ok()?)))
-            .ok_or_else(|| BitpartStoreError::NoUuid)
-            .map(|u| ServiceId::Aci(u.into()))
-    }
-}
-
-impl From<Metadata> for MetadataProto {
-    #[allow(clippy::unnecessary_fallible_conversions)]
-    fn from(m: Metadata) -> Self {
-        MetadataProto {
-            address: Some(m.sender.into()),
-            sender_device: m.sender_device.try_into().ok(),
-            timestamp: Some(m.timestamp.timestamp_millis()),
-            server_received_timestamp: Some(m.server_timestamp.timestamp_millis()),
-            server_delivered_timestamp: None,
-            needs_receipt: Some(m.needs_receipt),
-            server_guid: None,
-            group_id: None,
-            destination_uuid: Some(m.destination.raw_uuid().to_string()),
-        }
-    }
-}
-
-impl TryFrom<MetadataProto> for Metadata {
-    type Error = BitpartStoreError;
-
-    fn try_from(metadata: MetadataProto) -> Result<Self, Self::Error> {
-        Ok(Metadata {
-            sender: metadata
-                .address
-                .ok_or(BitpartStoreError::NoUuid)?
-                .try_into()?,
-            destination: ServiceId::Aci(
-                match metadata.destination_uuid.as_deref() {
-                    Some(value) => value.parse().map_err(|_| BitpartStoreError::NoUuid),
-                    None => Ok(Uuid::nil()),
-                }?
-                .into(),
-            ),
-            sender_device: metadata
-                .sender_device
-                .and_then(|m| m.try_into().ok())
-                .unwrap_or(DeviceId::new(1)?),
-            server_guid: metadata
-                .server_guid
-                .and_then(|u| crate::Uuid::from_str(&u).ok()),
-            timestamp: metadata
-                .timestamp
-                .and_then(|m| Utc.timestamp_millis_opt(m).single())
-                .unwrap_or_default(),
-            server_timestamp: metadata
-                .server_received_timestamp
-                .or(metadata.timestamp)
-                .and_then(|m| Utc.timestamp_millis_opt(m).single())
-                .unwrap_or_default(),
-            needs_receipt: metadata.needs_receipt.unwrap_or_default(),
-            unidentified_sender: false,
-            was_plaintext: false,
-        })
-    }
-}
-
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ContentProto {
-    #[prost(message, required, tag = "1")]
-    metadata: MetadataProto,
-    #[prost(message, required, tag = "2")]
+    #[prost(bytes = "vec", optional, tag = "1")]
+    sender_uuid: Option<Vec<u8>>,
+    #[prost(uint32, optional, tag = "2")]
+    sender_device: Option<u32>,
+    #[prost(int64, optional, tag = "3")]
+    client_timestamp: Option<i64>,
+    #[prost(int64, optional, tag = "4")]
+    server_timestamp: Option<i64>,
+    #[prost(bool, optional, tag = "5")]
+    needs_receipt: Option<bool>,
+    #[prost(string, optional, tag = "6")]
+    server_guid: Option<String>,
+    #[prost(string, optional, tag = "7")]
+    destination_uuid: Option<String>,
+    #[prost(string, optional, tag = "8")]
+    pni_verified: Option<String>,
+    #[prost(bool, optional, tag = "9")]
+    unidentified_sender: Option<bool>,
+    #[prost(bool, optional, tag = "10")]
+    was_plaintext: Option<bool>,
+    #[prost(message, required, tag = "11")]
     content: proto::Content,
 }
 
@@ -129,9 +60,22 @@ impl From<Content> for ContentProto {
 }
 
 impl From<(Metadata, ContentBody)> for ContentProto {
+    #[allow(clippy::unnecessary_fallible_conversions)]
     fn from((metadata, content_body): (Metadata, ContentBody)) -> Self {
         ContentProto {
-            metadata: metadata.into(),
+            sender_uuid: Some(metadata.sender.raw_uuid().as_bytes().to_vec()),
+            sender_device: metadata.sender_device.try_into().ok(),
+            client_timestamp: Some(metadata.client_timestamp.timestamp_millis()),
+            server_timestamp: Some(metadata.server_timestamp.timestamp_millis()),
+            needs_receipt: Some(metadata.needs_receipt),
+            server_guid: metadata.server_guid.map(|u| u.to_string()),
+            destination_uuid: Some(metadata.destination.raw_uuid().to_string()),
+            pni_verified: metadata
+                .pni_verified
+                .as_ref()
+                .map(|p| p.service_id_string()),
+            unidentified_sender: Some(metadata.unidentified_sender),
+            was_plaintext: Some(metadata.was_plaintext),
             content: content_body.into_proto(),
         }
     }
@@ -141,7 +85,49 @@ impl TryInto<Content> for ContentProto {
     type Error = BitpartStoreError;
 
     fn try_into(self) -> Result<Content, Self::Error> {
-        let metadata = self.metadata.try_into()?;
+        let sender = self
+            .sender_uuid
+            .and_then(|bytes| Some(Uuid::from_bytes(bytes.try_into().ok()?)))
+            .map(|u| ServiceId::Aci(u.into()))
+            .ok_or(BitpartStoreError::NoUuid)?;
+
+        let destination = ServiceId::Aci(
+            match self.destination_uuid.as_deref() {
+                Some(value) => value.parse().map_err(|_| BitpartStoreError::NoUuid),
+                None => Ok(Uuid::nil()),
+            }?
+            .into(),
+        );
+
+        let metadata = Metadata {
+            sender,
+            destination,
+            sender_device: self
+                .sender_device
+                .and_then(|d| d.try_into().ok())
+                .unwrap_or(DeviceId::new(1)?),
+            client_timestamp: self
+                .client_timestamp
+                .and_then(|t| Utc.timestamp_millis_opt(t).single())
+                .unwrap_or_default(),
+            server_timestamp: self
+                .server_timestamp
+                .or(self.client_timestamp)
+                .and_then(|t| Utc.timestamp_millis_opt(t).single())
+                .unwrap_or_default(),
+            needs_receipt: self.needs_receipt.unwrap_or_default(),
+            unidentified_sender: self.unidentified_sender.unwrap_or_default(),
+            was_plaintext: self.was_plaintext.unwrap_or_default(),
+            server_guid: self.server_guid.and_then(|u| Uuid::from_str(&u).ok()),
+            pni_verified: self
+                .pni_verified
+                .as_deref()
+                .map(|p| {
+                    Pni::parse_from_service_id_string(p).ok_or(BitpartStoreError::NoUuid)
+                })
+                .transpose()?,
+        };
+
         Content::from_proto(self.content, metadata)
             .map_err(|_| BitpartStoreError::UnsupportedContent)
     }

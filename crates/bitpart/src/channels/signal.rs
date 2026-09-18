@@ -17,21 +17,21 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+use base64::prelude::{BASE64_STANDARD, Engine};
 use bitpart_common::{
     csml::{Request, SerializedEvent},
     error::{BitpartErrorKind, Result},
 };
-use base64::prelude::{BASE64_STANDARD, Engine};
 use bitpart_csml::data::Client;
 use futures::StreamExt;
 use futures::{channel::oneshot, pin_mut};
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::Reaction;
-use presage::libsignal_service::prelude::Uuid;
-use presage::libsignal_service::proto::data_message::Quote;
-use presage::libsignal_service::proto::sync_message::Sent;
-use presage::libsignal_service::proto::AttachmentPointer;
 use presage::libsignal_service::prelude::ProtobufMessage;
+use presage::libsignal_service::prelude::Uuid;
+use presage::libsignal_service::proto::AttachmentPointer;
+use presage::libsignal_service::proto::data_message::Quote;
+use presage::libsignal_service::proto::sync_message::{Content as SyncContent, Sent};
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
 use presage::model::identity::OnNewIdentity;
@@ -71,16 +71,9 @@ use std::sync::Arc;
 
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
-    LinkChannel {
-        id: String,
-        device_name: String,
-    },
-    StartChannel {
-        id: String,
-    },
-    ResetSessions {
-        id: String,
-    },
+    LinkChannel { id: String, device_name: String },
+    StartChannel { id: String },
+    ResetSessions { id: String },
 }
 
 pub struct ChannelMessage {
@@ -371,7 +364,7 @@ async fn send_delivery_receipt<S: Store>(
 
     let receipt: ContentBody = ReceiptMessage {
         r#type: Some(receipt_message::Type::Delivery as i32),
-        timestamp: vec![content.metadata.timestamp.timestamp_millis() as u64],
+        timestamp: vec![content.metadata.client_timestamp.timestamp_millis() as u64],
     }
     .into();
 
@@ -494,25 +487,25 @@ async fn process_signal_message<S: Store>(
             .map(|body| Msg::Received(&thread, body)),
         ContentBody::EditMessage(EditMessage { .. }) => None,
         ContentBody::SynchronizeMessage(SyncMessage {
-            sent:
-                Some(Sent {
+            content:
+                Some(SyncContent::Sent(Sent {
                     message: Some(data_message),
                     ..
-                }),
+                })),
             ..
         }) => format_data_message(&thread, data_message, manager)
             .await
             .map(|body| Msg::Sent(&thread, body)),
         ContentBody::SynchronizeMessage(SyncMessage {
-            sent:
-                Some(Sent {
+            content:
+                Some(SyncContent::Sent(Sent {
                     edit_message:
                         Some(EditMessage {
                             data_message: Some(data_message),
                             ..
                         }),
                     ..
-                }),
+                })),
             ..
         }) => format_data_message(&thread, data_message, manager)
             .await
@@ -532,9 +525,6 @@ async fn process_signal_message<S: Store>(
         )),
         ContentBody::StoryMessage(story) => {
             Some(Msg::Received(&thread, format!("new story: {story:?}")))
-        }
-        ContentBody::PniSignatureMessage(_) => {
-            Some(Msg::Received(&thread, "got PNI signature message".into()))
         }
         ContentBody::DecryptionErrorMessage(_) => Some(Msg::Received(
             &thread,
@@ -762,7 +752,6 @@ async fn receive(
     manager_ref: &mut Cell<Manager<BitpartStore, Registered>>,
     state: &ChannelState,
 ) -> Result<()> {
-
     loop {
         'inner: loop {
             tokio::time::sleep(Duration::from_millis(2)).await;
@@ -787,6 +776,9 @@ async fn receive(
                                 {
                                     warn!("Failed to extract message thread: {:?}", err);
                                 }
+                            }
+                            Received::DecryptionError(contact) => {
+                                warn!("Failed to decrypt message from contact: {:?}", contact);
                             }
                         }
                     }
