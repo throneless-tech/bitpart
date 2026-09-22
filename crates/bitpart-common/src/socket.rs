@@ -18,7 +18,11 @@ pub struct Response<S: Serialize> {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "message_type", content = "data")]
 pub enum SocketMessage<S: Serialize> {
-    CreateBot(Box<CsmlBot>),
+    CreateBot {
+        #[serde(flatten)]
+        bot: Box<CsmlBot>,
+        expire_timer: Option<u32>,
+    },
     ReadBot {
         id: String,
     },

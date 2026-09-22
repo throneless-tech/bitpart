@@ -30,7 +30,11 @@ pub struct BotDescription {
     pub status: Option<BotMetricsSnapshot>,
 }
 
-pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion> {
+pub async fn create_bot(
+    mut bot: CsmlBot,
+    expire_timer: Option<u32>,
+    state: &ApiState,
+) -> Result<BotVersion> {
     bot.native_components = match load_components() {
         Ok(components) => Some(components),
         Err(err) => return Err(BitpartErrorKind::Interpreter(err.format_error()).into()),
@@ -46,7 +50,7 @@ pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion
             ..
         } => Err(BitpartErrorKind::Api(format!("{:?}", errors)).into()),
         CsmlResult { .. } => {
-            let created = db::bot::create(bot, &state.pool).await?;
+            let created = db::bot::create(bot, expire_timer, &state.pool).await?;
             Ok(created)
         }
     }
@@ -146,6 +150,105 @@ mod test_bot {
             .await;
 
         socket.assert_receive_text_contains("Hello").await
+    }
+
+    #[tokio::test]
+    async fn it_should_create_a_bot_with_an_expire_timer() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "name": "test",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                    "expire_timer": 604800,
+                }
+            }))
+            .await;
+
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "ReadBot",
+                "data": {
+                    "id": "bot_id"
+                }
+            }))
+            .await;
+
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await
+    }
+
+    #[tokio::test]
+    async fn it_should_inherit_or_remove_the_expire_timer() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        let bot = |expire_timer: Option<u32>| {
+            let mut data = json!({
+                "id": "bot_id",
+                "name": "test",
+                "flows": [
+                  {
+                    "id": "Default",
+                    "name": "Default",
+                    "content": "start: say \"Hello\" goto end",
+                    "commands": [],
+                  }
+                ],
+                "default_flow": "Default",
+            });
+            if let Some(timer) = expire_timer {
+                data["expire_timer"] = json!(timer);
+            }
+            json!({ "message_type": "CreateBot", "data": data })
+        };
+
+        socket.send_json(&bot(Some(604800))).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await;
+
+        socket.send_json(&bot(None)).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await;
+
+        socket.send_json(&bot(Some(0))).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":null")
+            .await;
+
+        socket.send_json(&bot(None)).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":null")
+            .await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "ReadBot",
+                "data": {
+                    "id": "bot_id"
+                }
+            }))
+            .await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":null")
+            .await
     }
 
     #[tokio::test]

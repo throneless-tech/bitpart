@@ -79,6 +79,8 @@ When you have the server running as described above, and you have `bitpart-cli` 
 
 where `<BOT_ID>` is a unique name you choose for the bot, `<NAME>` is the keyword the bot will respond to when in a group, and `<BASENAME>` is the name of the default CSML script included in the bot (you can include multiple CSML scripts, but you must specify which one is used by default for new conversations). To find out more about CSML scripting, check out the example(s) in the `examples` directory in this repository.
 
+To have new conversations with the bot use Signal disappearing messages, add `--expire-timer <SECONDS>` (for example `604800` for one week). The timer is set when a user first contacts the bot; after that, any change the user makes to the timer in their Signal app is left in place. When you add a new version of an existing bot without `--expire-timer`, it keeps the previous version's timer; use `--expire-timer 0` to remove it.
+
 To link the bot you created to Signal so that it receives messages, you must open a _channel_ between the bot and a Signal account. **We recommend using a separate Signal account just for this purpose**, since Bitpart will also receive and respond to the Signal messages sent to this account.
 
 ```

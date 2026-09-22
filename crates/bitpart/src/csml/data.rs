@@ -40,6 +40,7 @@ pub struct BotVersion {
     pub bot: CsmlBot,
     pub version_id: String,
     pub engine_version: String,
+    pub expire_timer: Option<u32>,
 }
 
 #[derive(Debug, Clone)]

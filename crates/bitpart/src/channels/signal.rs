@@ -30,7 +30,7 @@ use presage::libsignal_service::content::Reaction;
 use presage::libsignal_service::prelude::ProtobufMessage;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto::AttachmentPointer;
-use presage::libsignal_service::proto::data_message::Quote;
+use presage::libsignal_service::proto::data_message::{Flags, Quote};
 use presage::libsignal_service::proto::sync_message::{Content as SyncContent, Sent};
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::GroupMasterKeyBytes;
@@ -64,6 +64,7 @@ use tracing::{debug, error, info};
 use uuid;
 
 use crate::api;
+use crate::db;
 use crate::metrics::{BotMetrics, ConnectionStatus, MetricsRegistry};
 use std::sync::Arc;
 
@@ -605,6 +606,29 @@ fn describe_attachments(content: &Content) -> Vec<serde_json::Value> {
         .collect()
 }
 
+async fn send_expire_timer<S: Store>(
+    manager: &mut Manager<S, Registered>,
+    uuid: Uuid,
+    timer: u32,
+) -> Result<()> {
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis() as u64;
+    info!(recipient =% uuid, timer, "setting disappearing message timer");
+    let data_message = DataMessage {
+        flags: Some(Flags::ExpirationTimerUpdate as u32),
+        expire_timer: Some(timer),
+        timestamp: Some(timestamp),
+        ..Default::default()
+    };
+    manager
+        .send_message(ServiceId::Aci(uuid.into()), data_message, timestamp)
+        .await
+        .map_err(|e| BitpartErrorKind::PresageStore(e.to_string()))?;
+    Ok(())
+}
+
 // === message listener ===
 
 async fn reply<S: Store>(
@@ -629,6 +653,24 @@ async fn reply<S: Store>(
         channel_id: "signal".to_owned(),
         user_id: user_id.clone(),
     };
+
+    let first_contact = db::conversation::get_by_client(&client, Some(1), None, &state.pool)
+        .await?
+        .is_empty();
+    if first_contact
+        && let Ok(Recipient::Contact(uuid)) = try_user_id_to_recipient(&user_id)
+        && let Some(bot) = db::bot::get_latest_by_bot_id(&state.id, &state.pool).await?
+        && let Some(timer) = bot.expire_timer.filter(|t| *t > 0)
+        && !manager
+            .store()
+            .expire_timer(&Thread::Contact(ServiceId::Aci(uuid.into())))
+            .await
+            .ok()
+            .flatten()
+            .is_some_and(|(t, _)| t > 0)
+    {
+        send_expire_timer(manager, uuid, timer).await?;
+    }
 
     let event = SerializedEvent {
         id: uuid::Uuid::new_v4().to_string(),

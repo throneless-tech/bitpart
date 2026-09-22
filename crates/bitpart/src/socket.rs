@@ -107,8 +107,10 @@ async fn process_message(
             debug!(">>> {who} sent str: {t:?}");
             let contents: SocketMessage<String> = serde_json::from_slice(t.as_bytes())?;
             match contents {
-                SocketMessage::CreateBot(bot) => {
-                    api::create_bot(*bot, state).await.into_ws("CreateBot")
+                SocketMessage::CreateBot { bot, expire_timer } => {
+                    api::create_bot(*bot, expire_timer, state)
+                        .await
+                        .into_ws("CreateBot")
                 }
                 SocketMessage::ReadBot { id } => api::read_bot(&id, state).await.into_ws("ReadBot"),
                 SocketMessage::BotVersions { id, options } => {

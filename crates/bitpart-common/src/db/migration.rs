@@ -25,11 +25,18 @@ use crate::error::{BitpartErrorKind, Result};
 const SCHEMA_V1: &str = include_str!("schema.sql");
 const SCHEMA_V2: &str = include_str!("schema_v2.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
+const SCHEMA_V4: &str = include_str!("schema_v4.sql");
 
 fn migrations() -> &'static Migrations<'static> {
     static MIGRATIONS: OnceLock<Migrations<'static>> = OnceLock::new();
-    MIGRATIONS
-        .get_or_init(|| Migrations::new(vec![M::up(SCHEMA_V1), M::up(SCHEMA_V2), M::up(SCHEMA_V3)]))
+    MIGRATIONS.get_or_init(|| {
+        Migrations::new(vec![
+            M::up(SCHEMA_V1),
+            M::up(SCHEMA_V2),
+            M::up(SCHEMA_V3),
+            M::up(SCHEMA_V4),
+        ])
+    })
 }
 
 pub fn migrate_conn(conn: &mut Connection) -> Result<()> {
@@ -636,7 +643,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
 
         let table_count: i64 = conn
             .query_row(
@@ -670,7 +677,7 @@ mod tests {
         let v1: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v1, 3);
+        assert_eq!(v1, 4);
 
         let table_count_1: i64 = conn
             .query_row(
@@ -691,8 +698,8 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(
-            v2, 3,
-            "user_version should stay 3 after idempotent migration"
+            v2, 4,
+            "user_version should stay 4 after idempotent migration"
         );
 
         let table_count_2: i64 = conn
@@ -776,7 +783,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
 
         let marker_exists: bool = conn
             .query_row(
@@ -955,7 +962,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, 4);
 
         let channel_state_exists: bool = conn
             .query_row(

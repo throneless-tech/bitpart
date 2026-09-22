@@ -74,6 +74,10 @@ enum Commands {
         #[arg(short, long)]
         endpoint: Option<String>,
 
+        /// Disappearing message timer for new conversations, in seconds (0 removes it; omit to keep the previous version's timer)
+        #[arg(short = 't', long)]
+        expire_timer: Option<u32>,
+
         /// CSML file
         #[arg(required = true)]
         path: Vec<PathBuf>,
@@ -245,6 +249,7 @@ async fn main() -> Result<()> {
             name,
             path,
             endpoint,
+            expire_timer,
         } => {
             let flows = path
                 .iter()
@@ -266,7 +271,8 @@ async fn main() -> Result<()> {
                 "name": name,
                 "default_flow": default_flow,
                 "flows": flows,
-                "apps_endpoint": endpoint
+                "apps_endpoint": endpoint,
+                "expire_timer": expire_timer
                 }
             });
             debug!("Request: {:?}", req.to_string());

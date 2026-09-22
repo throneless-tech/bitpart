@@ -82,6 +82,7 @@ struct BotRow {
     id: String,
     bot_id: String,
     bot_json: String,
+    expire_timer: Option<u32>,
 }
 
 impl BotRow {
@@ -92,6 +93,7 @@ impl BotRow {
             version_id: row_id,
             bot: bot.into(),
             engine_version: env!("CARGO_PKG_VERSION").to_owned(),
+            expire_timer: self.expire_timer,
         })
     }
 
@@ -101,6 +103,7 @@ impl BotRow {
             version_id: bot.id.clone(),
             bot: bot.into(),
             engine_version: env!("CARGO_PKG_VERSION").to_owned(),
+            expire_timer: self.expire_timer,
         })
     }
 }
@@ -142,7 +145,7 @@ pub async fn get(
             let lim: i64 = limit.map(|n| n as i64).unwrap_or(-1);
             let off: i64 = offset.map(|n| n as i64).unwrap_or(0);
             let mut stmt = conn.prepare(
-                "SELECT id, bot_id, bot FROM bot \
+                "SELECT id, bot_id, bot, expire_timer FROM bot \
                  WHERE bot_id = ? \
                  ORDER BY updated_at DESC \
                  LIMIT ? OFFSET ?",
@@ -152,6 +155,7 @@ pub async fn get(
                     id: r.get(0)?,
                     bot_id: r.get(1)?,
                     bot_json: r.get(2)?,
+                    expire_timer: r.get(3)?,
                 })
             })?;
             let mut out = Vec::new();
@@ -174,13 +178,15 @@ pub async fn get_by_id(id: &str, db: &Pool) -> Result<Option<BotVersion>> {
     let obj = db.get().await.map_err(pool_err)?;
     let row = obj
         .interact(move |conn| -> rusqlite::Result<Option<BotRow>> {
-            let mut stmt = conn.prepare("SELECT id, bot_id, bot FROM bot WHERE id = ?")?;
+            let mut stmt =
+                conn.prepare("SELECT id, bot_id, bot, expire_timer FROM bot WHERE id = ?")?;
             let row = stmt
                 .query_row(params![id], |r| {
                     Ok(BotRow {
                         id: r.get(0)?,
                         bot_id: r.get(1)?,
                         bot_json: r.get(2)?,
+                        expire_timer: r.get(3)?,
                     })
                 })
                 .optional()?;
@@ -201,9 +207,9 @@ pub async fn get_latest_by_bot_id(bot_id: &str, db: &Pool) -> Result<Option<BotV
     let row = obj
         .interact(move |conn| -> rusqlite::Result<Option<BotRow>> {
             let mut stmt = conn.prepare(
-                "SELECT id, bot_id, bot FROM bot \
+                "SELECT id, bot_id, bot, expire_timer FROM bot \
                  WHERE bot_id = ? \
-                 ORDER BY updated_at DESC \
+                 ORDER BY updated_at DESC, rowid DESC \
                  LIMIT 1",
             )?;
             let row = stmt
@@ -212,6 +218,7 @@ pub async fn get_latest_by_bot_id(bot_id: &str, db: &Pool) -> Result<Option<BotV
                         id: r.get(0)?,
                         bot_id: r.get(1)?,
                         bot_json: r.get(2)?,
+                        expire_timer: r.get(3)?,
                     })
                 })
                 .optional()?;
@@ -230,25 +237,43 @@ pub async fn get_latest_by_bot_id(bot_id: &str, db: &Pool) -> Result<Option<BotV
 // Write functions
 // =====================================================================
 
-pub async fn create(bot: CsmlBot, db: &Pool) -> Result<BotVersion> {
+pub async fn create(bot: CsmlBot, expire_timer: Option<u32>, db: &Pool) -> Result<BotVersion> {
     let row_id = Uuid::new_v4().to_string();
     let bot_id = bot.id.clone();
     let bot_json = bot.to_json().to_string();
     let engine_version = env!("CARGO_PKG_VERSION").to_owned();
 
     let obj = db.get().await.map_err(pool_err)?;
-    let inserted_json = {
+    let (inserted_json, expire_timer) = {
         let row_id = row_id.clone();
         let engine_version = engine_version.clone();
-        obj.interact(move |conn| -> rusqlite::Result<String> {
+        obj.interact(move |conn| -> rusqlite::Result<(String, Option<u32>)> {
+            let tx = conn.transaction()?;
+            let expire_timer = match expire_timer {
+                Some(timer) => Some(timer),
+                None => tx
+                    .query_row(
+                        "SELECT expire_timer FROM bot \
+                         WHERE bot_id = ? \
+                         ORDER BY updated_at DESC, rowid DESC \
+                         LIMIT 1",
+                        params![bot_id],
+                        |r| r.get::<_, Option<u32>>(0),
+                    )
+                    .optional()?
+                    .flatten(),
+            }
+            .filter(|t| *t > 0);
             // Explicit column list — matches the migration order and
             // future-proofs against schema drift. `created_at`/`updated_at`
             // get their `CURRENT_TIMESTAMP` defaults.
-            conn.execute(
-                "INSERT INTO bot (id, bot_id, bot, engine_version) VALUES (?, ?, ?, ?)",
-                params![row_id, bot_id, bot_json, engine_version],
+            tx.execute(
+                "INSERT INTO bot (id, bot_id, bot, engine_version, expire_timer) \
+                 VALUES (?, ?, ?, ?, ?)",
+                params![row_id, bot_id, bot_json, engine_version, expire_timer],
             )?;
-            Ok(bot_json)
+            tx.commit()?;
+            Ok((bot_json, expire_timer))
         })
         .await
         .map_err(pool_err)??
@@ -259,6 +284,7 @@ pub async fn create(bot: CsmlBot, db: &Pool) -> Result<BotVersion> {
         bot: serialised.into(),
         version_id: row_id,
         engine_version,
+        expire_timer,
     })
 }
 
@@ -269,14 +295,16 @@ pub async fn touch(id: &str, version_id: &str, db: &Pool) -> Result<Option<BotVe
     let obj = db.get().await.map_err(pool_err)?;
     let row = obj
         .interact(move |conn| -> rusqlite::Result<Option<BotRow>> {
-            let mut stmt =
-                conn.prepare("SELECT id, bot_id, bot FROM bot WHERE id = ? AND bot_id = ?")?;
+            let mut stmt = conn.prepare(
+                "SELECT id, bot_id, bot, expire_timer FROM bot WHERE id = ? AND bot_id = ?",
+            )?;
             let row = stmt
                 .query_row(params![version_id, id], |r| {
                     Ok(BotRow {
                         id: r.get(0)?,
                         bot_id: r.get(1)?,
                         bot_json: r.get(2)?,
+                        expire_timer: r.get(3)?,
                     })
                 })
                 .optional()?;
