@@ -16,8 +16,8 @@
 
 use std::sync::OnceLock;
 
-use rusqlite::Connection;
-use rusqlite_migration::{M, Migrations};
+use rusqlite::{Connection, Transaction, params};
+use rusqlite_migration::{HookResult, M, Migrations};
 
 use crate::db::Pool;
 use crate::error::{BitpartErrorKind, Result};
@@ -26,6 +26,7 @@ const SCHEMA_V1: &str = include_str!("schema.sql");
 const SCHEMA_V2: &str = include_str!("schema_v2.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 const SCHEMA_V4: &str = include_str!("schema_v4.sql");
+const SCHEMA_V5: &str = include_str!("schema_v5.sql");
 
 fn migrations() -> &'static Migrations<'static> {
     static MIGRATIONS: OnceLock<Migrations<'static>> = OnceLock::new();
@@ -35,8 +36,27 @@ fn migrations() -> &'static Migrations<'static> {
             M::up(SCHEMA_V2),
             M::up(SCHEMA_V3),
             M::up(SCHEMA_V4),
+            M::up_with_hook(SCHEMA_V5, backfill_group_refs),
         ])
     })
+}
+
+fn backfill_group_refs(tx: &Transaction) -> HookResult {
+    let keys: Vec<(String, Vec<u8>)> = tx
+        .prepare("SELECT channel_id, master_key FROM signal_groups")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    for (channel_id, master_key) in keys {
+        tx.execute(
+            "UPDATE signal_groups SET group_ref = ?1 WHERE channel_id = ?2 AND master_key = ?3",
+            params![
+                presage_store_bitpart::group_ref(&master_key),
+                channel_id,
+                master_key
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 pub fn migrate_conn(conn: &mut Connection) -> Result<()> {
@@ -636,14 +656,14 @@ mod tests {
     }
 
     #[test]
-    fn fresh_db_initialises_to_v3() {
+    fn fresh_db_initialises_to_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate_conn(&mut conn).unwrap();
 
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
 
         let table_count: i64 = conn
             .query_row(
@@ -669,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn migrator_is_idempotent_v3() {
+    fn migrator_is_idempotent() {
         let mut conn = Connection::open_in_memory().unwrap();
 
         migrate_conn(&mut conn).unwrap();
@@ -677,7 +697,7 @@ mod tests {
         let v1: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v1, 4);
+        assert_eq!(v1, 5);
 
         let table_count_1: i64 = conn
             .query_row(
@@ -698,8 +718,8 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(
-            v2, 4,
-            "user_version should stay 4 after idempotent migration"
+            v2, 5,
+            "user_version should stay 5 after idempotent migration"
         );
 
         let table_count_2: i64 = conn
@@ -726,6 +746,36 @@ mod tests {
             identity_exists,
             "existing data should be preserved during idempotent migration"
         );
+    }
+
+    #[test]
+    fn v5_backfills_group_refs() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let v4 = Migrations::new(vec![
+            M::up(SCHEMA_V1),
+            M::up(SCHEMA_V2),
+            M::up(SCHEMA_V3),
+            M::up(SCHEMA_V4),
+        ]);
+        v4.to_latest(&mut conn).unwrap();
+
+        let key = [9u8; 32];
+        conn.execute(
+            "INSERT INTO signal_groups (channel_id, master_key, group_data) VALUES ('ch1', ?1, ?2)",
+            params![key.as_slice(), b"data".as_slice()],
+        )
+        .unwrap();
+
+        migrate_conn(&mut conn).unwrap();
+
+        let stored: String = conn
+            .query_row(
+                "SELECT group_ref FROM signal_groups WHERE channel_id = 'ch1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(stored, presage_store_bitpart::group_ref(&key));
     }
 
     #[test]
@@ -769,7 +819,7 @@ mod tests {
     }
 
     #[test]
-    fn bridges_legacy_seaorm_schema_then_v3() {
+    fn bridges_legacy_seaorm_schema_then_latest() {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(
@@ -783,7 +833,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
 
         let marker_exists: bool = conn
             .query_row(
@@ -962,7 +1012,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 4);
+        assert_eq!(v, 5);
 
         let channel_state_exists: bool = conn
             .query_row(

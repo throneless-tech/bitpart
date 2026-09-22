@@ -23,6 +23,7 @@ use presage::{
         libsignal_account_keys::AccountEntropyPool,
         prelude::{MasterKey, ProfileKey, Uuid},
         protocol::{IdentityKeyPair, SenderCertificate},
+        zkgroup::GroupMasterKeyBytes,
     },
     manager::RegistrationData,
     model::identity::OnNewIdentity,
@@ -43,6 +44,16 @@ mod protobuf;
 mod protocol;
 
 pub use error::BitpartStoreError;
+
+pub fn group_ref(master_key: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"bitpart:group:");
+    hasher.update(master_key);
+    hasher.finalize()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
 
 const BITPART_KEY_REGISTRATION: &str = "registration";
 const BITPART_KEY_SENDER_CERTIFICATE: &str = "sender_certificate";
@@ -79,6 +90,17 @@ impl BitpartStore {
 
     pub async fn aci_sessions(&self) -> Result<Vec<(String, Vec<u8>)>, BitpartStoreError> {
         db::sessions::get_all_aci(&self.id, &self.pool).await
+    }
+
+    pub async fn group_by_ref(
+        &self,
+        group_ref: &str,
+    ) -> Result<Option<GroupMasterKeyBytes>, BitpartStoreError> {
+        Ok(
+            db::groups::get_master_key_by_ref(&self.id, group_ref, &self.pool)
+                .await?
+                .and_then(|key| key.try_into().ok()),
+        )
     }
 
     pub async fn purge_conversation(&self, user_id: &str) -> Vec<BitpartStoreError> {
@@ -295,6 +317,7 @@ impl BitpartStore {
                 channel_id varchar NOT NULL,
                 master_key blob NOT NULL,
                 group_data blob NOT NULL,
+                group_ref varchar,
                 PRIMARY KEY (channel_id, master_key)
             );
             CREATE TABLE signal_group_avatars (

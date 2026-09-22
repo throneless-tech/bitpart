@@ -30,6 +30,8 @@ use presage::libsignal_service::content::Reaction;
 use presage::libsignal_service::prelude::ProtobufMessage;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto::AttachmentPointer;
+use presage::libsignal_service::proto::BodyRange;
+use presage::libsignal_service::proto::body_range::AssociatedValue;
 use presage::libsignal_service::proto::data_message::{Flags, Quote};
 use presage::libsignal_service::proto::sync_message::{Content as SyncContent, Sent};
 use presage::libsignal_service::protocol::ServiceId;
@@ -47,7 +49,7 @@ use presage::{
     manager::Registered,
     store::{Store, Thread},
 };
-use presage_store_bitpart::BitpartStore;
+use presage_store_bitpart::{BitpartStore, group_ref};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::cell::Cell;
@@ -567,6 +569,20 @@ async fn process_signal_message<S: Store>(
             Msg::Replyable(Thread::Group(key), body) => {
                 let sender = format_contact(&content.metadata.sender, manager).await;
                 let group = format_group(*key, manager).await;
+                let bot = manager.registration_data().service_ids.aci;
+                if let ContentBody::DataMessage(data_message) = &content.body
+                    && let Some(text) = addressed_text(data_message, bot)
+                    && let Err(err) = reply(
+                        group_user_id(key, &content.metadata.sender.raw_uuid()),
+                        text,
+                        attachments.clone(),
+                        state,
+                        manager,
+                    )
+                    .await
+                {
+                    warn!("Problem with replying to message: {:?}", err);
+                }
                 (format!("From {sender} to group {group} @ {ts}: "), body)
             }
             Msg::Sent(Thread::Group(key), body) => {
@@ -661,13 +677,13 @@ async fn reply<S: Store>(
         && let Ok(Recipient::Contact(uuid)) = try_user_id_to_recipient(&user_id)
         && let Some(bot) = db::bot::get_latest_by_bot_id(&state.id, &state.pool).await?
         && let Some(timer) = bot.expire_timer.filter(|t| *t > 0)
-        && !manager
+        && manager
             .store()
             .expire_timer(&Thread::Contact(ServiceId::Aci(uuid.into())))
             .await
             .ok()
             .flatten()
-            .is_some_and(|(t, _)| t > 0)
+            .is_none_or(|(t, _)| t == 0)
     {
         send_expire_timer(manager, uuid, timer).await?;
     }
@@ -701,7 +717,7 @@ async fn reply<S: Store>(
         {
             send(
                 manager,
-                try_user_id_to_recipient(&reply_get_user_id(i, &user_id))?,
+                resolve_recipient(state, &reply_get_user_id(i, &user_id)).await?,
                 reply_get_text(i),
                 reply_get_attachments(i),
             )
@@ -711,7 +727,9 @@ async fn reply<S: Store>(
         }
     }
 
-    if res.get("deleted").and_then(Value::as_bool).unwrap_or(false) {
+    if res.get("deleted").and_then(Value::as_bool).unwrap_or(false)
+        && Uuid::try_parse(&user_id).is_ok()
+    {
         let store =
             BitpartStore::open(&state.channel_id, &state.pool, OnNewIdentity::Trust).await?;
         let errors = store.purge_conversation(&user_id).await;
@@ -737,6 +755,27 @@ fn unescape(input: &str) -> String {
         .replace("\\\\", "\\")
 }
 
+fn group_user_id(key: &GroupMasterKeyBytes, sender: &Uuid) -> String {
+    format!("group:{}:{sender}", group_ref(key))
+}
+
+fn parse_group_ref(user_id: &str) -> Option<&str> {
+    let rest = user_id.strip_prefix("group:")?;
+    Some(rest.split_once(':').map_or(rest, |(r, _)| r))
+}
+
+async fn resolve_recipient(state: &ChannelState, user_id: &str) -> Result<Recipient> {
+    let Some(group_ref) = parse_group_ref(user_id) else {
+        return try_user_id_to_recipient(user_id);
+    };
+    let store = BitpartStore::open(&state.channel_id, &state.pool, OnNewIdentity::Trust).await?;
+    store
+        .group_by_ref(group_ref)
+        .await?
+        .map(Recipient::Group)
+        .ok_or_else(|| BitpartErrorKind::Signal("unknown group".to_owned()).into())
+}
+
 fn try_user_id_to_recipient(user_id: &str) -> Result<Recipient> {
     match Uuid::try_parse(user_id) {
         Ok(uuid) => Ok(Recipient::Contact(uuid)),
@@ -745,6 +784,49 @@ fn try_user_id_to_recipient(user_id: &str) -> Result<Recipient> {
             Ok(Recipient::Group(key))
         }
     }
+}
+
+fn mentions_bot(range: &BodyRange, bot: Uuid) -> bool {
+    match &range.associated_value {
+        Some(AssociatedValue::MentionAci(aci)) => Uuid::try_parse(aci).is_ok_and(|u| u == bot),
+        Some(AssociatedValue::MentionAciBinary(bytes)) => {
+            Uuid::from_slice(bytes).is_ok_and(|u| u == bot)
+        }
+        _ => false,
+    }
+}
+
+fn addressed_text(data_message: &DataMessage, bot: Uuid) -> Option<String> {
+    let mut ranges: Vec<(usize, usize)> = data_message
+        .body_ranges
+        .iter()
+        .filter(|range| mentions_bot(range, bot))
+        .filter_map(|range| {
+            let start = range.start? as usize;
+            Some((start, start.checked_add(range.length? as usize)?))
+        })
+        .collect();
+    if ranges.is_empty() {
+        return None;
+    }
+    ranges.sort_unstable();
+    let body: Vec<u16> = data_message.body.as_deref()?.encode_utf16().collect();
+    let mut kept = Vec::with_capacity(body.len());
+    let mut cursor = 0;
+    for (start, end) in ranges {
+        let start = start.min(body.len());
+        if start > cursor {
+            kept.extend_from_slice(&body[cursor..start]);
+        }
+        cursor = cursor.max(end.min(body.len()));
+    }
+    kept.extend_from_slice(&body[cursor..]);
+    Some(
+        String::from_utf16_lossy(&kept)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
 }
 
 fn reply_get_user_id(res: &serde_json::Value, default_user_id: &str) -> String {
@@ -860,5 +942,123 @@ async fn receive(
                 warn!("Failed to reload manager. {:?}", err);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mention(start: u32, length: u32, aci: Uuid) -> BodyRange {
+        BodyRange {
+            start: Some(start),
+            length: Some(length),
+            associated_value: Some(AssociatedValue::MentionAci(aci.to_string())),
+        }
+    }
+
+    fn message(body: &str, body_ranges: Vec<BodyRange>) -> DataMessage {
+        DataMessage {
+            body: Some(body.to_owned()),
+            body_ranges,
+            ..Default::default()
+        }
+    }
+
+    const BOT: Uuid = Uuid::from_u128(0xB07);
+    const OTHER: Uuid = Uuid::from_u128(0x07E);
+
+    #[test]
+    fn unmentioned_group_message_is_ignored() {
+        assert_eq!(addressed_text(&message("help", vec![]), BOT), None);
+    }
+
+    #[test]
+    fn mention_of_someone_else_is_ignored() {
+        let msg = message("\u{fffc} help", vec![mention(0, 1, OTHER)]);
+        assert_eq!(addressed_text(&msg, BOT), None);
+    }
+
+    #[test]
+    fn bot_mention_is_stripped() {
+        let msg = message("\u{fffc} help", vec![mention(0, 1, BOT)]);
+        assert_eq!(addressed_text(&msg, BOT).as_deref(), Some("help"));
+    }
+
+    #[test]
+    fn other_mentions_are_kept() {
+        let msg = message(
+            "ask \u{fffc} about \u{fffc}",
+            vec![mention(4, 1, BOT), mention(12, 1, OTHER)],
+        );
+        assert_eq!(
+            addressed_text(&msg, BOT).as_deref(),
+            Some("ask about \u{fffc}")
+        );
+    }
+
+    #[test]
+    fn binary_mention_is_recognised() {
+        let msg = message(
+            "hi \u{fffc}",
+            vec![BodyRange {
+                start: Some(3),
+                length: Some(1),
+                associated_value: Some(AssociatedValue::MentionAciBinary(BOT.as_bytes().to_vec())),
+            }],
+        );
+        assert_eq!(addressed_text(&msg, BOT).as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn offsets_are_utf16() {
+        let msg = message("\u{1f600} \u{fffc} go", vec![mention(3, 1, BOT)]);
+        assert_eq!(addressed_text(&msg, BOT).as_deref(), Some("\u{1f600} go"));
+    }
+
+    #[test]
+    fn out_of_range_mention_does_not_panic() {
+        let msg = message("hi", vec![mention(10, 5, BOT)]);
+        assert_eq!(addressed_text(&msg, BOT).as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn group_user_id_carries_its_ref() {
+        let key = [7u8; 32];
+        let user_id = group_user_id(&key, &OTHER);
+        assert_eq!(parse_group_ref(&user_id), Some(group_ref(&key).as_str()));
+        assert!(Uuid::try_parse(&user_id).is_err());
+    }
+
+    #[test]
+    fn group_user_id_does_not_contain_the_key() {
+        let key = [7u8; 32];
+        let user_id = group_user_id(&key, &OTHER);
+        assert!(!user_id.contains(&hex::encode(key)));
+        assert!(!user_id.contains(&BASE64_STANDARD.encode(key)));
+    }
+
+    #[test]
+    fn contact_user_id_has_no_group_ref() {
+        assert_eq!(parse_group_ref(&OTHER.to_string()), None);
+    }
+
+    #[test]
+    fn distinct_groups_get_distinct_refs() {
+        assert_ne!(group_ref(&[1u8; 32]), group_ref(&[2u8; 32]));
+    }
+
+    #[test]
+    fn group_members_get_distinct_conversations() {
+        let key = [7u8; 32];
+        assert_ne!(group_user_id(&key, &BOT), group_user_id(&key, &OTHER));
+    }
+
+    #[test]
+    fn contact_user_id_is_a_contact() {
+        assert!(matches!(
+            try_user_id_to_recipient(&OTHER.to_string()),
+            Ok(Recipient::Contact(u)) if u == OTHER
+        ));
     }
 }
