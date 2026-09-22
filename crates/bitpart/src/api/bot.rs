@@ -124,7 +124,7 @@ mod test_bot {
 
     #[tokio::test]
     async fn it_should_create_a_bot() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -150,7 +150,7 @@ mod test_bot {
 
     #[tokio::test]
     async fn it_should_get_a_bot() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -185,7 +185,7 @@ mod test_bot {
 
     #[tokio::test]
     async fn it_should_delete_a_bot() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -249,7 +249,7 @@ mod test_bot {
 
     #[tokio::test]
     async fn it_should_get_multiple_versions() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({

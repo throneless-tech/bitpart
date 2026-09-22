@@ -122,9 +122,7 @@ impl TryInto<Content> for ContentProto {
             pni_verified: self
                 .pni_verified
                 .as_deref()
-                .map(|p| {
-                    Pni::parse_from_service_id_string(p).ok_or(BitpartStoreError::NoUuid)
-                })
+                .map(|p| Pni::parse_from_service_id_string(p).ok_or(BitpartStoreError::NoUuid))
                 .transpose()?,
         };
 

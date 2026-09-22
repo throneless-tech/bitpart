@@ -14,7 +14,6 @@
 use bitpart_common::db::Pool;
 use bitpart_common::error::{BitpartErrorKind, Result};
 use bitpart_csml::data::{Client, Memory as CsmlMemory};
-use chrono::NaiveDateTime;
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -35,11 +34,9 @@ pub struct Model {
     pub value: Value,
     pub created_at: String,
     pub updated_at: String,
-    pub expires_at: Option<String>,
 }
 
-const SELECT_COLS: &str =
-    "id, bot_id, channel_id, user_id, key, value, created_at, updated_at, expires_at";
+const SELECT_COLS: &str = "id, bot_id, channel_id, user_id, key, value, created_at, updated_at";
 
 fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
     let value_text: String = r.get("value")?;
@@ -59,40 +56,24 @@ fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
         value,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,
-        expires_at: r.get("expires_at")?,
     })
 }
 
-pub async fn create(
-    client: &Client,
-    key: &str,
-    value: &Value,
-    expires_at: Option<NaiveDateTime>,
-    db: &Pool,
-) -> Result<()> {
+pub async fn create(client: &Client, key: &str, value: &Value, db: &Pool) -> Result<()> {
     let id = Uuid::new_v4().to_string();
     let bot_id = client.bot_id.clone();
     let channel_id = client.channel_id.clone();
     let user_id = client.user_id.clone();
     let key = key.to_owned();
     let value_str = value.to_string();
-    let expires_at_str = expires_at.map(|e| e.to_string());
 
     let obj = db.get().await.map_err(pool_err)?;
     obj.interact(move |conn| -> rusqlite::Result<()> {
         conn.execute(
             "INSERT INTO memory \
-             (id, bot_id, channel_id, user_id, key, value, expires_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-            params![
-                id,
-                bot_id,
-                channel_id,
-                user_id,
-                key,
-                value_str,
-                expires_at_str,
-            ],
+             (id, bot_id, channel_id, user_id, key, value) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+            params![id, bot_id, channel_id, user_id, key, value_str,],
         )?;
         Ok(())
     })
@@ -104,7 +85,6 @@ pub async fn create(
 pub async fn create_many(
     client: &Client,
     memories: &HashMap<String, CsmlMemory>,
-    expires_at: Option<NaiveDateTime>,
     db: &Pool,
 ) -> Result<()> {
     if memories.is_empty() {
@@ -113,7 +93,6 @@ pub async fn create_many(
     let bot_id = client.bot_id.clone();
     let channel_id = client.channel_id.clone();
     let user_id = client.user_id.clone();
-    let expires_at_str = expires_at.map(|e| e.to_string());
     // Materialise the inputs as owned (key, json_text) so we can send
     // them across the `interact` boundary.
     let entries: Vec<(String, String)> = memories
@@ -147,14 +126,14 @@ pub async fn create_many(
         if !to_insert.is_empty() {
             let mut sql = String::from(
                 "INSERT INTO memory \
-                 (id, bot_id, channel_id, user_id, key, value, expires_at) VALUES ",
+                 (id, bot_id, channel_id, user_id, key, value) VALUES ",
             );
             let mut params_vec: Vec<rusqlite::types::Value> = Vec::new();
             for (i, (key, value_str)) in to_insert.iter().enumerate() {
                 if i > 0 {
                     sql.push_str(", ");
                 }
-                sql.push_str("(?, ?, ?, ?, ?, ?, ?)");
+                sql.push_str("(?, ?, ?, ?, ?, ?)");
                 let new_id = Uuid::new_v4().to_string();
                 params_vec.push(new_id.into());
                 params_vec.push(bot_id.clone().into());
@@ -162,10 +141,6 @@ pub async fn create_many(
                 params_vec.push(user_id.clone().into());
                 params_vec.push(key.clone().into());
                 params_vec.push(value_str.clone().into());
-                params_vec.push(match &expires_at_str {
-                    Some(s) => s.clone().into(),
-                    None => rusqlite::types::Value::Null,
-                });
             }
             conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
         }

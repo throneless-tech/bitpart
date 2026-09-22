@@ -51,8 +51,8 @@ pub struct ConversationData {
     pub context: Context,
     pub metadata: serde_json::Value,
     pub messages: Vec<Message>,
-    pub ttl: Option<chrono::Duration>,
     pub low_data: bool,
+    pub deleted: bool,
 }
 
 pub async fn search_bot(bot: &BotOpt, pool: &Pool) -> Result<Box<CsmlBot>> {

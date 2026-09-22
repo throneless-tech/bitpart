@@ -49,7 +49,7 @@ use presage::{
 };
 use presage_store_bitpart::BitpartStore;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::cell::Cell;
 use std::time::UNIX_EPOCH;
 use tokio::{
@@ -144,6 +144,7 @@ impl ChannelBackend for SignalManager {
 #[derive(Debug)]
 pub struct ChannelState {
     id: String,
+    channel_id: String,
     pool: bitpart_common::db::Pool,
     metrics: Arc<BotMetrics>,
 }
@@ -162,6 +163,7 @@ async fn start_channel_recv(
     let bot_metrics = metrics.get_or_create(&channel.bot_id);
     let state = ChannelState {
         id: channel.bot_id,
+        channel_id: id,
         pool,
         metrics: bot_metrics,
     };
@@ -412,7 +414,7 @@ async fn process_signal_message<S: Store>(
                 ..
             } => {
                 let Ok(Some(message)) = manager.store().message(thread, *ts).await else {
-                    warn!(%thread, sent_at = ts, "no message found in thread");
+                    debug!(%thread, sent_at = ts, "no message found in thread");
                     return None;
                 };
 
@@ -667,6 +669,20 @@ async fn reply<S: Store>(
         }
     }
 
+    if res.get("deleted").and_then(Value::as_bool).unwrap_or(false) {
+        let store =
+            BitpartStore::open(&state.channel_id, &state.pool, OnNewIdentity::Trust).await?;
+        let errors = store.purge_conversation(&user_id).await;
+        if errors.is_empty() {
+            info!("purged signal state for deleted conversation");
+        } else {
+            warn!(
+                count = errors.len(),
+                "purged signal state with errors, some data may remain"
+            );
+        }
+    }
+
     Ok(())
 }
 
@@ -791,7 +807,8 @@ async fn receive(
                 }
             }
         }
-        let store = BitpartStore::open(&state.id, &state.pool, OnNewIdentity::Trust).await?;
+        let store =
+            BitpartStore::open(&state.channel_id, &state.pool, OnNewIdentity::Trust).await?;
         match Manager::load_registered(store).await {
             Ok(manager) => {
                 warn!("Replacing manager!");

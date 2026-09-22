@@ -36,7 +36,6 @@ use rand::{Rng, thread_rng};
 use regex::Regex;
 use serde_json::{Value, json, map::Map};
 use std::collections::HashMap;
-use std::env;
 use tracing::debug;
 
 use super::data::ConversationData;
@@ -68,6 +67,7 @@ pub fn messages_formatter(
 
     map.insert("messages".to_owned(), Value::Array(msgs));
     map.insert("conversation_end".to_owned(), Value::Bool(end));
+    map.insert("deleted".to_owned(), Value::Bool(data.deleted));
     map.insert("request_id".to_owned(), json!(data.request_id));
 
     map.insert(
@@ -300,22 +300,6 @@ pub fn get_current_step_hash(context: &Context, bot: &CsmlBot) -> Result<String>
     hash.update(step.as_bytes());
 
     Ok(format!("{:x}", hash.finalize()))
-}
-
-pub fn get_ttl_duration_value(event: Option<&Event>) -> Option<chrono::Duration> {
-    if let Some(event) = event
-        && let Some(ttl) = event.ttl_duration
-    {
-        return Some(chrono::Duration::days(ttl));
-    }
-
-    if let Ok(ttl) = env::var("TTL_DURATION")
-        && let Ok(ttl) = ttl.parse::<i64>()
-    {
-        return Some(chrono::Duration::days(ttl));
-    }
-
-    None
 }
 
 // pub fn get_low_data_mode_value(event: &Event) -> bool {

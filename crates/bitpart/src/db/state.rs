@@ -14,17 +14,12 @@
 use bitpart_common::db::Pool;
 use bitpart_common::error::{BitpartErrorKind, Result};
 use bitpart_csml::data::Client;
-use chrono::NaiveDateTime;
 use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 use uuid::Uuid;
 
 fn pool_err(e: impl std::fmt::Display) -> BitpartErrorKind {
     BitpartErrorKind::Pool(e.to_string())
-}
-
-fn render_expires(expires_at: Option<NaiveDateTime>) -> Option<String> {
-    expires_at.map(|e| e.to_string())
 }
 
 pub async fn get(client: &Client, r#type: &str, key: &str, db: &Pool) -> Result<Value> {
@@ -84,21 +79,13 @@ pub async fn get_by_client(client: &Client, db: &Pool) -> Result<Vec<Value>> {
     Ok(values.into_iter().map(Value::String).collect())
 }
 
-pub async fn set(
-    client: &Client,
-    r#type: &str,
-    key: &str,
-    value: &Value,
-    expires_at: Option<NaiveDateTime>,
-    db: &Pool,
-) -> Result<()> {
+pub async fn set(client: &Client, r#type: &str, key: &str, value: &Value, db: &Pool) -> Result<()> {
     let bot_id = client.bot_id.clone();
     let channel_id = client.channel_id.clone();
     let user_id = client.user_id.clone();
     let type_ = r#type.to_owned();
     let key = key.to_owned();
     let value_str = value.to_string();
-    let expires_at_str = render_expires(expires_at);
 
     let obj = db.get().await.map_err(pool_err)?;
     obj.interact(move |conn| -> rusqlite::Result<()> {
@@ -121,26 +108,16 @@ pub async fn set(
                 let new_id = Uuid::new_v4().to_string();
                 conn.execute(
                     "INSERT INTO state \
-                     (id, bot_id, channel_id, user_id, type, key, value, expires_at) \
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    params![
-                        new_id,
-                        bot_id,
-                        channel_id,
-                        user_id,
-                        type_,
-                        key,
-                        value_str,
-                        expires_at_str,
-                    ],
+                     (id, bot_id, channel_id, user_id, type, key, value) \
+                     VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    params![new_id, bot_id, channel_id, user_id, type_, key, value_str,],
                 )?;
             }
             Some(id) => {
-                // Update value + expires_at. The AFTER UPDATE trigger
-                // bumps `updated_at`.
+                // The AFTER UPDATE trigger bumps `updated_at`.
                 conn.execute(
-                    "UPDATE state SET value = ?, expires_at = ? WHERE id = ?",
-                    params![value_str, expires_at_str, id],
+                    "UPDATE state SET value = ? WHERE id = ?",
+                    params![value_str, id],
                 )?;
             }
         }

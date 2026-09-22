@@ -172,3 +172,56 @@ pub async fn set_profile_avatar(
     .map_err(pool_err)?
     .map_err(BitpartStoreError::from)
 }
+
+pub async fn remove_profile_key(
+    channel_id: &str,
+    uuid: &[u8],
+    pool: &Pool,
+) -> Result<Option<Vec<u8>>, BitpartStoreError> {
+    let conn = pool.get().await.map_err(pool_err)?;
+    let channel_id = channel_id.to_owned();
+    let uuid = uuid.to_vec();
+    conn.interact(move |c| -> rusqlite::Result<Option<Vec<u8>>> {
+        let existing = c
+            .query_row(
+                "SELECT profile_key FROM signal_profile_keys WHERE channel_id = ?1 AND uuid = ?2",
+                params![channel_id, uuid],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()?;
+        if existing.is_some() {
+            c.execute(
+                "DELETE FROM signal_profile_keys WHERE channel_id = ?1 AND uuid = ?2",
+                params![channel_id, uuid],
+            )?;
+        }
+        Ok(existing)
+    })
+    .await
+    .map_err(pool_err)?
+    .map_err(BitpartStoreError::from)
+}
+
+pub async fn remove_profile(
+    channel_id: &str,
+    profile_hash: &str,
+    pool: &Pool,
+) -> Result<u64, BitpartStoreError> {
+    let conn = pool.get().await.map_err(pool_err)?;
+    let channel_id = channel_id.to_owned();
+    let profile_hash = profile_hash.to_owned();
+    conn.interact(move |c| -> rusqlite::Result<u64> {
+        let mut n = c.execute(
+            "DELETE FROM signal_profiles WHERE channel_id = ?1 AND profile_hash = ?2",
+            params![channel_id, profile_hash],
+        )?;
+        n += c.execute(
+            "DELETE FROM signal_profile_avatars WHERE channel_id = ?1 AND profile_hash = ?2",
+            params![channel_id, profile_hash],
+        )?;
+        Ok(n as u64)
+    })
+    .await
+    .map_err(pool_err)?
+    .map_err(BitpartStoreError::from)
+}

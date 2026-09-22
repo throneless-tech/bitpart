@@ -45,7 +45,6 @@ async fn create_new_conversation<'a>(
     bot: &'a CsmlBot,
     flow_found: Option<(&'a CsmlFlow, String)>,
     client: &Client,
-    ttl: Option<chrono::Duration>,
     pool: &Pool,
 ) -> Result<String> {
     let (flow, step) = match flow_found {
@@ -53,14 +52,7 @@ async fn create_new_conversation<'a>(
         None => (utils::get_default_flow(bot)?, "start".to_owned()),
     };
 
-    let conversation_id = db::conversation::create(
-        &flow.id,
-        &step,
-        client,
-        ttl.map(|t| Utc::now().naive_utc() + t),
-        pool,
-    )
-    .await?;
+    let conversation_id = db::conversation::create(&flow.id, &step, client, pool).await?;
 
     context.step = ContextStepInfo::UnknownFlow(step);
     context.flow = flow.name.to_owned();
@@ -73,7 +65,6 @@ async fn get_or_create_conversation<'a>(
     bot: &'a CsmlBot,
     flow_found: Option<(&'a CsmlFlow, String)>,
     client: &Client,
-    ttl: Option<chrono::Duration>,
     pool: &Pool,
 ) -> Result<String> {
     match db::conversation::get_latest_open_by_client(client, pool).await? {
@@ -91,10 +82,8 @@ async fn get_or_create_conversation<'a>(
                             db::conversation::set_status_by_id(&conversation.id, "CLOSED", pool)
                                 .await?;
                             // start new conversation at default flow
-                            return create_new_conversation(
-                                context, bot, flow_found, client, ttl, pool,
-                            )
-                            .await;
+                            return create_new_conversation(context, bot, flow_found, client, pool)
+                                .await;
                         }
                     };
 
@@ -105,7 +94,7 @@ async fn get_or_create_conversation<'a>(
 
             Ok(conversation.id)
         }
-        None => create_new_conversation(context, bot, flow_found, client, ttl, pool).await,
+        None => create_new_conversation(context, bot, flow_found, client, pool).await,
     }
 }
 
@@ -157,7 +146,6 @@ async fn init_conversation_data<'a>(
         pool,
     )
     .await;
-    let ttl = utils::get_ttl_duration_value(Some(event));
     // let low_data = utils::get_low_data_mode_value(event); // We're always in low_data mode
 
     // Do we have a flow matching the request? If the user is requesting a flow in one way
@@ -167,8 +155,7 @@ async fn init_conversation_data<'a>(
         .await
         .ok();
     let conversation_id =
-        get_or_create_conversation(&mut context, bot, flow_found, &request.client, ttl, pool)
-            .await?;
+        get_or_create_conversation(&mut context, bot, flow_found, &request.client, pool).await?;
 
     context.metadata = get_hashmap_from_json(&request.metadata, &context.flow);
     let memories = db::memory::get_by_client(&request.client, None, None, pool).await?;
@@ -189,8 +176,8 @@ async fn init_conversation_data<'a>(
         callback_url: request.callback_url.clone(),
         client: request.client.clone(),
         messages: vec![],
-        ttl,
         low_data: true,
+        deleted: false,
     };
 
     let flow = data.context.flow.to_owned();
@@ -341,14 +328,8 @@ async fn switch_bot(
     );
 
     // create new conversation for the new client
-    data.conversation_id = db::conversation::create(
-        &flow.id,
-        &step.get_step(),
-        &data.client,
-        data.ttl.map(|t| Utc::now().naive_utc() + t),
-        pool,
-    )
-    .await?;
+    data.conversation_id =
+        db::conversation::create(&flow.id, &step.get_step(), &data.client, pool).await?;
 
     let memories = db::memory::get_by_client(&data.client, None, None, pool).await?;
     let mut map = serde_json::Map::new();
@@ -512,15 +493,7 @@ pub async fn start(
             "timestamp": Utc::now().timestamp()
         });
 
-        db::state::set(
-            &data.client,
-            "delay",
-            "content",
-            &delay,
-            data.ttl.map(|t| Utc::now().naive_utc() + t),
-            pool,
-        )
-        .await?;
+        db::state::set(&data.client, "delay", "content", &delay, pool).await?;
     }
     //////////////////////////////////////
 
@@ -529,12 +502,12 @@ pub async fn start(
         (false, true) => {
             let msgs = vec![serde_json::json!({"content_type": "secure"})];
 
-            db::message::create(&data, &msgs, 0, "RECEIVE", None, pool).await?;
+            db::message::create(&data, &msgs, 0, "RECEIVE", pool).await?;
         }
         (false, false) => {
             let msgs = vec![request.payload.to_owned()];
 
-            db::message::create(&data, &msgs, 0, "RECEIVE", None, pool).await?;
+            db::message::create(&data, &msgs, 0, "RECEIVE", pool).await?;
         }
         (true, _) => {}
     }

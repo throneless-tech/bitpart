@@ -51,10 +51,10 @@ impl ChannelBackend for MockChannelBackend {
 }
 
 #[cfg(test)]
-pub async fn get_test_socket() -> TestWebSocket {
+pub async fn get_test_socket() -> (TestWebSocket, tempfile::TempDir) {
     // File-backed: deadpool's `:memory:` gives each connection its own
     // private DB.
-    let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
+    let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("bitpart-test.sqlite");
     let key = "bitparttestkey";
 
@@ -82,5 +82,6 @@ pub async fn get_test_socket() -> TestWebSocket {
         .http_transport()
         .build(app.into_make_service_with_connect_info::<SocketAddr>())
         .unwrap();
-    server.get_websocket("/ws").await.into_websocket().await
+    let socket = server.get_websocket("/ws").await.into_websocket().await;
+    (socket, dir)
 }

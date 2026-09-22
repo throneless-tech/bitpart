@@ -24,10 +24,12 @@ use crate::error::{BitpartErrorKind, Result};
 
 const SCHEMA_V1: &str = include_str!("schema.sql");
 const SCHEMA_V2: &str = include_str!("schema_v2.sql");
+const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 
 fn migrations() -> &'static Migrations<'static> {
     static MIGRATIONS: OnceLock<Migrations<'static>> = OnceLock::new();
-    MIGRATIONS.get_or_init(|| Migrations::new(vec![M::up(SCHEMA_V1), M::up(SCHEMA_V2)]))
+    MIGRATIONS
+        .get_or_init(|| Migrations::new(vec![M::up(SCHEMA_V1), M::up(SCHEMA_V2), M::up(SCHEMA_V3)]))
 }
 
 pub fn migrate_conn(conn: &mut Connection) -> Result<()> {
@@ -627,14 +629,14 @@ mod tests {
     }
 
     #[test]
-    fn fresh_db_initialises_to_v2() {
+    fn fresh_db_initialises_to_v3() {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate_conn(&mut conn).unwrap();
 
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
 
         let table_count: i64 = conn
             .query_row(
@@ -643,7 +645,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(table_count, 28);
+        assert_eq!(table_count, 29);
 
         let channel_state_exists: bool = conn
             .query_row(
@@ -660,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn migrator_is_idempotent_v2() {
+    fn migrator_is_idempotent_v3() {
         let mut conn = Connection::open_in_memory().unwrap();
 
         migrate_conn(&mut conn).unwrap();
@@ -668,7 +670,7 @@ mod tests {
         let v1: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v1, 2);
+        assert_eq!(v1, 3);
 
         let table_count_1: i64 = conn
             .query_row(
@@ -689,8 +691,8 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(
-            v2, 2,
-            "user_version should stay 2 after idempotent migration"
+            v2, 3,
+            "user_version should stay 3 after idempotent migration"
         );
 
         let table_count_2: i64 = conn
@@ -760,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn bridges_legacy_seaorm_schema_then_v2() {
+    fn bridges_legacy_seaorm_schema_then_v3() {
         let mut conn = Connection::open_in_memory().unwrap();
         conn.execute_batch(SCHEMA_V1).unwrap();
         conn.execute_batch(
@@ -774,7 +776,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
 
         let marker_exists: bool = conn
             .query_row(
@@ -801,17 +803,7 @@ mod tests {
     fn v1_channel_state_routes_correctly() {
         let mut conn = Connection::open_in_memory().unwrap();
 
-        conn.execute_batch(
-            "CREATE TABLE bot (id TEXT PRIMARY KEY);
-             CREATE TABLE channel_state (
-                 id TEXT PRIMARY KEY,
-                 channel_id TEXT NOT NULL,
-                 tree TEXT NOT NULL,
-                 key TEXT NOT NULL,
-                 value TEXT NOT NULL
-             );",
-        )
-        .unwrap();
+        conn.execute_batch(SCHEMA_V1).unwrap();
         conn.pragma_update(None, "user_version", 1).unwrap();
 
         let test_data = vec![
@@ -963,7 +955,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 2);
+        assert_eq!(v, 3);
 
         let channel_state_exists: bool = conn
             .query_row(

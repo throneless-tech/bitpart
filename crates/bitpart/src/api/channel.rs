@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 use bitpart_common::error::{BitpartErrorKind, Result};
 use tokio::sync::oneshot;
 
@@ -134,7 +133,7 @@ mod test_channel {
 
     #[tokio::test]
     async fn it_should_create_a_channel() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -172,7 +171,7 @@ mod test_channel {
 
     #[tokio::test]
     async fn it_should_get_a_channel() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -222,7 +221,7 @@ mod test_channel {
 
     #[tokio::test]
     async fn it_should_delete_a_channel() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -300,7 +299,7 @@ mod test_channel {
 
     #[tokio::test]
     async fn it_should_get_multiple_channels() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({

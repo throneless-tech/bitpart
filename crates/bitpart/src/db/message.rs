@@ -14,7 +14,6 @@
 use bitpart_common::db::Pool;
 use bitpart_common::error::{BitpartErrorKind, Result};
 use bitpart_csml::data::Client;
-use chrono::NaiveDateTime;
 use rusqlite::{params, types::Value as SqlValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,12 +38,11 @@ pub struct Model {
     pub interaction_order: i32,
     pub created_at: String,
     pub updated_at: String,
-    pub expires_at: Option<String>,
 }
 
 const SELECT_COLS: &str = "id, conversation_id, flow_id, step_id, direction, payload, \
                           content_type, message_order, interaction_order, \
-                          created_at, updated_at, expires_at";
+                          created_at, updated_at";
 
 fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
     Ok(Model {
@@ -59,7 +57,6 @@ fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
         interaction_order: r.get("interaction_order")?,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,
-        expires_at: r.get("expires_at")?,
     })
 }
 
@@ -68,7 +65,6 @@ pub async fn create(
     messages: &[Value],
     interaction_order: i32,
     direction: &str,
-    expires_at: Option<NaiveDateTime>,
     db: &Pool,
 ) -> Result<()> {
     if messages.is_empty() {
@@ -78,7 +74,6 @@ pub async fn create(
     let flow_id = data.context.flow.clone();
     let step_id = data.context.step.get_step_ref().to_owned();
     let direction = direction.to_owned();
-    let expires_at_str = expires_at.map(|e| e.to_string());
 
     // Materialise (payload_text, content_type_text) per message before
     // crossing the `interact` boundary.
@@ -92,7 +87,7 @@ pub async fn create(
         let mut sql = String::from(
             "INSERT INTO message \
              (id, conversation_id, flow_id, step_id, direction, payload, content_type, \
-              message_order, interaction_order, expires_at) VALUES ",
+              message_order, interaction_order) VALUES ",
         );
         let mut params_vec: Vec<SqlValue> = Vec::new();
         for (i, (payload, content_type)) in prepared.iter().enumerate() {
@@ -109,10 +104,6 @@ pub async fn create(
             params_vec.push(content_type.clone().into());
             params_vec.push((i as i64).into());
             params_vec.push((interaction_order as i64).into());
-            params_vec.push(match &expires_at_str {
-                Some(s) => s.clone().into(),
-                None => SqlValue::Null,
-            });
         }
         conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
         Ok(())

@@ -26,9 +26,10 @@ use presage::{
     },
     manager::RegistrationData,
     model::identity::OnNewIdentity,
-    store::{ContentsStore, StateStore, Store},
+    store::{ContentsStore, StateStore, Store, Thread},
 };
 use protocol::BitpartProtocolStore;
+use tracing::warn;
 
 use deadpool_sqlite::Pool;
 use sha2::{Digest, Sha256};
@@ -56,6 +57,9 @@ pub struct BitpartStore {
 
     /// Whether to trust new identities automatically (for instance, when a somebody's phone has changed)
     trust_new_identities: OnNewIdentity,
+
+    #[cfg(test)]
+    _temp_dir: Option<std::sync::Arc<tempfile::TempDir>>,
 }
 
 impl BitpartStore {
@@ -68,11 +72,85 @@ impl BitpartStore {
             id: id.to_owned(),
             pool: pool.clone(),
             trust_new_identities,
+            #[cfg(test)]
+            _temp_dir: None,
         })
     }
 
     pub async fn aci_sessions(&self) -> Result<Vec<(String, Vec<u8>)>, BitpartStoreError> {
         db::sessions::get_all_aci(&self.id, &self.pool).await
+    }
+
+    pub async fn purge_conversation(&self, user_id: &str) -> Vec<BitpartStoreError> {
+        let mut errors = Vec::new();
+        let address_pattern = format!("{user_id}%");
+
+        if let Err(error) =
+            db::sessions::remove_like_aci(&self.id, &address_pattern, &self.pool).await
+        {
+            warn!(%error, target = "aci_sessions", "failed to purge");
+            errors.push(error);
+        }
+        if let Err(error) =
+            db::sessions::remove_like_pni(&self.id, &address_pattern, &self.pool).await
+        {
+            warn!(%error, target = "pni_sessions", "failed to purge");
+            errors.push(error);
+        }
+        if let Err(error) =
+            db::identities::remove_like(&self.id, &address_pattern, &self.pool).await
+        {
+            warn!(%error, target = "identities", "failed to purge");
+            errors.push(error);
+        }
+        if let Err(error) =
+            db::sender_keys::remove_like_aci(&self.id, &address_pattern, &self.pool).await
+        {
+            warn!(%error, target = "aci_sender_keys", "failed to purge");
+            errors.push(error);
+        }
+        if let Err(error) =
+            db::sender_keys::remove_like_pni(&self.id, &address_pattern, &self.pool).await
+        {
+            warn!(%error, target = "pni_sender_keys", "failed to purge");
+            errors.push(error);
+        }
+
+        if let Ok(uuid) = Uuid::parse_str(user_id) {
+            match db::profiles::remove_profile_key(&self.id, uuid.as_bytes(), &self.pool).await {
+                Ok(Some(key_bytes)) => {
+                    if let Ok(key_bytes) = <[u8; 32]>::try_from(&key_bytes[..]) {
+                        let profile_hash =
+                            self.profile_key_for_uuid(uuid, ProfileKey::create(key_bytes));
+                        if let Err(error) =
+                            db::profiles::remove_profile(&self.id, &profile_hash, &self.pool).await
+                        {
+                            warn!(%error, target = "profiles", "failed to purge");
+                            errors.push(error);
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(%error, target = "profile_keys", "failed to purge");
+                    errors.push(error);
+                }
+            }
+
+            let thread_id = crate::content::messages_thread_id(&Thread::Contact(
+                presage::libsignal_service::protocol::ServiceId::Aci(uuid.into()),
+            ));
+            if let Err(error) = db::messages::clear_thread(&self.id, &thread_id, &self.pool).await {
+                warn!(%error, target = "messages", "failed to purge");
+                errors.push(error);
+            }
+            if let Err(error) = db::expire_timers::remove(&self.id, &thread_id, &self.pool).await {
+                warn!(%error, target = "expire_timers", "failed to purge");
+                errors.push(error);
+            }
+        }
+
+        errors
     }
 
     #[cfg(test)]
@@ -81,9 +159,8 @@ impl BitpartStore {
 
         // File-backed: deadpool's `:memory:` gives each connection its
         // own private DB.
-        let dir = Box::leak(Box::new(
-            tempfile::tempdir().map_err(|e| BitpartStoreError::Pool(format!("tempdir: {e}")))?,
-        ));
+        let dir =
+            tempfile::tempdir().map_err(|e| BitpartStoreError::Pool(format!("tempdir: {e}")))?;
         let path = dir.path().join("presage-test.sqlite");
 
         // V2 schema DDL (from bitpart-common/src/db/schema_v2.sql)
@@ -239,6 +316,14 @@ impl BitpartStore {
                 content_data blob NOT NULL,
                 PRIMARY KEY (channel_id, thread_id, timestamp)
             );
+
+            CREATE TABLE signal_expire_timers (
+                channel_id TEXT NOT NULL,
+                thread_id TEXT NOT NULL,
+                timer INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                PRIMARY KEY (channel_id, thread_id)
+            );
         ";
 
         let cfg = Config::new(&path);
@@ -278,6 +363,7 @@ impl BitpartStore {
             id: "test".to_owned(),
             pool,
             trust_new_identities: OnNewIdentity::Reject,
+            _temp_dir: Some(std::sync::Arc::new(dir)),
         })
     }
 
@@ -505,7 +591,8 @@ mod tests {
                 destination: ServiceId::Aci(destination_uuid.into()),
                 sender_device: sender_device.try_into().unwrap(),
                 server_guid: None,
-                timestamp: Utc.timestamp_millis_opt(timestamp as i64).unwrap(),
+                pni_verified: None,
+                client_timestamp: Utc.timestamp_millis_opt(timestamp as i64).unwrap(),
                 server_timestamp: Utc.timestamp_millis_opt(timestamp as i64).unwrap(),
                 needs_receipt: Arbitrary::arbitrary(g),
                 unidentified_sender: Arbitrary::arbitrary(g),
@@ -539,7 +626,7 @@ mod tests {
     ) -> presage::libsignal_service::content::Content {
         presage::libsignal_service::content::Content {
             metadata: Metadata {
-                timestamp: Utc.timestamp_millis_opt(ts as i64).unwrap(),
+                client_timestamp: Utc.timestamp_millis_opt(ts as i64).unwrap(),
                 ..content.0.metadata.clone()
             },
             body: content.0.body.clone(),
@@ -555,79 +642,42 @@ mod tests {
     }
 
     #[quickcheck_async::tokio]
-    async fn test_store_messages(thread: Thread, content: Content) -> anyhow::Result<()> {
+    async fn test_messages_are_not_retained(
+        thread: Thread,
+        content: Content,
+    ) -> anyhow::Result<()> {
         let db = BitpartStore::temporary().await?;
         let thread = thread.0;
-        db.save_message(&thread, content_with_timestamp(&content, 1678295210))
-            .await?;
-        db.save_message(&thread, content_with_timestamp(&content, 1678295220))
-            .await?;
-        db.save_message(&thread, content_with_timestamp(&content, 1678295230))
-            .await?;
-        db.save_message(&thread, content_with_timestamp(&content, 1678295240))
-            .await?;
-        db.save_message(&thread, content_with_timestamp(&content, 1678280000))
-            .await?;
+        for ts in [1678295210, 1678295220, 1678295230, 1678295240, 1678280000] {
+            db.save_message(&thread, content_with_timestamp(&content, ts))
+                .await?;
+        }
 
-        assert_eq!(db.messages(&thread, ..).await.unwrap().count(), 5);
-        assert_eq!(db.messages(&thread, 0..).await.unwrap().count(), 5);
-        assert_eq!(db.messages(&thread, 1678280000..).await.unwrap().count(), 5);
-
-        assert_eq!(db.messages(&thread, 0..1678280000).await?.count(), 0);
-        assert_eq!(db.messages(&thread, 0..1678295210).await?.count(), 1);
-        assert_eq!(
-            db.messages(&thread, 1678295210..1678295240).await?.count(),
-            3
-        );
-        assert_eq!(
-            db.messages(&thread, 1678295210..=1678295240).await?.count(),
-            4
-        );
-
-        assert_eq!(
-            db.messages(&thread, 0..=1678295240)
-                .await?
-                .next()
-                .unwrap()?
-                .metadata
-                .timestamp,
-            Utc.timestamp_millis_opt(1678280000).unwrap()
-        );
-        assert_eq!(
-            db.messages(&thread, 0..=1678295240)
-                .await?
-                .next_back()
-                .unwrap()?
-                .metadata
-                .timestamp,
-            Utc.timestamp_millis_opt(1678295240).unwrap()
-        );
+        assert_eq!(db.messages(&thread, ..).await?.count(), 0);
+        assert_eq!(db.messages(&thread, 0..).await?.count(), 0);
+        assert_eq!(db.messages(&thread, 1678280000..).await?.count(), 0);
+        assert_eq!(db.messages(&thread, 0..=1678295240).await?.count(), 0);
 
         Ok(())
     }
 
     #[quickcheck_async::tokio]
-    async fn test_thread_for_sender_and_timestamp(content: Content) -> anyhow::Result<()> {
+    async fn test_thread_for_sender_and_timestamp_finds_nothing(
+        content: Content,
+    ) -> anyhow::Result<()> {
         let db = BitpartStore::temporary().await?;
         let ts = 1678295210;
         let content = content_with_timestamp(&content, ts);
         let sender = content.metadata.sender;
-        let expected = presage::store::Thread::try_from(&content).ok();
 
-        // Store under the thread derived from the message itself, matching how
-        // presage saves incoming content.
-        if let Some(thread) = &expected {
-            db.save_message(thread, content.clone()).await?;
+        if let Some(thread) = presage::store::Thread::try_from(&content).ok() {
+            db.save_message(&thread, content.clone()).await?;
         }
 
-        let found = db.thread_for_sender_and_timestamp(&sender, ts).await?;
-        assert_eq!(found, expected);
+        assert_eq!(db.thread_for_sender_and_timestamp(&sender, ts).await?, None);
 
-        // A different sender at the same timestamp must not match.
         let other = ServiceId::Aci(Uuid::from_u128(0xDEAD_BEEF).into());
-        if other != sender {
-            assert_eq!(db.thread_for_sender_and_timestamp(&other, ts).await?, None);
-        }
+        assert_eq!(db.thread_for_sender_and_timestamp(&other, ts).await?, None);
 
         Ok(())
     }
@@ -648,6 +698,159 @@ mod tests {
         let retrieved_key = retrieved_key.unwrap();
         assert_eq!(retrieved_key.get_bytes(), test_key.get_bytes());
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_purge_conversation_is_scoped_to_one_user() -> anyhow::Result<()> {
+        let store = BitpartStore::temporary().await?;
+        let ch = &store.id;
+        let pool = &store.pool;
+
+        let target = Uuid::from_u128(0x1111);
+        let other = Uuid::from_u128(0x2222);
+        let target_id = target.to_string();
+        let other_id = other.to_string();
+
+        for (uuid, dev) in [(&target_id, "1"), (&target_id, "2"), (&other_id, "1")] {
+            let addr = format!("{uuid}.{dev}");
+            db::sessions::set_aci(ch, &addr, b"session", pool).await?;
+            db::sessions::set_pni(ch, &addr, b"session", pool).await?;
+            db::identities::set(ch, false, &addr, b"identity", pool).await?;
+            let sk = format!("{addr}:dist");
+            db::sender_keys::set_aci(ch, &sk, b"sender_key", pool).await?;
+            db::sender_keys::set_pni(ch, &sk, b"sender_key", pool).await?;
+        }
+
+        let key_bytes = [7u8; 32];
+        for uuid in [&target, &other] {
+            db::profiles::set_profile_key(ch, uuid.as_bytes(), &key_bytes, pool).await?;
+            let hash = store.profile_key_for_uuid(*uuid, ProfileKey::create(key_bytes));
+            db::profiles::set_profile(ch, &hash, b"profile", pool).await?;
+        }
+
+        for uuid in [&target, &other] {
+            let thread_id = crate::content::messages_thread_id(&presage::store::Thread::Contact(
+                presage::libsignal_service::protocol::ServiceId::Aci((*uuid).into()),
+            ));
+            db::messages::set(ch, &thread_id, 1000, b"content", pool).await?;
+            db::expire_timers::set_if_newer(ch, &thread_id, 3600, 1, pool).await?;
+        }
+
+        db::pre_keys::set_aci(ch, 1, b"pre_key", pool).await?;
+
+        let errors = store.purge_conversation(&target_id).await;
+        assert!(errors.is_empty(), "purge reported errors: {errors:?}");
+
+        let target_thread = crate::content::messages_thread_id(&presage::store::Thread::Contact(
+            presage::libsignal_service::protocol::ServiceId::Aci(target.into()),
+        ));
+        let other_thread = crate::content::messages_thread_id(&presage::store::Thread::Contact(
+            presage::libsignal_service::protocol::ServiceId::Aci(other.into()),
+        ));
+        let other_addr = format!("{other_id}.1");
+        let other_hash = store.profile_key_for_uuid(other, ProfileKey::create(key_bytes));
+
+        for dev in ["1", "2"] {
+            let addr = format!("{target_id}.{dev}");
+            assert_eq!(db::sessions::get_aci(ch, &addr, pool).await?, None);
+            assert_eq!(db::sessions::get_pni(ch, &addr, pool).await?, None);
+            assert_eq!(db::identities::get(ch, false, &addr, pool).await?, None);
+            let sk = format!("{addr}:dist");
+            assert_eq!(db::sender_keys::get_aci(ch, &sk, pool).await?, None);
+            assert_eq!(db::sender_keys::get_pni(ch, &sk, pool).await?, None);
+        }
+        assert_eq!(
+            db::profiles::get_profile_key(ch, target.as_bytes(), pool).await?,
+            None
+        );
+        assert_eq!(
+            db::messages::get_all(ch, &target_thread, pool).await?.len(),
+            0
+        );
+        assert_eq!(
+            db::expire_timers::get(ch, &target_thread, pool).await?,
+            None
+        );
+
+        assert!(
+            db::sessions::get_aci(ch, &other_addr, pool)
+                .await?
+                .is_some()
+        );
+        assert!(
+            db::sessions::get_pni(ch, &other_addr, pool)
+                .await?
+                .is_some()
+        );
+        assert!(
+            db::identities::get(ch, false, &other_addr, pool)
+                .await?
+                .is_some()
+        );
+        let other_sk = format!("{other_addr}:dist");
+        assert!(
+            db::sender_keys::get_aci(ch, &other_sk, pool)
+                .await?
+                .is_some()
+        );
+        assert!(
+            db::sender_keys::get_pni(ch, &other_sk, pool)
+                .await?
+                .is_some()
+        );
+        assert!(
+            db::profiles::get_profile_key(ch, other.as_bytes(), pool)
+                .await?
+                .is_some()
+        );
+        assert!(
+            db::profiles::get_profile(ch, &other_hash, pool)
+                .await?
+                .is_some()
+        );
+        assert_eq!(
+            db::messages::get_all(ch, &other_thread, pool).await?.len(),
+            1
+        );
+        assert_eq!(
+            db::expire_timers::get(ch, &other_thread, pool).await?,
+            Some((3600, 1))
+        );
+
+        assert!(db::pre_keys::get_aci(ch, 1, pool).await?.is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_purge_conversation_allows_reinitiation() -> anyhow::Result<()> {
+        let store = BitpartStore::temporary().await?;
+        let ch = &store.id;
+        let pool = &store.pool;
+
+        let user = Uuid::from_u128(0x3333);
+        let user_id = user.to_string();
+        let addr = format!("{user_id}.1");
+
+        db::sessions::set_aci(ch, &addr, b"session", pool).await?;
+        assert!(store.purge_conversation(&user_id).await.is_empty());
+        assert_eq!(db::sessions::get_aci(ch, &addr, pool).await?, None);
+
+        db::sessions::set_aci(ch, &addr, b"new_session", pool).await?;
+        assert_eq!(
+            db::sessions::get_aci(ch, &addr, pool).await?,
+            Some(b"new_session".to_vec())
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_purge_conversation_tolerates_non_uuid() -> anyhow::Result<()> {
+        let store = BitpartStore::temporary().await?;
+        let errors = store.purge_conversation("not-a-uuid").await;
+        assert!(errors.is_empty(), "purge reported errors: {errors:?}");
         Ok(())
     }
 }
