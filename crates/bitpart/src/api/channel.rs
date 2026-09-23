@@ -27,18 +27,24 @@ pub async fn link_channel(
     id: &str,
     bot_id: &str,
     device_name: &str,
+    profile_name: Option<String>,
     state: &mut ApiState,
 ) -> Result<String> {
     let db_id = db::channel::create(id, bot_id, &state.pool).await?;
+    let mut data = state.tokens.lock().await;
+    if let Some(running) = data.remove(&db_id) {
+        running.cancel();
+    }
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::LinkChannel {
         id: db_id.clone(),
         device_name: device_name.to_owned(),
+        profile_name,
     };
     let token = state.parent_token.child_token();
     let msg_token = token.clone();
-    let mut data = state.tokens.lock().await;
-    data.insert((bot_id.to_owned(), id.to_owned()), token);
+    data.insert(db_id, token);
+    drop(data);
     let msg = signal::ChannelMessage {
         msg: contents,
         pool: state.pool.clone(),
@@ -51,14 +57,14 @@ pub async fn link_channel(
     Ok(recv.await?)
 }
 
-pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState) -> Result<String> {
+pub async fn start_channel(row_id: &str, state: &mut ApiState) -> Result<String> {
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::StartChannel {
-        id: channel_id.to_owned(),
+        id: row_id.to_owned(),
     };
     let mut data = state.tokens.lock().await;
     let token = data
-        .entry((bot_id.to_owned(), channel_id.to_owned()))
+        .entry(row_id.to_owned())
         .or_insert(state.parent_token.child_token());
     let msg = signal::ChannelMessage {
         msg: contents,
@@ -80,7 +86,7 @@ pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
         };
         let mut data = state.tokens.lock().await;
         let token = data
-            .entry((bot_id.to_owned(), channel_id.to_owned()))
+            .entry(channel.id.clone())
             .or_insert(state.parent_token.child_token());
         let msg = signal::ChannelMessage {
             msg: contents,
@@ -118,10 +124,13 @@ pub async fn list_channels(
 }
 
 pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<()> {
+    let row = db::channel::get(id, bot_id, &state.pool).await?;
     db::channel::delete(id, bot_id, &state.pool).await?;
-    let data = state.tokens.lock().await;
-    if let Some(token) = data.get(&(bot_id.to_owned(), id.to_owned())) {
-        token.cancel();
+    if let Some(row) = row {
+        if let Some(token) = state.tokens.lock().await.remove(&row.id) {
+            token.cancel();
+        }
+        state.metrics.remove(&row.id);
     }
     Ok(())
 }

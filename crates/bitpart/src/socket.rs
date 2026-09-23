@@ -173,7 +173,8 @@ async fn process_message(
                     id,
                     bot_id,
                     device_name,
-                } => api::link_channel(&id, &bot_id, &device_name, state)
+                    profile_name,
+                } => api::link_channel(&id, &bot_id, &device_name, profile_name, state)
                     .await
                     .into_ws("LinkChannel"),
                 _ => Ok(wrap_error(

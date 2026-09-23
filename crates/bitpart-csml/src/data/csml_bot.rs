@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CsmlBot {
     pub id: String,
-    pub name: String,
     #[serde(alias = "fn_endpoint")]
     pub apps_endpoint: Option<String>,
     pub flows: Vec<CsmlFlow>,
@@ -52,7 +51,6 @@ fn default_version() -> String {
 impl CsmlBot {
     pub fn new(
         id: &str,
-        name: &str,
         apps_endpoint: Option<String>,
         flows: Vec<CsmlFlow>,
         native_components: Option<serde_json::Map<String, serde_json::Value>>,
@@ -66,7 +64,6 @@ impl CsmlBot {
     ) -> Self {
         Self {
             id: id.to_owned(),
-            name: name.to_owned(),
             apps_endpoint,
             flows,
             modules,
@@ -113,7 +110,6 @@ impl CsmlBot {
         let mut map: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
 
         map.insert("id".to_owned(), serde_json::json!(self.id));
-        map.insert("name".to_owned(), serde_json::json!(self.name));
         map.insert(
             "apps_endpoint".to_owned(),
             serde_json::json!(self.apps_endpoint),

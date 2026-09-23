@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use bitpart_common::socket::SocketMessage;
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
@@ -62,13 +62,9 @@ enum Commands {
         #[arg(short, long)]
         id: String,
 
-        /// Bot Name
+        /// Default flow (the file's basename; may be omitted when only one CSML file is given)
         #[arg(short, long)]
-        name: String,
-
-        /// Default flow
-        #[arg(short, long)]
-        default: String,
+        default: Option<String>,
 
         /// Apps endpoint
         #[arg(short, long)]
@@ -113,6 +109,10 @@ enum Commands {
         /// Device name
         #[arg(short, long)]
         device_name: String,
+
+        /// Signal profile name for the linked account (this renames the account on all of its devices)
+        #[arg(short, long)]
+        profile_name: Option<String>,
     },
 
     /// reset all active chat sessions on a channel
@@ -188,6 +188,13 @@ enum Commands {
     },
 }
 
+fn flow_name(path: &std::path::Path) -> Result<String> {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::to_owned)
+        .with_context(|| format!("invalid CSML file name: {}", path.display()))
+}
+
 async fn send<S>(sender: &mut S, req: &serde_json::Value) -> Result<()>
 where
     S: Sink<Message> + Unpin,
@@ -215,7 +222,16 @@ where
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Cli::parse();
+    let mut args = Cli::parse();
+
+    if let Commands::Add { default, path, .. } = &mut args.command
+        && default.is_none()
+    {
+        match path.as_slice() {
+            [only] => *default = Some(flow_name(only)?),
+            _ => bail!("--default is required when more than one CSML file is given"),
+        }
+    }
     tracing_subscriber::fmt()
         .with_max_level(args.verbose.log_level_filter().as_trace())
         .init();
@@ -246,7 +262,6 @@ async fn main() -> Result<()> {
         Commands::Add {
             default: default_flow,
             id,
-            name,
             path,
             endpoint,
             expire_timer,
@@ -268,7 +283,6 @@ async fn main() -> Result<()> {
             "message_type": "CreateBot",
             "data" : {
                 "id": id,
-                "name": name,
                 "default_flow": default_flow,
                 "flows": flows,
                 "apps_endpoint": endpoint,
@@ -302,12 +316,14 @@ async fn main() -> Result<()> {
             id,
             bot_id,
             device_name,
+            profile_name,
         } => {
             let req = json!({"message_type": "LinkChannel",
                 "data" : {
                 "id": id,
                 "bot_id": bot_id,
-                "device_name": device_name
+                "device_name": device_name,
+                "profile_name": profile_name
             }});
             debug!("Request: {:?}", req.to_string());
 

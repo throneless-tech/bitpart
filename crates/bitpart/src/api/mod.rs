@@ -43,7 +43,7 @@ pub struct ApiState {
     pub pool: Pool,
     pub auth: String,
     pub parent_token: CancellationToken,
-    pub tokens: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
+    pub tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     pub tracker: TaskTracker,
     pub manager: Arc<dyn signal::ChannelBackend>,
     pub metrics: MetricsRegistry,

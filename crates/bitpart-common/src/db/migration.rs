@@ -27,6 +27,7 @@ const SCHEMA_V2: &str = include_str!("schema_v2.sql");
 const SCHEMA_V3: &str = include_str!("schema_v3.sql");
 const SCHEMA_V4: &str = include_str!("schema_v4.sql");
 const SCHEMA_V5: &str = include_str!("schema_v5.sql");
+const SCHEMA_V6: &str = include_str!("schema_v6.sql");
 
 fn migrations() -> &'static Migrations<'static> {
     static MIGRATIONS: OnceLock<Migrations<'static>> = OnceLock::new();
@@ -37,6 +38,7 @@ fn migrations() -> &'static Migrations<'static> {
             M::up(SCHEMA_V3),
             M::up(SCHEMA_V4),
             M::up_with_hook(SCHEMA_V5, backfill_group_refs),
+            M::up(SCHEMA_V6),
         ])
     })
 }
@@ -663,7 +665,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
 
         let table_count: i64 = conn
             .query_row(
@@ -697,7 +699,7 @@ mod tests {
         let v1: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v1, 5);
+        assert_eq!(v1, 6);
 
         let table_count_1: i64 = conn
             .query_row(
@@ -718,8 +720,8 @@ mod tests {
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
         assert_eq!(
-            v2, 5,
-            "user_version should stay 5 after idempotent migration"
+            v2, 6,
+            "user_version should stay 6 after idempotent migration"
         );
 
         let table_count_2: i64 = conn
@@ -746,6 +748,58 @@ mod tests {
             identity_exists,
             "existing data should be preserved during idempotent migration"
         );
+    }
+
+    #[test]
+    fn v6_moves_conversations_to_channel_rows() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        let v5 = Migrations::new(vec![
+            M::up(SCHEMA_V1),
+            M::up(SCHEMA_V2),
+            M::up(SCHEMA_V3),
+            M::up(SCHEMA_V4),
+            M::up_with_hook(SCHEMA_V5, backfill_group_refs),
+        ]);
+        v5.to_latest(&mut conn).unwrap();
+
+        conn.execute_batch(
+            "INSERT INTO channel (id, bot_id, channel_id) VALUES
+                 ('row-a', 'single', 'signal'),
+                 ('row-b', 'renamed', 'other'),
+                 ('row-c', 'multi', 'signal'),
+                 ('row-d', 'multi', 'second'),
+                 ('row-e', 'ambiguous', 'one'),
+                 ('row-f', 'ambiguous', 'two');
+             INSERT INTO conversation (id, bot_id, channel_id, user_id, flow_id, step_id, status) VALUES
+                 ('c1', 'single', 'signal', 'u', 'f', 's', 'OPEN'),
+                 ('c2', 'renamed', 'signal', 'u', 'f', 's', 'OPEN'),
+                 ('c3', 'multi', 'signal', 'u', 'f', 's', 'OPEN'),
+                 ('c4', 'ambiguous', 'signal', 'u', 'f', 's', 'OPEN'),
+                 ('c5', 'orphan', 'signal', 'u', 'f', 's', 'OPEN');
+             INSERT INTO memory (id, bot_id, channel_id, user_id, key, value) VALUES
+                 ('m1', 'multi', 'signal', 'u', 'k', '1');
+             INSERT INTO state (id, bot_id, channel_id, user_id, type, key, value) VALUES
+                 ('s1', 'single', 'signal', 'u', 't', 'k', '1');",
+        )
+        .unwrap();
+
+        migrate_conn(&mut conn).unwrap();
+
+        let channel_of = |table: &str, id: &str| -> String {
+            conn.query_row(
+                &format!("SELECT channel_id FROM {table} WHERE id = ?1"),
+                params![id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(channel_of("conversation", "c1"), "row-a");
+        assert_eq!(channel_of("conversation", "c2"), "row-b");
+        assert_eq!(channel_of("conversation", "c3"), "row-c");
+        assert_eq!(channel_of("conversation", "c4"), "signal");
+        assert_eq!(channel_of("conversation", "c5"), "signal");
+        assert_eq!(channel_of("memory", "m1"), "row-c");
+        assert_eq!(channel_of("state", "s1"), "row-a");
     }
 
     #[test]
@@ -833,7 +887,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
 
         let marker_exists: bool = conn
             .query_row(
@@ -1012,7 +1066,7 @@ mod tests {
         let v: i64 = conn
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 5);
+        assert_eq!(v, 6);
 
         let channel_state_exists: bool = conn
             .query_row(

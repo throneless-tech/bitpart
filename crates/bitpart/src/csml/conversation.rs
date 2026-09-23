@@ -295,7 +295,7 @@ async fn switch_bot(
         Err(_) => {
             let error_message = format!(
                 "flow: [{}] not found in bot: [{}], switching to start@default_flow",
-                data.context.flow, bot.name
+                data.context.flow, bot.id
             );
 
             let message = Message {

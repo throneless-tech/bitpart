@@ -74,10 +74,10 @@ For example, to list available bots on a Bitpart server listening at `<BIND>` an
 When you have the server running as described above, and you have `bitpart-cli` able to connect to it at location `<BIND>` with authorization token `<AUTH>`, you can add a bot:
 
 ```
-  bitpart-cli --auth <AUTH> --connect <BIND> add --id <BOT_ID> --name <NAME> --default <BASENAME> ./<BASENAME>.csml
+  bitpart-cli --auth <AUTH> --connect <BIND> add --id <BOT_ID> ./<BASENAME>.csml
 ```
 
-where `<BOT_ID>` is a unique name you choose for the bot, `<NAME>` is a display name for the bot, and `<BASENAME>` is the name of the default CSML script included in the bot (you can include multiple CSML scripts, but you must specify which one is used by default for new conversations). To find out more about CSML scripting, check out the example(s) in the `examples` directory in this repository.
+where `<BOT_ID>` is a unique name you choose for the bot, and `<BASENAME>.csml` is the bot's CSML script. You can include multiple CSML scripts; if you do, pass `--default <BASENAME>` to choose which one is used by default for new conversations. To find out more about CSML scripting, check out the example(s) in the `examples` directory in this repository.
 
 To have new conversations with the bot use Signal disappearing messages, add `--expire-timer <SECONDS>` (for example `604800` for one week). The timer is set when a user first contacts the bot; after that, any change the user makes to the timer in their Signal app is left in place. When you add a new version of an existing bot without `--expire-timer`, it keeps the previous version's timer; use `--expire-timer 0` to remove it.
 
@@ -86,12 +86,14 @@ If the bot's Signal account is added to a group, it only responds to messages th
 To link the bot you created to Signal so that it receives messages, you must open a _channel_ between the bot and a Signal account. **We recommend using a separate Signal account just for this purpose**, since Bitpart will also receive and respond to the Signal messages sent to this account.
 
 ```
-  bitpart-cli --auth <AUTH> --connect <BIND> channel-link --id signal --bot-id <BOT_ID> --device-name <DEVICE_NAME>
+  bitpart-cli --auth <AUTH> --connect <BIND> channel-link --id <CHANNEL_ID> --bot-id <BOT_ID> --device-name <DEVICE_NAME> [--profile-name <PROFILE_NAME>]
 ```
 
-where `<BOT_ID>` is the id of the bot you're linking, and `<DEVICE_NAME>` is the name of the device as it will appear in the list of linked devices on Signal (for example, `bitpart`). Currently the channel ID is always `signal`, because that's the only type of channel available.
+where `<CHANNEL_ID>` is a name you choose for this Signal account within the bot (for example, `signal`), `<BOT_ID>` is the id of the bot you're linking, and `<DEVICE_NAME>` is the name of the device as it will appear in the list of linked devices on Signal (for example, `bitpart`). If you pass `--profile-name`, the Signal profile name of the linked account is set to `<PROFILE_NAME>` once linking finishes; because the bot is linked as a device of that account, this changes the name shown for the account everywhere, including on the device you linked it from.
 
-After you enter this command, a QR code will be displayed. In your Signal client, go to _Settings -> Linked Devices -> Link new device_ and take a picture of the QR code. After a few seconds, your bot will finish linking with Signal. From another Signal device, send a message to the number or username associated with the bot (**NOTE**: the bot will take on the profile information of the linked device) and it should reply!
+A bot can have several channels, each linked to a different Signal account; give each one its own `<CHANNEL_ID>`. Conversations are kept separately per channel, so someone who messages two of a bot's accounts has a separate conversation with each. To relink a channel whose Signal account was disconnected, run the same command again with the same `<CHANNEL_ID>`: only that channel is stopped and relinked, and the bot's other channels keep running. Relinking discards that channel's Signal keys and sessions, since Signal issues new ones for the new link, but its conversations with users are kept.
+
+After you enter this command, a QR code will be displayed. In your Signal client, go to _Settings -> Linked Devices -> Link new device_ and take a picture of the QR code. After a few seconds, your bot will finish linking with Signal. From another Signal device, send a message to the number or username associated with the bot (**NOTE**: unless you pass `--profile-name`, the bot will take on the profile information of the linked device) and it should reply!
 
 ## CSML
 

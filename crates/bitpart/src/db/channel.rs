@@ -171,10 +171,7 @@ pub async fn delete_by_bot_id(bot_id: &str, db: &Pool) -> Result<()> {
     let bot_id = bot_id.to_owned();
     let obj = db.get().await.map_err(pool_err)?;
     obj.interact(move |conn| -> rusqlite::Result<usize> {
-        conn.execute(
-            "DELETE FROM channel WHERE id = (SELECT id FROM channel WHERE bot_id = ? LIMIT 1)",
-            params![bot_id],
-        )
+        conn.execute("DELETE FROM channel WHERE bot_id = ?", params![bot_id])
     })
     .await
     .map_err(pool_err)??;

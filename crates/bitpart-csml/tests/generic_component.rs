@@ -19,7 +19,6 @@ use serde_json::Value;
 
 const DEFAULT_ID_NAME: &str = "id";
 const DEFAULT_FLOW_NAME: &str = "default";
-const DEFAULT_BOT_NAME: &str = "my_bot";
 
 ////////////////////////////////////////////////////////////////////////////////
 // PRIVATE FUNCTION
@@ -36,7 +35,6 @@ fn format_message(
 
     let bot = CsmlBot::new(
         DEFAULT_ID_NAME,
-        DEFAULT_BOT_NAME,
         None,
         vec![default_flow],
         None,

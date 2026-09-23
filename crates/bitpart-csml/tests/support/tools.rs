@@ -33,7 +33,6 @@ pub fn format_message(event: Event, context: Context, filepath: &str) -> Message
 
     let bot = CsmlBot::new(
         "id",
-        "bot",
         None,
         vec![flow],
         Some(native_component),
@@ -69,7 +68,6 @@ pub fn build_bot(content: &str, env: Option<Value>) -> CsmlBot {
 
     CsmlBot::new(
         "id",
-        "bot",
         None,
         vec![flow],
         Some(native_component),

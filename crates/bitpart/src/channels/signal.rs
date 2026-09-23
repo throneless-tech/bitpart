@@ -29,6 +29,7 @@ use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::Reaction;
 use presage::libsignal_service::prelude::ProtobufMessage;
 use presage::libsignal_service::prelude::Uuid;
+use presage::libsignal_service::profile_name::ProfileName;
 use presage::libsignal_service::proto::AttachmentPointer;
 use presage::libsignal_service::proto::BodyRange;
 use presage::libsignal_service::proto::body_range::AssociatedValue;
@@ -67,16 +68,24 @@ use uuid;
 
 use crate::api;
 use crate::db;
-use crate::metrics::{BotMetrics, ConnectionStatus, MetricsRegistry};
+use crate::metrics::{ChannelMetrics, ConnectionStatus, MetricsRegistry};
 use std::sync::Arc;
 
 // === manager + dispatch ===
 
 #[derive(Serialize, Deserialize)]
 pub enum ChannelMessageContents {
-    LinkChannel { id: String, device_name: String },
-    StartChannel { id: String },
-    ResetSessions { id: String },
+    LinkChannel {
+        id: String,
+        device_name: String,
+        profile_name: Option<String>,
+    },
+    StartChannel {
+        id: String,
+    },
+    ResetSessions {
+        id: String,
+    },
 }
 
 pub struct ChannelMessage {
@@ -149,7 +158,7 @@ pub struct ChannelState {
     id: String,
     channel_id: String,
     pool: bitpart_common::db::Pool,
-    metrics: Arc<BotMetrics>,
+    metrics: Arc<ChannelMetrics>,
 }
 
 // === device linking ===
@@ -163,12 +172,12 @@ async fn start_channel_recv(
     let channel = crate::db::channel::get_by_id(&id, &pool)
         .await?
         .ok_or_else(|| BitpartErrorKind::Signal("No such channel.".to_owned()))?;
-    let bot_metrics = metrics.get_or_create(&channel.bot_id);
+    let channel_metrics = metrics.get_or_create(&id, &channel.bot_id);
     let state = ChannelState {
         id: channel.bot_id,
         channel_id: id,
         pool,
-        metrics: bot_metrics,
+        metrics: channel_metrics,
     };
     receive(manager, &state).await?;
     Ok(())
@@ -184,8 +193,17 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
         metrics,
     } = msg;
     match msg {
-        ChannelMessageContents::LinkChannel { id, device_name } => {
+        ChannelMessageContents::LinkChannel {
+            id,
+            device_name,
+            profile_name,
+        } => {
             let config_store = BitpartStore::open(&id, &pool, OnNewIdentity::Trust).await?;
+            if let Some(channel) = crate::db::channel::get_by_id(&id, &pool).await? {
+                metrics
+                    .get_or_create(&id, &channel.bot_id)
+                    .set_status(ConnectionStatus::Unlinked);
+            }
             let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
 
             spawn_local(async move {
@@ -202,6 +220,15 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                             Ok(mut manager) => {
                                 if let Err(err) = manager.request_contacts().await {
                                     error!("Failed to sync contacts after linking device: {}", err);
+                                }
+                                if let Some(name) = profile_name.filter(|n| !n.trim().is_empty()) {
+                                    let name = ProfileName {
+                                        given_name: name.trim().to_owned(),
+                                        family_name: None,
+                                    };
+                                    if let Err(err) = manager.update_profile(name, None, None).await {
+                                        error!("Failed to set profile name after linking device: {}", err);
+                                    }
                                 }
                                 let mut manager_ref = Cell::new(manager);
                                 let res = start_channel_recv(
@@ -666,7 +693,7 @@ async fn reply<S: Store>(
 
     let client = Client {
         bot_id: state.id.clone(),
-        channel_id: "signal".to_owned(),
+        channel_id: state.channel_id.clone(),
         user_id: user_id.clone(),
     };
 

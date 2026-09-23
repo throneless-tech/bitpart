@@ -16,7 +16,6 @@ use serde_json::Value;
 const DEFAULT_ID_NAME: &str = "id";
 const DEFAULT_FLOW_NAME: &str = "default";
 const DEFAULT_STEP_NAME: &str = "start";
-const DEFAULT_BOT_NAME: &str = "my_bot";
 
 fn format_message(event: Event, context: Context, vector: &[&str]) -> MessageData {
     let default_content = read_file(vector[0].to_string()).unwrap();
@@ -27,7 +26,6 @@ fn format_message(event: Event, context: Context, vector: &[&str]) -> MessageDat
 
     let bot = CsmlBot::new(
         DEFAULT_ID_NAME,
-        DEFAULT_BOT_NAME,
         None,
         vec![default_flow, other_flow],
         None,

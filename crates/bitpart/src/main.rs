@@ -194,10 +194,16 @@ fn register_signal_metrics(
         let registry = registry.clone();
         meter
             .u64_observable_counter("bitpart.signal.messages.sent")
-            .with_description("Signal messages sent by a bot")
+            .with_description("Signal messages sent by a bot channel")
             .with_callback(move |observer| {
-                for (bot_id, snap) in registry.snapshot_all() {
-                    observer.observe(snap.sent, &[KeyValue::new("bot_id", bot_id)]);
+                for (bot_id, channel, snap) in registry.snapshot_all() {
+                    observer.observe(
+                        snap.sent,
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("channel", channel),
+                        ],
+                    );
                 }
             })
             .build()
@@ -207,10 +213,16 @@ fn register_signal_metrics(
         let registry = registry.clone();
         meter
             .u64_observable_counter("bitpart.signal.messages.received")
-            .with_description("Signal messages received by a bot")
+            .with_description("Signal messages received by a bot channel")
             .with_callback(move |observer| {
-                for (bot_id, snap) in registry.snapshot_all() {
-                    observer.observe(snap.received, &[KeyValue::new("bot_id", bot_id)]);
+                for (bot_id, channel, snap) in registry.snapshot_all() {
+                    observer.observe(
+                        snap.received,
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("channel", channel),
+                        ],
+                    );
                 }
             })
             .build()
@@ -220,12 +232,17 @@ fn register_signal_metrics(
         let registry = registry.clone();
         meter
             .u64_observable_gauge("bitpart.signal.connection_status")
-            .with_description("Signal connection status per bot (0=unlinked, 1=linked, 2=failing)")
+            .with_description(
+                "Signal connection status per bot channel (0=unlinked, 1=linked, 2=failing)",
+            )
             .with_callback(move |observer| {
-                for (bot_id, snap) in registry.snapshot_all() {
+                for (bot_id, channel, snap) in registry.snapshot_all() {
                     observer.observe(
                         snap.status.as_u8() as u64,
-                        &[KeyValue::new("bot_id", bot_id)],
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("channel", channel),
+                        ],
                     );
                 }
             })
@@ -283,7 +300,7 @@ async fn main() -> Result<()> {
     let channels = db::channel::list(None, None, &pool).await?;
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
-    let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
+    let tokens: HashMap<String, CancellationToken> = HashMap::new();
     let mut state = ApiState {
         pool,
         auth: server.auth,
@@ -294,7 +311,7 @@ async fn main() -> Result<()> {
         metrics: metrics_registry,
     };
     for channel in channels.iter() {
-        let res = api::start_channel(&channel.id, &channel.bot_id, &mut state).await?;
+        let res = api::start_channel(&channel.id, &mut state).await?;
         info!("Started channel: {}", res);
     }
 

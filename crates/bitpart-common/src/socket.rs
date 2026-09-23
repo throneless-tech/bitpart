@@ -59,6 +59,7 @@ pub enum SocketMessage<S: Serialize> {
         id: String,
         bot_id: String,
         device_name: String,
+        profile_name: Option<String>,
     },
     ResetChannel {
         id: String,

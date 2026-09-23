@@ -63,7 +63,7 @@ pub async fn get_test_socket() -> (TestWebSocket, tempfile::TempDir) {
 
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
-    let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
+    let tokens: HashMap<String, CancellationToken> = HashMap::new();
     let state = ApiState {
         pool,
         parent_token: token.clone(),

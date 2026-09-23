@@ -31,7 +31,6 @@ fn pool_err(e: impl std::fmt::Display) -> BitpartErrorKind {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SerializedCsmlBot {
     pub id: String,
-    pub name: String,
     pub flows: Vec<CsmlFlow>,
     pub native_components: Option<String>,
     pub custom_components: Option<String>,
@@ -47,7 +46,6 @@ impl From<SerializedCsmlBot> for CsmlBot {
     fn from(val: SerializedCsmlBot) -> Self {
         CsmlBot {
             id: val.id.clone(),
-            name: val.name.clone(),
             apps_endpoint: val.apps_endpoint,
             flows: val.flows.clone(),
             native_components: match val.native_components {
@@ -352,4 +350,29 @@ pub async fn delete_by_id(id: &str, db: &Pool) -> Result<()> {
     .await
     .map_err(pool_err)??;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_bot_with_legacy_name_still_loads() {
+        let row = BotRow {
+            id: "row".to_owned(),
+            bot_id: "bot_id".to_owned(),
+            bot_json: r#"{"id":"bot_id","name":"legacy","apps_endpoint":null,"flows":[],"default_flow":"Default","no_interruption_delay":null,"env":null}"#.to_owned(),
+            expire_timer: None,
+        };
+        let version = row.into_version_row_id().unwrap();
+        assert_eq!(version.bot.id, "bot_id");
+        assert!(
+            !version
+                .bot
+                .to_json()
+                .as_object()
+                .unwrap()
+                .contains_key("name")
+        );
+    }
 }

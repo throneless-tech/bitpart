@@ -20,14 +20,14 @@ use bitpart_csml::{
     load_components, search_for_modules, validate_bot,
 };
 
-use crate::{api::ApiState, csml::data::BotVersion, db, metrics::BotMetricsSnapshot};
+use crate::{api::ApiState, csml::data::BotVersion, db, metrics::ChannelStatus};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
 pub struct BotDescription {
     #[serde(flatten)]
     pub bot: BotVersion,
-    pub status: Option<BotMetricsSnapshot>,
+    pub channels: Vec<ChannelStatus>,
 }
 
 pub async fn create_bot(
@@ -67,9 +67,14 @@ pub async fn list_bots(
 
 pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotDescription>> {
     if let Some(bot) = db::bot::get_latest_by_bot_id(id, &state.pool).await? {
+        let channels: Vec<(String, String)> = db::channel::get_by_bot_id(id, &state.pool)
+            .await?
+            .into_iter()
+            .map(|c| (c.id, c.channel_id))
+            .collect();
         Ok(Some(BotDescription {
             bot,
-            status: state.metrics.snapshot(id),
+            channels: state.metrics.for_channels(&channels),
         }))
     } else {
         Ok(None)
@@ -249,6 +254,31 @@ mod test_bot {
         socket
             .assert_receive_text_contains("\"expire_timer\":null")
             .await
+    }
+
+    #[tokio::test]
+    async fn it_should_create_a_bot_without_a_name() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("Hello").await
     }
 
     #[tokio::test]

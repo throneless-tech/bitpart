@@ -21,6 +21,8 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use serde::Serialize;
 
+type MetricsMap = HashMap<String, (String, Arc<ChannelMetrics>)>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionStatus {
@@ -51,13 +53,13 @@ impl ConnectionStatus {
 }
 
 #[derive(Debug)]
-pub struct BotMetrics {
+pub struct ChannelMetrics {
     sent: AtomicU64,
     received: AtomicU64,
     status: AtomicU8,
 }
 
-impl Default for BotMetrics {
+impl Default for ChannelMetrics {
     fn default() -> Self {
         Self {
             sent: AtomicU64::new(0),
@@ -67,7 +69,7 @@ impl Default for BotMetrics {
     }
 }
 
-impl BotMetrics {
+impl ChannelMetrics {
     pub fn incr_sent(&self) {
         self.sent.fetch_add(1, Ordering::Relaxed);
     }
@@ -80,8 +82,8 @@ impl BotMetrics {
         self.status.store(status.as_u8(), Ordering::Relaxed);
     }
 
-    pub fn snapshot(&self) -> BotMetricsSnapshot {
-        BotMetricsSnapshot {
+    pub fn snapshot(&self) -> ChannelMetricsSnapshot {
+        ChannelMetricsSnapshot {
             sent: self.sent.load(Ordering::Relaxed),
             received: self.received.load(Ordering::Relaxed),
             status: ConnectionStatus::from_u8(self.status.load(Ordering::Relaxed)),
@@ -90,7 +92,7 @@ impl BotMetrics {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct BotMetricsSnapshot {
+pub struct ChannelMetricsSnapshot {
     pub sent: u64,
     pub received: u64,
     pub status: ConnectionStatus,
@@ -98,7 +100,14 @@ pub struct BotMetricsSnapshot {
 
 #[derive(Debug, Clone, Default)]
 pub struct MetricsRegistry {
-    bots: Arc<RwLock<HashMap<String, Arc<BotMetrics>>>>,
+    channels: Arc<RwLock<MetricsMap>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ChannelStatus {
+    pub channel_id: String,
+    #[serde(flatten)]
+    pub metrics: ChannelMetricsSnapshot,
 }
 
 impl MetricsRegistry {
@@ -106,24 +115,89 @@ impl MetricsRegistry {
         Self::default()
     }
 
-    pub fn get_or_create(&self, bot_id: &str) -> Arc<BotMetrics> {
-        if let Some(metrics) = self.bots.read().unwrap().get(bot_id) {
+    pub fn get_or_create(&self, channel: &str, bot_id: &str) -> Arc<ChannelMetrics> {
+        if let Some((_, metrics)) = self.channels.read().unwrap().get(channel) {
             return metrics.clone();
         }
-        let mut bots = self.bots.write().unwrap();
-        bots.entry(bot_id.to_owned()).or_default().clone()
+        let mut channels = self.channels.write().unwrap();
+        channels
+            .entry(channel.to_owned())
+            .or_insert_with(|| (bot_id.to_owned(), Arc::default()))
+            .1
+            .clone()
     }
 
-    pub fn snapshot(&self, bot_id: &str) -> Option<BotMetricsSnapshot> {
-        self.bots.read().unwrap().get(bot_id).map(|m| m.snapshot())
+    pub fn remove(&self, channel: &str) {
+        self.channels.write().unwrap().remove(channel);
     }
 
-    pub fn snapshot_all(&self) -> Vec<(String, BotMetricsSnapshot)> {
-        self.bots
+    pub fn for_channels(&self, channels: &[(String, String)]) -> Vec<ChannelStatus> {
+        let registry = self.channels.read().unwrap();
+        channels
+            .iter()
+            .map(|(row_id, channel_id)| ChannelStatus {
+                channel_id: channel_id.clone(),
+                metrics: registry
+                    .get(row_id)
+                    .map(|(_, m)| m.snapshot())
+                    .unwrap_or_else(|| ChannelMetrics::default().snapshot()),
+            })
+            .collect()
+    }
+
+    pub fn snapshot_all(&self) -> Vec<(String, String, ChannelMetricsSnapshot)> {
+        self.channels
             .read()
             .unwrap()
             .iter()
-            .map(|(id, m)| (id.clone(), m.snapshot()))
+            .map(|(channel, (bot_id, m))| (bot_id.clone(), channel.clone(), m.snapshot()))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn channels_of_one_bot_are_tracked_separately() {
+        let registry = MetricsRegistry::new();
+        let a = registry.get_or_create("row-a", "bot");
+        let b = registry.get_or_create("row-b", "bot");
+        a.incr_sent();
+        a.set_status(ConnectionStatus::Linked);
+        b.set_status(ConnectionStatus::Failing);
+
+        let status = registry.for_channels(&[
+            ("row-a".to_owned(), "signal".to_owned()),
+            ("row-b".to_owned(), "backup".to_owned()),
+            ("row-c".to_owned(), "never-started".to_owned()),
+        ]);
+        assert_eq!(status[0].channel_id, "signal");
+        assert_eq!(status[0].metrics.sent, 1);
+        assert_eq!(status[0].metrics.status, ConnectionStatus::Linked);
+        assert_eq!(status[1].metrics.sent, 0);
+        assert_eq!(status[1].metrics.status, ConnectionStatus::Failing);
+        assert_eq!(status[2].metrics.status, ConnectionStatus::Unlinked);
+    }
+
+    #[test]
+    fn same_channel_returns_same_metrics() {
+        let registry = MetricsRegistry::new();
+        registry.get_or_create("row-a", "bot").incr_received();
+        registry.get_or_create("row-a", "bot").incr_received();
+        let all = registry.snapshot_all();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].0, "bot");
+        assert_eq!(all[0].1, "row-a");
+        assert_eq!(all[0].2.received, 2);
+    }
+
+    #[test]
+    fn removed_channel_is_no_longer_reported() {
+        let registry = MetricsRegistry::new();
+        registry.get_or_create("row-a", "bot");
+        registry.remove("row-a");
+        assert!(registry.snapshot_all().is_empty());
     }
 }
