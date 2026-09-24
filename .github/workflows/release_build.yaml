@@ -21,17 +21,17 @@ jobs:
       body: ${{ steps.get_body.outputs.body }}
     steps:
       - name: Check out
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           ref: ${{ env.BRANCH_NAME }}
       - id: cz
         name: Create bump and changelog
-        uses: commitizen-tools/commitizen-action@5b0848cd060263e24602d1eba03710e056ef7711
+        uses: commitizen-tools/commitizen-action@338bbd841b75aaee6bf5340e1fa12f6ab58ff9ff # 0.27.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: body.md
-          commitizen_version: '4.6.3'
+          commitizen_version: '4.19.0'
       - name: Read body.md file
         id: get_body
         if: steps.cz.outputs.version != ''
@@ -48,50 +48,63 @@ jobs:
     name: "Build release artifacts"
     needs: bump_version
     if: needs.bump_version.outputs.version != ''
+    container: rust:bookworm
     steps:
       - name: Check out
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.BRANCH_NAME }}
       - name: Install dependencies
-        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17
+        run: apt-get update && apt-get install -y protobuf-compiler cmake clang
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          packages: protobuf-compiler libclang-dev
-          version: 1.0
-      - name: Setup Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@fb51252c7ba57d633bc668f941da052e410add48
+          shared-key: release
       - name: Build
         run: cargo build --all --release && strip target/release/bitpart && strip target/release/bitpart-cli
+      - name: Stage binaries
+        run: mkdir -p dist && cp target/release/bitpart target/release/bitpart-cli dist/
+      - name: Upload binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: binaries
+          path: dist/
+          retention-days: 1
       - name: Release
-        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           body: ${{ needs.bump_version.outputs.body }}
           tag_name: ${{ needs.bump_version.outputs.version }}
           files: |
-            target/release/bitpart
-            target/release/bitpart-cli
+            dist/bitpart
+            dist/bitpart-cli
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   build_image:
     runs-on: ubuntu-latest
     name: "Build release image"
-    needs: bump_version
+    needs: [bump_version, build_release]
     if: needs.bump_version.outputs.version != ''
     steps:
       - name: Check out
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.BRANCH_NAME }}
+      - name: Download binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: binaries
+          path: dist/
       - name: Build image
         id: build_image
-        uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056
+        uses: redhat-actions/buildah-build@719e3c40d8af9790c23eca13f7daa339f2867034 # v3.1.0
         with:
           image: ${{ env.IMAGE_NAME }}
           tags: ${{ needs.bump_version.outputs.version }} latest
           containerfiles: |
-            ./Dockerfile
+            ./Dockerfile.release
       - name: Push To GHCR
-        uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c
+        uses: redhat-actions/push-to-registry@94ade333c38ecc0e60e94785125d9a52ca423b37 # v3.0.0
         id: push
         env:
           IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}

@@ -26,3 +26,7 @@ rusqlite = { git = "https://github.com/whisperfish/rusqlite", rev = '2a42b3354c9
 
 [profile.dev]
 debug = true
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
