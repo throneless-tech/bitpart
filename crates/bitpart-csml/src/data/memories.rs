@@ -1,5 +1,5 @@
-use crate::data::primitive::PrimitiveObject;
 use crate::data::Literal;
+use crate::data::primitive::PrimitiveObject;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MemoryType {

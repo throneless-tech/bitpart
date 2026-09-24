@@ -144,7 +144,7 @@ impl Eq for InstructionScope {}
 impl Display for InstructionScope {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         match self {
-            InstructionScope::StepScope(ref idents, ..) => write!(f, "step {}", idents),
+            InstructionScope::StepScope(idents, ..) => write!(f, "step {}", idents),
             InstructionScope::FunctionScope { name, .. } => write!(f, "function {}", name),
             InstructionScope::ImportScope(ImportScope {
                 name,

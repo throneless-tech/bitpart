@@ -1,7 +1,7 @@
 mod support;
 
 use bitpart_csml::data::context::Context;
-use bitpart_csml::data::{event::Event, primitive::PrimitiveInt, Interval};
+use bitpart_csml::data::{Interval, event::Event, primitive::PrimitiveInt};
 use std::collections::HashMap;
 
 use crate::support::tools::format_message;

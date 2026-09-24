@@ -2,9 +2,9 @@ use crate::data::{ast::FromFlow, warnings::*};
 use crate::error_format::ErrorInfo;
 
 use crate::linter::{
-    linter::{validate_flow_ast, validate_functions, validate_gotos, validate_imports},
     FlowToValidate, FunctionCallInfo, FunctionInfo, ImportInfo, LinterInfo, ScopeType,
     StepBreakers, StepInfo,
+    linter::{validate_flow_ast, validate_functions, validate_gotos, validate_imports},
 };
 
 use std::collections::{HashMap, HashSet};
@@ -268,6 +268,7 @@ fn make_fold<'a>(
     main_flow.join("\n")
 }
 
+#[allow(clippy::explicit_counter_loop)]
 fn remove_imports<'a>(flow: &mut Vec<String>, flow_imports: &Vec<&ImportInfo<'a>>) {
     let mut index_corrector = 1;
     for import in flow_imports.iter() {

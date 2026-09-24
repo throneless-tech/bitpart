@@ -1,3 +1,2 @@
 [tools]
-rust = "nightly"
 rust-analyzer = "nightly"

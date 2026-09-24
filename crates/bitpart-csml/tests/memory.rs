@@ -1,10 +1,10 @@
 mod support;
 
+use bitpart_csml::data::MessageData;
 use bitpart_csml::data::context::Context;
 use bitpart_csml::data::csml_bot::CsmlBot;
 use bitpart_csml::data::csml_flow::CsmlFlow;
 use bitpart_csml::data::event::Event;
-use bitpart_csml::data::MessageData;
 use bitpart_csml::interpret;
 use std::collections::HashMap;
 

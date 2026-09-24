@@ -1,6 +1,6 @@
+use crate::Interval;
 use crate::data::{CsmlFlow, Position};
 use crate::error_format::*;
-use crate::Interval;
 use serde::{Deserialize, Serialize};
 
 ////////////////////////////////////////////////////////////////////////////////

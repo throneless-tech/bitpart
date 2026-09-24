@@ -14,14 +14,14 @@ pub use expr_to_literal::{expr_to_literal, resolve_fn_args};
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
 use crate::data::primitive::{
-    tools::get_array, PrimitiveNull, PrimitiveObject, PrimitiveString, PrimitiveType,
+    PrimitiveNull, PrimitiveObject, PrimitiveString, PrimitiveType, tools::get_array,
 };
 use crate::data::{
+    ArgsType, Literal, MSG, MemoryType, MessageData,
     ast::{Expr, Function, GotoValueType, Identifier, Interval, PathLiteral, PathState},
     data::Data,
-    tokens::{COMPONENT, EVENT, _ENV, _MEMORY, _METADATA},
+    tokens::{_ENV, _MEMORY, _METADATA, COMPONENT, EVENT},
     warnings::DisplayWarnings,
-    ArgsType, Literal, MemoryType, MessageData, MSG,
 };
 use crate::error_format::*;
 use crate::interpreter::variable_handler::{
@@ -118,7 +118,7 @@ async fn loop_path(
                 }
             },
             PathLiteral::MapIndex(key) => {
-                if let (Some(ref new), 0) = (&new, path.len()) {
+                if let (Some(new), 0) = (&new, path.len()) {
                     let mut args = HashMap::new();
 
                     args.insert(

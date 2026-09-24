@@ -570,7 +570,7 @@ async fn main() -> Result<()> {
                                             ),
                                             _ => println!(
                                                 "{}",
-                                                &msg.get("payload")
+                                                msg.get("payload")
                                                     .and_then(|v| v.get("content"))
                                                     .unwrap()
                                             ),

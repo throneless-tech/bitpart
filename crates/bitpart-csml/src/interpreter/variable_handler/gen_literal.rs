@@ -1,13 +1,13 @@
 use crate::data::literal::ContentType;
 use crate::data::position::Position;
 use crate::data::{
+    Data, Literal, MSG, MemoryType, MessageData,
+    ast::{Interval, PathState},
+};
+use crate::data::{
     ast::PathLiteral,
     primitive::{PrimitiveNull, PrimitiveString},
     warnings::DisplayWarnings,
-};
-use crate::data::{
-    ast::{Interval, PathState},
-    Data, Literal, MemoryType, MessageData, MSG,
 };
 use crate::error_format::*;
 use crate::interpreter::variable_handler::gen_generic_component::gen_generic_component;
@@ -43,7 +43,7 @@ pub async fn gen_literal_from_event(
                     return Err(gen_error_info(
                         Position::new(interval, &data.context.flow),
                         ERROR_EVENT_CONTENT_TYPE.to_owned(),
-                    ))
+                    ));
                 }
             };
 
@@ -99,34 +99,33 @@ pub async fn gen_literal_from_component(
                     args,
                 },
             )) = path.first()
+                && let Some(component) = data.custom_component.get(name)
             {
-                if let Some(component) = data.custom_component.get(name) {
-                    let mut lit = gen_generic_component(
-                        name,
-                        true,
-                        &data.context.flow,
-                        interval,
-                        args,
-                        component,
-                    )?;
+                let mut lit = gen_generic_component(
+                    name,
+                    true,
+                    &data.context.flow,
+                    interval,
+                    args,
+                    component,
+                )?;
 
-                    path.drain(..1);
+                path.drain(..1);
 
-                    let (lit, _tmp_mem_update) = exec_path_actions(
-                        &mut lit,
-                        &DisplayWarnings::On,
-                        &MemoryType::Use,
-                        None,
-                        &Some(path),
-                        &ContentType::Primitive,
-                        data,
-                        msg_data,
-                        sender,
-                    )
-                    .await?;
+                let (lit, _tmp_mem_update) = exec_path_actions(
+                    &mut lit,
+                    &DisplayWarnings::On,
+                    &MemoryType::Use,
+                    None,
+                    &Some(path),
+                    &ContentType::Primitive,
+                    data,
+                    msg_data,
+                    sender,
+                )
+                .await?;
 
-                    return Ok(lit);
-                }
+                return Ok(lit);
             }
 
             Err(gen_error_info(

@@ -1,13 +1,13 @@
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
+use crate::data::primitive::Right;
 use crate::data::primitive::boolean::PrimitiveBoolean;
 use crate::data::primitive::float::PrimitiveFloat;
 use crate::data::primitive::object::PrimitiveObject;
 use crate::data::primitive::string::PrimitiveString;
 use crate::data::primitive::tools::check_division_by_zero_i64;
-use crate::data::primitive::Right;
 use crate::data::primitive::{Primitive, PrimitiveType};
-use crate::data::{ast::Interval, message::Message, Data, Literal, MemoryType, MessageData, MSG};
+use crate::data::{Data, Literal, MSG, MemoryType, MessageData, ast::Interval, message::Message};
 use crate::data::{literal, literal::ContentType};
 use crate::error_format::*;
 use phf::phf_map;

@@ -1,18 +1,18 @@
-use crate::data::csml_logs::{csml_logger, CsmlLog, LogLvl};
+use crate::data::csml_logs::{CsmlLog, LogLvl, csml_logger};
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
 use crate::data::{
+    Literal, MemoryType,
     ast::Interval,
     literal,
     literal::ContentType,
     message::Message,
     primitive::{
-        tools_crypto, tools_jwt, tools_smtp, tools_time, Data, MessageData, Primitive,
-        PrimitiveArray, PrimitiveBoolean, PrimitiveInt, PrimitiveNull, PrimitiveString,
-        PrimitiveType, Right, MSG,
+        Data, MSG, MessageData, Primitive, PrimitiveArray, PrimitiveBoolean, PrimitiveInt,
+        PrimitiveNull, PrimitiveString, PrimitiveType, Right, tools_crypto, tools_jwt, tools_smtp,
+        tools_time,
     },
     tokens::TYPES,
-    Literal, MemoryType,
 };
 use crate::error_format::*;
 use crate::interpreter::{
@@ -489,7 +489,7 @@ impl PrimitiveObject {
                     return Err(gen_error_info(
                         Position::new(interval, &data.context.flow),
                         ERROR_HTTP_UNKNOWN_METHOD.to_string(),
-                    ))
+                    ));
                 }
             };
 
@@ -741,7 +741,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("usage: {}", usage),
-                ))
+                ));
             }
         };
 
@@ -940,7 +940,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("usage: {}", usage),
-                ))
+                ));
             }
         };
 
@@ -1206,7 +1206,7 @@ impl PrimitiveObject {
                                 return Err(gen_error_info(
                                     Position::new(interval, &data.context.flow),
                                     format!("invalid timezone {}", tz_string),
-                                ))
+                                ));
                             }
                         }
                     }
@@ -1267,7 +1267,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_SIGN_ALGO.to_string(),
-                ))
+                ));
             }
         }
 
@@ -1277,7 +1277,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_SIGN_CLAIMS.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1296,7 +1296,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_ALGO.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1332,7 +1332,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_TOKEN.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1344,7 +1344,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_DECODE_ALGO.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1363,7 +1363,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_DECODE_SECRET.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1403,7 +1403,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_TOKEN.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1415,7 +1415,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_VALIDATION_CLAIMS.to_string(),
-                ))
+                ));
             }
         }
 
@@ -1431,7 +1431,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_VALIDATION_ALGO.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1450,7 +1450,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_JWT_VALIDATION_SECRETE.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1488,7 +1488,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, flow_name),
                     ERROR_HASH.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1506,7 +1506,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, flow_name),
                     ERROR_HASH_ALGO.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1523,7 +1523,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, flow_name),
                     ERROR_HMAC_KEY.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1566,7 +1566,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, flow_name),
                     ERROR_HASH.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1584,7 +1584,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, flow_name),
                     ERROR_HASH_ALGO.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1624,7 +1624,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_DIGEST.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1641,7 +1641,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     ERROR_DIGEST_ALGO.to_string(),
-                ))
+                ));
             }
         };
 
@@ -1678,7 +1678,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("usage: {}", usage),
-                ))
+                ));
             }
         };
 
@@ -1703,7 +1703,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("usage: {}", usage),
-                ))
+                ));
             }
         };
 
@@ -1713,7 +1713,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("Base64 invalid value: {}, can't be decode", string),
-                ))
+                ));
             }
         };
 
@@ -1738,7 +1738,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("usage: {}", usage),
-                ))
+                ));
             }
         };
 
@@ -1763,7 +1763,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("usage: {}", usage),
-                ))
+                ));
             }
         };
 
@@ -1773,7 +1773,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("Hex invalid value: {}, can't be decode", string),
-                ))
+                ));
             }
         };
 
@@ -1926,7 +1926,7 @@ impl PrimitiveObject {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("expect Array value as argument usage: {}", usage),
-                ))
+                ));
             }
         };
 
@@ -2687,17 +2687,17 @@ impl Primitive for PrimitiveObject {
         msg_data: &mut MessageData,
         sender: &Option<mpsc::Sender<MSG>>,
     ) -> Result<(Literal, Right), ErrorInfo> {
-        if let ContentType::Http = content_type {
-            if name == "send" {
-                let result = PrimitiveObject::send_http(self, args, data, interval).await?;
-                return Ok((result, Right::Read));
-            }
+        if let ContentType::Http = content_type
+            && name == "send"
+        {
+            let result = PrimitiveObject::send_http(self, args, data, interval).await?;
+            return Ok((result, Right::Read));
         }
-        if let ContentType::Smtp = content_type {
-            if name == "send" {
-                let result = PrimitiveObject::smtp_send(self, args, data, interval).await?;
-                return Ok((result, Right::Read));
-            }
+        if let ContentType::Smtp = content_type
+            && name == "send"
+        {
+            let result = PrimitiveObject::smtp_send(self, args, data, interval).await?;
+            return Ok((result, Right::Read));
         }
 
         let event = vec![FUNCTIONS_EVENT];

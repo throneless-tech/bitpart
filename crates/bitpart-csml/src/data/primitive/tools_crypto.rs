@@ -6,11 +6,11 @@ use md5::Md5;
 use sha1::Sha1;
 use sha2::{Sha256, Sha384, Sha512};
 
+use rsa::RsaPrivateKey;
 use rsa::pkcs1::DecodeRsaPrivateKey;
 use rsa::pkcs1v15::SigningKey;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::signature::{SignatureEncoding, Signer};
-use rsa::RsaPrivateKey;
 
 /// Hash algorithm selector.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

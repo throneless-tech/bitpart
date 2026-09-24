@@ -1,6 +1,6 @@
 use crate::data::{
-    primitive::{PrimitiveObject, PrimitiveType},
     Client, Hold, Interval, Literal,
+    primitive::{PrimitiveObject, PrimitiveType},
 };
 
 use crate::interpreter::{json_to_literal, memory_to_literal};

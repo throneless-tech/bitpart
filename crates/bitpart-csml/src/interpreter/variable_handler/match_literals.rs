@@ -1,6 +1,6 @@
 // use crate::error_format::ErrorInfo;
-use crate::data::primitive::{PrimitiveArray, PrimitiveObject, PrimitiveString};
 use crate::data::Literal;
+use crate::data::primitive::{PrimitiveArray, PrimitiveObject, PrimitiveString};
 
 fn get_accept(lit: &Literal) -> Option<&Literal> {
     let val = lit
@@ -68,7 +68,7 @@ mod tests {
     use super::*;
     use crate::data::primitive::array::PrimitiveArray;
     use crate::data::primitive::string::PrimitiveString;
-    use crate::data::{ast::Interval, ArgsType};
+    use crate::data::{ArgsType, ast::Interval};
     use crate::interpreter::{
         components::load_components, variable_handler::gen_generic_component::gen_generic_component,
     };

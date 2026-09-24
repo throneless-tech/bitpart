@@ -2,8 +2,8 @@ use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
 use crate::data::primitive::{PrimitiveBoolean, PrimitiveType};
 use crate::data::{
-    ast::{Identifier, Interval},
     ArgsType, Data, Literal,
+    ast::{Identifier, Interval},
 };
 use crate::error_format::*;
 use crate::interpreter::variable_handler::memory::search_in_memory_type;

@@ -35,41 +35,45 @@ fn set_escape(s: &str, index: usize, escape: &mut bool) {
 }
 
 fn set_substring(s: &str, index: usize, escape: bool, expand: bool, substring: &mut bool) {
-    if let Some(c) = s.chars().nth(index) {
-        if c == '"' && escape && expand {
-            match substring {
-                true => {
-                    *substring = false;
-                }
-                false => {
-                    *substring = true;
-                }
+    if let Some(c) = s.chars().nth(index)
+        && c == '"'
+        && escape
+        && expand
+    {
+        match substring {
+            true => {
+                *substring = false;
+            }
+            false => {
+                *substring = true;
             }
         }
     }
 }
 
 fn set_open_expand(s: &str, index: usize, escape: bool, substring: bool, expand: &mut bool) {
-    if let Some(c) = s.chars().nth(index) {
-        if c == '{' && !escape && !substring {
-            if let Some(c) = s.chars().nth(index + 1) {
-                if c == '{' && !escape {
-                    *expand = true;
-                }
-            }
-        }
+    if let Some(c) = s.chars().nth(index)
+        && c == '{'
+        && !escape
+        && !substring
+        && let Some(c) = s.chars().nth(index + 1)
+        && c == '{'
+        && !escape
+    {
+        *expand = true;
     }
 }
 
 fn set_close_expand(s: &str, index: usize, escape: bool, substring: bool, expand: &mut bool) {
-    if let Some(c) = s.chars().nth(index) {
-        if c == '}' && !escape && !substring {
-            if let Some(c) = s.chars().nth(index + 1) {
-                if c == '}' && !escape {
-                    *expand = false;
-                }
-            }
-        }
+    if let Some(c) = s.chars().nth(index)
+        && c == '}'
+        && !escape
+        && !substring
+        && let Some(c) = s.chars().nth(index + 1)
+        && c == '}'
+        && !escape
+    {
+        *expand = false;
     }
 }
 
@@ -149,12 +153,13 @@ pub fn get_distance_brace(s: &Span, key: char) -> Option<usize> {
     let mut distance = 0;
 
     for (i, c) in s.chars().enumerate() {
-        if c == key && !escape && !substring {
-            if let Some(c) = s.chars().nth(i + 1) {
-                if c == key {
-                    return Some(distance);
-                }
-            }
+        if c == key
+            && !escape
+            && !substring
+            && let Some(c) = s.chars().nth(i + 1)
+            && c == key
+        {
+            return Some(distance);
         }
 
         distance += c.len_utf8();

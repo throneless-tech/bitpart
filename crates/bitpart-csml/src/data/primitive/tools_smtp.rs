@@ -1,12 +1,12 @@
 use crate::data::{
-    ast::Interval, error_info::ErrorInfo, position::Position, primitive::Data,
-    primitive::PrimitiveType, Literal,
+    Literal, ast::Interval, error_info::ErrorInfo, position::Position, primitive::Data,
+    primitive::PrimitiveType,
 };
 use crate::error_format::*;
 use lettre::{
-    message::{header, Mailbox, MultiPart, SinglePart},
-    transport::smtp::authentication::{Credentials, Mechanism},
     AsyncSmtpTransport, Tokio1Executor,
+    message::{Mailbox, MultiPart, SinglePart, header},
+    transport::smtp::authentication::{Credentials, Mechanism},
 };
 use std::collections::HashMap;
 ////////////////////////////////////////////////////////////////////////////////
@@ -121,11 +121,7 @@ fn get_auth_mechanisms(
         vec.push(Mechanism::Xoauth2);
     }
 
-    if vec.is_empty() {
-        None
-    } else {
-        Some(vec)
-    }
+    if vec.is_empty() { None } else { Some(vec) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -41,7 +41,7 @@ use parse_scope::parse_root;
 use tools::*;
 
 use nom::error::{ContextError, ParseError};
-use nom::{branch::alt, bytes::complete::tag, multi::fold_many0, sequence::preceded, Err, *};
+use nom::{Err, branch::alt, bytes::complete::tag, multi::fold_many0, sequence::preceded, *};
 use std::collections::HashMap;
 
 ////////////////////////////////////////////////////////////////////////////////

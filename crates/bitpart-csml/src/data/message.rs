@@ -1,10 +1,10 @@
-use crate::data::message_data::MessageData;
-use crate::data::position::Position;
 use crate::data::Client;
 use crate::data::Literal;
+use crate::data::message_data::MessageData;
+use crate::data::position::Position;
 use crate::error_format::*;
 
-use serde_json::{json, map::Map, Value};
+use serde_json::{Value, json, map::Map};
 
 ////////////////////////////////////////////////////////////////////////////////
 // DATA STRUCTURES

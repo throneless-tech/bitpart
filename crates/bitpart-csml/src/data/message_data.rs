@@ -1,5 +1,5 @@
 use crate::data::error_info::ErrorInfo;
-use crate::data::{Hold, Literal, Memory, Message, MSG};
+use crate::data::{Hold, Literal, MSG, Memory, Message};
 use crate::parser::ExitCondition;
 
 use core::ops::Add;

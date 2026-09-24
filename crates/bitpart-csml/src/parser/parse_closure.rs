@@ -3,12 +3,12 @@ use crate::parser::{
     parse_braces::parse_r_brace, parse_comments::comment, parse_scope::parse_root, tools::*,
 };
 use nom::{
+    IResult,
     bytes::complete::tag,
     combinator::opt,
     error::{ContextError, ParseError},
     multi::separated_list0,
     sequence::{preceded, terminated, tuple},
-    IResult,
 };
 
 fn parse_closure_args<'a, E>(s: Span<'a>) -> IResult<Span<'a>, Vec<String>, E>

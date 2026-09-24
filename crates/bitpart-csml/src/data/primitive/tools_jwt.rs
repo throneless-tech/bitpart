@@ -1,4 +1,4 @@
-use crate::data::{ast::Interval, position::Position, primitive::PrimitiveString, Literal};
+use crate::data::{Literal, ast::Interval, position::Position, primitive::PrimitiveString};
 use crate::error_format::*;
 use crate::interpreter::json_to_literal;
 

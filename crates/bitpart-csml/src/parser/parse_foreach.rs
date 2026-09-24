@@ -1,6 +1,6 @@
 use crate::data::{
     ast::{Expr, Identifier},
-    tokens::{Span, COMMA, FOREACH, IN, L_PAREN, R_PAREN},
+    tokens::{COMMA, FOREACH, IN, L_PAREN, R_PAREN, Span},
 };
 use crate::parser::operator::parse_operator;
 use crate::parser::parse_idents::parse_idents_assignation;

@@ -1,6 +1,6 @@
 use crate::data::error_info::ErrorInfo;
 use crate::data::primitive::{PrimitiveInt, PrimitiveObject};
-use crate::data::{ast::Interval, ArgsType, Literal};
+use crate::data::{ArgsType, Literal, ast::Interval};
 use chrono::Utc;
 use std::collections::HashMap;
 

@@ -1,6 +1,7 @@
 use crate::data::position::Position;
 use crate::data::{
-    data::{init_child_context, init_child_scope, Data},
+    ArgsType, Interval, Literal, MSG, MemoryType, Message, MessageData,
+    data::{Data, init_child_context, init_child_scope},
     literal,
     literal::ContentType,
     primitive::{
@@ -8,15 +9,14 @@ use crate::data::{
         PrimitiveString, PrimitiveType, Right,
     },
     tokens::TYPES,
-    ArgsType, Interval, Literal, MemoryType, Message, MessageData, MSG,
 };
 use crate::error_format::*;
 use crate::interpreter::variable_handler::resolve_csml_object::{
     exec_closure, insert_args_in_scope_memory, insert_memories_in_scope_memory,
 };
 use phf::phf_map;
-use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::cmp::Ordering;
@@ -705,7 +705,7 @@ impl PrimitiveArray {
                             return Err(gen_error_info(
                                 Position::new(interval, &data.context.flow),
                                 ERROR_SLICE_ARG_LEN.to_owned(),
-                            ))
+                            ));
                         }
                     };
 
@@ -762,7 +762,7 @@ impl PrimitiveArray {
                             return Err(gen_error_info(
                                 Position::new(interval, &data.context.flow),
                                 ERROR_SLICE_ARG_LEN.to_owned(),
-                            ))
+                            ));
                         }
                     };
                     let value = array.value[start..end].to_vec();

@@ -1,7 +1,7 @@
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
 use crate::data::primitive::{PrimitiveObject, PrimitiveString, PrimitiveType};
-use crate::data::{ast::Interval, ApiInfo, ArgsType, Client, Data, Literal, MessageData, MSG};
+use crate::data::{ApiInfo, ArgsType, Client, Data, Literal, MSG, MessageData, ast::Interval};
 use crate::error_format::*;
 use crate::interpreter::{
     builtins::{http_builtin::http_request, tools::*},
@@ -36,7 +36,7 @@ fn format_body(
             return Err(gen_error_info(
                 Position::new(interval, flow_name),
                 ERROR_FN_ID.to_owned(),
-            ))
+            ));
         }
     };
     let mut sub_map = HashMap::new();
@@ -86,7 +86,7 @@ pub async fn api(
             return Err(gen_error_info(
                 Position::new(interval, &data.context.flow),
                 ERROR_FN_ENDPOINT.to_owned(),
-            ))
+            ));
         }
     };
 

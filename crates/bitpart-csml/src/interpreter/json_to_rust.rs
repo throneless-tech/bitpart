@@ -3,7 +3,7 @@ use crate::data::primitive::{
     PrimitiveArray, PrimitiveBoolean, PrimitiveClosure, PrimitiveFloat, PrimitiveInt,
     PrimitiveNull, PrimitiveObject, PrimitiveString,
 };
-use crate::data::{ast::Interval, Data, Literal, MessageData, MSG};
+use crate::data::{Data, Literal, MSG, MessageData, ast::Interval};
 use crate::error_format::*;
 use crate::parser::parse_string::interpolate_string;
 use std::{collections::HashMap, sync::mpsc};

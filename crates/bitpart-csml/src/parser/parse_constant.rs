@@ -1,5 +1,5 @@
 use crate::data::primitive::{PrimitiveArray, PrimitiveBoolean, PrimitiveObject};
-use crate::data::{ast::*, position::Position, tokens::*, Literal};
+use crate::data::{Literal, ast::*, position::Position, tokens::*};
 use crate::error_format::*;
 use crate::parser::{
     operator::parse_operator, parse_comments::comment, parse_idents::parse_idents_assignation,
@@ -7,7 +7,7 @@ use crate::parser::{
 };
 
 use nom::error::{ContextError, ParseError};
-use nom::{bytes::complete::tag, sequence::preceded, IResult};
+use nom::{IResult, bytes::complete::tag, sequence::preceded};
 use std::collections::HashMap;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -40,7 +40,7 @@ fn interval_from_expr(expr: &Expr) -> Interval {
 
 pub fn interval_from_if_stmt(ifstmt: &IfStatement) -> Interval {
     match ifstmt {
-        IfStatement::IfStmt { ref cond, .. } => interval_from_expr(cond),
+        IfStatement::IfStmt { cond, .. } => interval_from_expr(cond),
         IfStatement::ElseStmt(_e, range_interval) => *range_interval,
     }
 }

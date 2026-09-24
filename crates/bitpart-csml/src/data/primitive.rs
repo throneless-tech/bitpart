@@ -25,7 +25,7 @@ pub use object::PrimitiveObject;
 pub use string::PrimitiveString;
 
 use crate::data::primitive::tools::*;
-use crate::data::{Data, Interval, Literal, MemoryType, Message, MessageData, MSG};
+use crate::data::{Data, Interval, Literal, MSG, MemoryType, Message, MessageData};
 use crate::error_format::*;
 
 use std::cmp::Ordering;

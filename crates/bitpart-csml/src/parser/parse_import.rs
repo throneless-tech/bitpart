@@ -6,13 +6,13 @@ use crate::parser::{
     parse_idents::{parse_idents_as, parse_idents_assignation},
 };
 use nom::{
+    Err, IResult,
     branch::alt,
     bytes::complete::tag,
     combinator::{map, opt},
     error::{ContextError, ErrorKind, ParseError},
     multi::separated_list0,
     sequence::{preceded, terminated, tuple},
-    Err, IResult,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

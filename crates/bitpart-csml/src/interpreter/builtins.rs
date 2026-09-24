@@ -11,9 +11,9 @@ pub mod time;
 pub mod tools;
 
 use crate::data::{
-    ast::*, position::Position, tokens::*, ArgsType, Data, Literal, MessageData, MSG,
+    ArgsType, Data, Literal, MSG, MessageData, ast::*, position::Position, tokens::*,
 };
-use crate::error_format::{gen_error_info, ErrorInfo, ERROR_NATIVE_COMPONENT};
+use crate::error_format::{ERROR_NATIVE_COMPONENT, ErrorInfo, gen_error_info};
 use crate::interpreter::variable_handler::gen_generic_component::gen_generic_component;
 use std::sync::mpsc;
 

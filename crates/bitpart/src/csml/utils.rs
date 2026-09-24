@@ -137,7 +137,7 @@ pub fn update_current_context(
     data: &mut ConversationData,
     memories: &HashMap<String, Memory>,
 ) -> Result<()> {
-    for (_key, mem) in memories.iter() {
+    for mem in memories.values() {
         let lit = json_to_literal(&mem.value, Interval::default(), &data.context.flow)
             .map_err(|err| BitpartErrorKind::Interpreter(err.message))?;
 

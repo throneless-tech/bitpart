@@ -1,5 +1,5 @@
 use crate::data::tokens::*;
-use crate::error_format::{gen_nom_failure, ERROR_PARENTHESES, ERROR_PARENTHESES_END};
+use crate::error_format::{ERROR_PARENTHESES, ERROR_PARENTHESES_END, gen_nom_failure};
 use crate::parser::parse_comments::comment;
 
 use nom::{

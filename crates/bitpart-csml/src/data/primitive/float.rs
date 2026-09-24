@@ -1,5 +1,6 @@
 use crate::data::primitive::tools::check_division_by_zero_f64;
 use crate::data::{
+    Data, Literal, MSG, MemoryType, MessageData,
     ast::Interval,
     error_info::ErrorInfo,
     literal,
@@ -10,7 +11,6 @@ use crate::data::{
         Primitive, PrimitiveBoolean, PrimitiveInt, PrimitiveObject, PrimitiveString, PrimitiveType,
         Right,
     },
-    Data, Literal, MemoryType, MessageData, MSG,
 };
 use crate::error_format::*;
 use phf::phf_map;
@@ -269,7 +269,7 @@ impl PrimitiveFloat {
                 return Err(gen_error_info(
                     Position::new(interval, &data.context.flow),
                     format!("usage: {}", usage),
-                ))
+                ));
             }
         };
 

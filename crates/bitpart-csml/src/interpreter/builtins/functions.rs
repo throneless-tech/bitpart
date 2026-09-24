@@ -4,12 +4,12 @@ use crate::data::primitive::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::data::{ast::Interval, ArgsType, Literal};
+use crate::data::{ArgsType, Literal, ast::Interval};
 use crate::error_format::*;
-use uuid::{v1::Timestamp, ContextV1, Uuid};
+use uuid::{ContextV1, Uuid, v1::Timestamp};
 
-use rand::seq::SliceRandom;
 use rand::Rng;
+use rand::seq::SliceRandom;
 
 ////////////////////////////////////////////////////////////////////////////////
 // PUBLIC FUNCTIONS
@@ -130,15 +130,15 @@ pub fn find(args: ArgsType, flow_name: &str, interval: Interval) -> Result<Liter
         ));
     }
 
-    if let Some(literal) = args.get("in", 1) {
-        if let Ok(res) = Literal::get_value::<bool>(
+    if let Some(literal) = args.get("in", 1)
+        && let Ok(res) = Literal::get_value::<bool>(
             &literal.primitive,
             flow_name,
             interval,
             ERROR_FIND.to_owned(),
-        ) {
-            case = *res;
-        }
+        )
+    {
+        case = *res;
     }
 
     match (args.get("value", 0), string) {
@@ -171,7 +171,7 @@ pub fn find(args: ArgsType, flow_name: &str, interval: Interval) -> Result<Liter
 pub fn random(interval: Interval) -> Result<Literal, ErrorInfo> {
     let mut rng = rand::thread_rng();
 
-    let random: f64 = rng.gen();
+    let random: f64 = rng.r#gen();
 
     Ok(PrimitiveFloat::get_literal(random, interval))
 }
@@ -218,16 +218,16 @@ pub fn uuid_command(
             match arg {
                 arg if arg == "v1" => {
                     let time = SystemTime::now().duration_since(UNIX_EPOCH)?;
-                    let context = ContextV1::new(rand::thread_rng().gen());
+                    let context = ContextV1::new(rand::thread_rng().r#gen());
                     let ts = Timestamp::from_unix(&context, time.as_secs(), time.subsec_nanos());
 
                     let node_id = &[
-                        rand::thread_rng().gen(),
-                        rand::thread_rng().gen(),
-                        rand::thread_rng().gen(),
-                        rand::thread_rng().gen(),
-                        rand::thread_rng().gen(),
-                        rand::thread_rng().gen(),
+                        rand::thread_rng().r#gen(),
+                        rand::thread_rng().r#gen(),
+                        rand::thread_rng().r#gen(),
+                        rand::thread_rng().r#gen(),
+                        rand::thread_rng().r#gen(),
+                        rand::thread_rng().r#gen(),
                     ];
                     Ok(PrimitiveString::get_literal(
                         &Uuid::new_v1(ts, node_id).hyphenated().to_string(),

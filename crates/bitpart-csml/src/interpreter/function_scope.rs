@@ -1,7 +1,7 @@
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
 use crate::data::{
-    ast::*, primitive::PrimitiveNull, warnings::DisplayWarnings, Data, Literal, MessageData, MSG,
+    Data, Literal, MSG, MessageData, ast::*, primitive::PrimitiveNull, warnings::DisplayWarnings,
 };
 use crate::error_format::*;
 use crate::interpreter::{
@@ -41,7 +41,7 @@ async fn interpret_function_scope(
             Expr::ObjectExpr(fun) => {
                 message_data = match_actions(fun, message_data, data, sender).await?
             }
-            Expr::IfExpr(ref if_statement) => {
+            Expr::IfExpr(if_statement) => {
                 message_data =
                     solve_if_statement(if_statement, message_data, data, instruction_info, sender)
                         .await?;

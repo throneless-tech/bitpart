@@ -2,13 +2,13 @@ use crate::data::data::PreviousInfo;
 use crate::data::position::Position;
 use crate::data::warnings::DisplayWarnings;
 use crate::data::{
+    Literal, MSG, Memory, MemoryType, MessageData,
     ast::*,
     context::ContextStepInfo,
     data::Data,
     literal::ContentType,
     message::*,
-    primitive::{closure::capture_variables, PrimitiveNull, PrimitiveString},
-    Literal, Memory, MemoryType, MessageData, MSG,
+    primitive::{PrimitiveNull, PrimitiveString, closure::capture_variables},
 };
 use crate::error_format::*;
 use crate::interpreter::variable_handler::{
@@ -546,7 +546,7 @@ pub async fn match_actions(
             let mut step_opt = None;
 
             match (previous_type, &mut data.previous_info) {
-                (PreviousType::Flow(_interval), Some(ref mut previous_info)) => {
+                (PreviousType::Flow(_interval), Some(previous_info)) => {
                     let tmp_f = previous_info.flow.clone();
                     flow_opt = Some(tmp_f.clone());
 
@@ -557,7 +557,7 @@ pub async fn match_actions(
                     data.context.flow = tmp_f;
                     data.context.step = ContextStepInfo::Normal("start".to_string());
                 }
-                (PreviousType::Step(_interval), Some(ref mut previous_info)) => {
+                (PreviousType::Step(_interval), Some(previous_info)) => {
                     let (tmp_s, tmp_f) = previous_info.step_at_flow.clone();
                     flow_opt = Some(tmp_f.clone());
                     step_opt = Some(tmp_s.clone());
