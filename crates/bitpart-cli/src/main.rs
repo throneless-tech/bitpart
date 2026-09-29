@@ -20,12 +20,21 @@ use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
 use futures_util::{Sink, SinkExt, StreamExt};
 use http::HeaderValue;
+use rustls::{
+    ClientConfig, RootCertStore,
+    pki_types::{CertificateDer, pem::PemObject},
+};
 use serde_json::json;
 use similar::{ChangeTag, TextDiff};
 use std::io;
-use std::{fs, marker::Unpin, path::PathBuf};
+use std::sync::Arc;
+use std::{
+    fs,
+    marker::Unpin,
+    path::{Path, PathBuf},
+};
 use tokio_tungstenite::{
-    connect_async,
+    Connector, connect_async_tls_with_config,
     tungstenite::client::IntoClientRequest,
     tungstenite::protocol::{CloseFrame, Message, frame::coding::CloseCode},
 };
@@ -44,6 +53,14 @@ struct Cli {
     /// IP address and port to connect to
     #[arg(short, long)]
     connect: String,
+
+    /// Connect over TLS (wss://); the server must be started with --tls-cert and --tls-key
+    #[arg(long)]
+    tls: bool,
+
+    /// PEM file with the CA certificate(s) to trust instead of the public web roots, e.g. a private CA or a self-signed server certificate (implies --tls)
+    #[arg(long)]
+    ca_cert: Option<PathBuf>,
 
     /// Verbosity
     #[command(flatten)]
@@ -188,6 +205,35 @@ enum Commands {
     },
 }
 
+/// Websocket URL of the server's client API.
+fn server_url(connect: &str, tls: bool) -> Result<Url> {
+    let scheme = if tls { "wss" } else { "ws" };
+    Url::parse(&format!("{scheme}://{connect}/ws"))
+        .with_context(|| format!("invalid server address `{connect}`"))
+}
+
+/// TLS connector that trusts only the CA certificate(s) in the PEM file at `path`.
+fn ca_connector(path: &Path) -> Result<Connector> {
+    let pem = fs::read(path)
+        .with_context(|| format!("failed to read CA certificate `{}`", path.display()))?;
+    let mut roots = RootCertStore::empty();
+    for cert in CertificateDer::pem_slice_iter(&pem) {
+        let cert =
+            cert.with_context(|| format!("failed to parse CA certificate `{}`", path.display()))?;
+        roots
+            .add(cert)
+            .with_context(|| format!("invalid CA certificate in `{}`", path.display()))?;
+    }
+    if roots.is_empty() {
+        bail!("no certificates found in `{}`", path.display());
+    }
+    Ok(Connector::Rustls(Arc::new(
+        ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth(),
+    )))
+}
+
 fn flow_name(path: &std::path::Path) -> Result<String> {
     path.file_stem()
         .and_then(|s| s.to_str())
@@ -238,12 +284,16 @@ async fn main() -> Result<()> {
     let connect = args.connect;
     let auth = args.auth;
 
-    let url = Url::parse(&format!("ws://{}/ws", connect)).unwrap();
+    // Bitpart only enables rustls' `ring` backend, so make it the process default
+    // explicitly instead of relying on crate feature unification to pick one.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let url = server_url(&connect, args.tls || args.ca_cert.is_some())?;
+    let connector = args.ca_cert.as_deref().map(ca_connector).transpose()?;
     let mut request = url.into_client_request().unwrap();
     let headers = request.headers_mut();
     let auth_value = HeaderValue::from_str(&auth).unwrap();
     headers.insert("Authorization", auth_value);
-    let ws_stream = match connect_async(request).await {
+    let ws_stream = match connect_async_tls_with_config(request, None, false, connector).await {
         Ok((stream, response)) => {
             debug!("Handshake for client has been completed");
             // This will be the HTTP response, same as with server this is the last moment we
@@ -596,4 +646,51 @@ async fn main() -> Result<()> {
     .await
     .unwrap();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn server_url_uses_wss_only_with_tls() {
+        assert_eq!(
+            server_url("127.0.0.1:3000", false).unwrap().as_str(),
+            "ws://127.0.0.1:3000/ws"
+        );
+        assert_eq!(
+            server_url("bitpart.example.org:3000", true)
+                .unwrap()
+                .as_str(),
+            "wss://bitpart.example.org:3000/ws"
+        );
+        assert!(server_url("not a host:port", true).is_err());
+    }
+
+    #[test]
+    fn ca_connector_loads_pem_certificates() {
+        let dir = tempfile::tempdir().unwrap();
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_owned()]).unwrap();
+        let path = dir.path().join("ca.pem");
+        fs::write(&path, cert.serialize_pem().unwrap()).unwrap();
+        assert!(matches!(ca_connector(&path), Ok(Connector::Rustls(_))));
+    }
+
+    #[test]
+    fn ca_connector_rejects_missing_empty_and_invalid_files() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(ca_connector(&dir.path().join("missing.pem")).is_err());
+
+        let empty = dir.path().join("empty.pem");
+        fs::write(&empty, "").unwrap();
+        assert!(ca_connector(&empty).is_err());
+
+        let invalid = dir.path().join("invalid.pem");
+        fs::write(
+            &invalid,
+            "-----BEGIN CERTIFICATE-----\nbm90IGEgY2VydGlmaWNhdGU=\n-----END CERTIFICATE-----\n",
+        )
+        .unwrap();
+        assert!(ca_connector(&invalid).is_err());
+    }
 }

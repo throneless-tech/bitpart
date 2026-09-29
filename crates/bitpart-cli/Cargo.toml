@@ -18,6 +18,7 @@ ctrlc = "3.4.5"
 futures-util = "0.3.31"
 http = "1.2.0"
 qr2term = "0.3.3"
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std", "tls12"] }
 serde = { version = "1.0.204", features = ["derive"] }
 serde_json = "1.0.132"
 similar = "2.7.0"
@@ -31,3 +32,5 @@ url = "2.5.4"
 uuid = { version = "1.16.0", features = ["v4"] }
 
 [dev-dependencies]
+rcgen = "0.12.1"
+tempfile = "3.13.0"
