@@ -51,7 +51,7 @@ impl ChannelBackend for MockChannelBackend {
 }
 
 #[cfg(test)]
-pub async fn get_test_socket() -> (TestWebSocket, tempfile::TempDir) {
+pub async fn test_state() -> (ApiState, tempfile::TempDir) {
     // File-backed: deadpool's `:memory:` gives each connection its own
     // private DB.
     let dir = tempfile::tempdir().expect("tempdir");
@@ -73,6 +73,12 @@ pub async fn get_test_socket() -> (TestWebSocket, tempfile::TempDir) {
         manager: Arc::new(MockChannelBackend),
         metrics: crate::metrics::MetricsRegistry::new(),
     };
+    (state, dir)
+}
+
+#[cfg(test)]
+pub async fn get_test_socket() -> (TestWebSocket, tempfile::TempDir) {
+    let (state, dir) = test_state().await;
 
     let app = Router::new()
         .route("/ws", any(socket::handler))

@@ -20,6 +20,7 @@ mod csml;
 pub mod db;
 mod metrics;
 mod socket;
+mod tls;
 mod utils;
 
 use axum::{
@@ -89,6 +90,16 @@ struct Cli {
     /// Enable Opentelemetry
     #[arg(short, long)]
     opentelemetry: bool,
+
+    /// Path to a PEM-encoded TLS certificate (chain); serves the client API over HTTPS/WSS
+    #[arg(long, requires = "tls_key")]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    tls_cert: Option<String>,
+
+    /// Path to the PEM-encoded private key for the TLS certificate
+    #[arg(long, requires = "tls_cert")]
+    #[serde(skip_serializing_if = "::std::option::Option::is_none")]
+    tls_key: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -110,6 +121,12 @@ struct Config {
 
     /// Enable Opentelemetry
     opentelemetry: bool,
+
+    /// Path to a PEM-encoded TLS certificate (chain)
+    tls_cert: Option<String>,
+
+    /// Path to the PEM-encoded private key for the TLS certificate
+    tls_key: Option<String>,
 }
 
 /// Placeholder rendered in `Debug` output in place of sensitive values.
@@ -124,6 +141,8 @@ impl std::fmt::Debug for Cli {
             .field("database", &self.database)
             .field("key", &self.key.as_ref().map(|_| REDACTED))
             .field("opentelemetry", &self.opentelemetry)
+            .field("tls_cert", &self.tls_cert)
+            .field("tls_key", &self.tls_key)
             .finish()
     }
 }
@@ -137,6 +156,8 @@ impl std::fmt::Debug for Config {
             .field("database", &self.database)
             .field("key", &REDACTED)
             .field("opentelemetry", &self.opentelemetry)
+            .field("tls_cert", &self.tls_cert)
+            .field("tls_key", &self.tls_key)
             .finish()
     }
 }
@@ -268,6 +289,20 @@ async fn main() -> Result<()> {
         .merge(Serialized::defaults(Cli::parse()))
         .extract()?;
 
+    // Validate the TLS settings before any channel starts, so a bad certificate fails fast.
+    let tls_files =
+        tls::TlsFiles::from_config(server.tls_cert.as_deref(), server.tls_key.as_deref())?;
+    let tls_config = match tls_files {
+        Some(_) if server.bind.parse::<SocketAddr>().is_err() => {
+            return Err(BitpartErrorKind::Tls(
+                "TLS requires binding to an IP address and port, not a Unix socket".to_owned(),
+            )
+            .into());
+        }
+        Some(files) => Some(files.load().await?),
+        None => None,
+    };
+
     let metrics_registry = metrics::MetricsRegistry::new();
     let _signal_instruments;
     if server.opentelemetry {
@@ -335,15 +370,33 @@ async fn main() -> Result<()> {
     }
 
     if let Ok(addr) = server.bind.parse::<SocketAddr>() {
-        let listener = tokio::net::TcpListener::bind(addr)
-            .await
-            .expect("Unable to bind to address");
-        axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .with_graceful_shutdown(async move { tracker.wait().await })
-        .await?;
+        if let Some(config) = tls_config {
+            let handle = axum_server::Handle::new();
+            {
+                let handle = handle.clone();
+                tokio::spawn(async move {
+                    tracker.wait().await;
+                    handle.graceful_shutdown(None);
+                });
+            }
+            info!("Serving the client API over TLS on {addr}");
+            tls::serve(addr, config, app, handle).await?;
+        } else {
+            if tls::exposed_without_tls(&addr, false) {
+                eprintln!(
+                    "WARNING: Bitpart is listening on {addr} without TLS. The authorization token and all API traffic can be read and modified by anyone on the network path. Bind to a loopback address or set --tls-cert and --tls-key."
+                );
+            }
+            let listener = tokio::net::TcpListener::bind(addr)
+                .await
+                .expect("Unable to bind to address");
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<SocketAddr>(),
+            )
+            .with_graceful_shutdown(async move { tracker.wait().await })
+            .await?;
+        }
     } else {
         let Ok(path) = server.bind.parse::<PathBuf>();
         let _ = tokio::fs::remove_file(&path).await;

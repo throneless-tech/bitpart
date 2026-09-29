@@ -92,6 +92,8 @@ pub enum BitpartErrorKind {
     InvalidDeviceId(#[from] InvalidDeviceId),
     #[error("Signal Protocol error: `{0}`")]
     SignalProtocol(#[from] SignalProtocolError),
+    #[error("TLS error: `{0}`")]
+    Tls(String),
 }
 
 impl<S: std::error::Error> From<presage::Error<S>> for BitpartErrorKind {

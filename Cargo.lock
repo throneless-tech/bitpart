@@ -155,6 +155,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
+name = "arc-swap"
+version = "1.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c049c0be4daef0b145cb3555416b3b8ef5b7888a38aea1a3a155801fe7b0810b"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -342,6 +351,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-server"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1df331683d982a0b9492b38127151e6453639cd34926eb9c07d4cd8c6d22bfc"
+dependencies = [
+ "arc-swap",
+ "bytes",
+ "either",
+ "fs-err",
+ "http 1.4.2",
+ "http-body 1.0.1",
+ "hyper 1.10.1",
+ "hyper-util",
+ "pin-project-lite",
+ "rustls 0.23.41",
+ "rustls-pki-types",
+ "tokio",
+ "tokio-rustls 0.26.4",
+ "tower-service",
+]
+
+[[package]]
 name = "axum-test"
 version = "17.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -454,6 +485,7 @@ dependencies = [
  "async-recursion",
  "async-trait",
  "axum",
+ "axum-server",
  "axum-test",
  "base64 0.22.1",
  "bincode",
@@ -475,14 +507,17 @@ dependencies = [
  "presage",
  "presage-store-bitpart",
  "rand 0.8.6",
+ "rcgen",
  "regex",
  "rusqlite",
+ "rustls 0.23.41",
  "serde",
  "serde_json",
  "subtle",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-tungstenite 0.26.2",
  "tokio-util",
  "tracing",
  "tracing-log",
@@ -505,9 +540,12 @@ dependencies = [
  "futures-util",
  "http 1.4.2",
  "qr2term",
+ "rcgen",
+ "rustls 0.23.41",
  "serde",
  "serde_json",
  "similar",
+ "tempfile",
  "tokio",
  "tokio-tungstenite 0.26.2",
  "tracing",
@@ -1550,6 +1588,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
+]
+
+[[package]]
+name = "fs-err"
+version = "3.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b91aa448ca50d7e79433bdf3ee8d99215430d2ec02ade5aefab2a073a1822e8a"
+dependencies = [
+ "autocfg",
+ "tokio",
 ]
 
 [[package]]

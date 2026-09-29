@@ -41,6 +41,16 @@ Or run it as follows:
 
 Bitpart can also read configuration parameters from environment variables corresponding to its command-line parameters. For example, you could specify the encryption key via defining the environment variable `BITPART_KEY`.
 
+### Serving over TLS
+
+By default the client API is served in cleartext, which is only safe when `<BIND>` is a loopback address or a Unix socket. If clients connect from other hosts, give Bitpart a PEM-encoded certificate (chain) and private key so the authorization token and API traffic are encrypted:
+
+```
+  bitpart --bind <BIND> --auth <AUTH> --database <DATABASE> --key <KEY> --tls-cert <CERT.pem> --tls-key <KEY.pem>
+```
+
+These can also be set with `BITPART_TLS_CERT` and `BITPART_TLS_KEY`. Bitpart prints a warning at startup when it listens on a non-loopback address without TLS.
+
 ### Container
 
 Bitpart is available in a Docker-compatible container. For example, to run Bitpart on port 3000 and mounting a database from the current directory:
@@ -67,6 +77,12 @@ For example, to list available bots on a Bitpart server listening at `<BIND>` an
 
 ```
   bitpart-cli --auth <AUTH> --connect <BIND> list
+```
+
+If the server is serving over TLS, pass `--tls`. If its certificate is not issued by a publicly trusted CA (for example a private CA or a self-signed certificate that is not itself marked as a CA), pass that certificate's PEM file with `--ca-cert` instead:
+
+```
+  bitpart-cli --auth <AUTH> --connect <HOST>:<PORT> --ca-cert <CA.pem> list
 ```
 
 ### Adding a bot and connecting it to Signal
