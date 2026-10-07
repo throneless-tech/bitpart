@@ -466,16 +466,47 @@ async fn main() -> Result<()> {
                                 );
                             }
                             res_type if res_type == "ReadBot" => {
+                                let Some(bot) = res.response.get("bot") else {
+                                    println!("No such bot");
+                                    continue;
+                                };
                                 println!(
                                     "{}",
                                     unescaper::unescape(
-                                        &serde_json::to_string_pretty(
-                                            res.response.get("bot").unwrap()
-                                        )
-                                        .unwrap(),
+                                        &serde_json::to_string_pretty(bot).unwrap(),
                                     )
                                     .unwrap()
                                 );
+                                let channels = res
+                                    .response
+                                    .get("channels")
+                                    .and_then(|c| c.as_array())
+                                    .map(Vec::as_slice)
+                                    .unwrap_or_default();
+                                if channels.is_empty() {
+                                    println!("Channels: none");
+                                } else {
+                                    println!("Channels:");
+                                    for c in channels {
+                                        let field = |k: &str| {
+                                            c.get(k)
+                                                .map(|v| {
+                                                    v.as_str().map_or_else(
+                                                        || v.to_string(),
+                                                        str::to_owned,
+                                                    )
+                                                })
+                                                .unwrap_or_default()
+                                        };
+                                        println!(
+                                            "  {}: {} (sent {}, received {})",
+                                            field("channel_id"),
+                                            field("status"),
+                                            field("sent"),
+                                            field("received"),
+                                        );
+                                    }
+                                }
                             }
                             res_type if res_type == "BotVersions" => {
                                 res.response
