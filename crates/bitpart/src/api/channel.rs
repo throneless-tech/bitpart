@@ -52,6 +52,7 @@ pub async fn link_channel(
         tracker: state.tracker.clone(),
         sender: send,
         metrics: state.metrics.clone(),
+        limits: state.limits,
     };
     state.manager.send(msg).await?;
     Ok(recv.await?)
@@ -73,6 +74,7 @@ pub async fn start_channel(row_id: &str, state: &mut ApiState) -> Result<String>
         tracker: state.tracker.clone(),
         sender: send,
         metrics: state.metrics.clone(),
+        limits: state.limits,
     };
     state.manager.send(msg).await?;
     Ok(recv.await?)
@@ -95,6 +97,7 @@ pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
             tracker: state.tracker.clone(),
             sender: send,
             metrics: state.metrics.clone(),
+            limits: state.limits,
         };
         state.manager.send(msg).await?;
         Ok(recv.await?)

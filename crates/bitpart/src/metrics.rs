@@ -16,9 +16,10 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::{Mutex, RwLock};
 
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 type MetricsMap = HashMap<String, (String, Arc<ChannelMetrics>)>;
@@ -56,7 +57,18 @@ impl ConnectionStatus {
 pub struct ChannelMetrics {
     sent: AtomicU64,
     received: AtomicU64,
+    dropped: AtomicU64,
     status: AtomicU8,
+    send: Mutex<Option<SendOutcome>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "send_status", rename_all = "snake_case")]
+pub enum SendOutcome {
+    Ok,
+    RateLimited { retry_at: Option<DateTime<Utc>> },
+    ChallengeRequired { challenge_token: String },
+    Failing,
 }
 
 impl Default for ChannelMetrics {
@@ -64,7 +76,9 @@ impl Default for ChannelMetrics {
         Self {
             sent: AtomicU64::new(0),
             received: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
             status: AtomicU8::new(ConnectionStatus::Unlinked.as_u8()),
+            send: Mutex::new(None),
         }
     }
 }
@@ -82,11 +96,23 @@ impl ChannelMetrics {
         self.status.store(status.as_u8(), Ordering::Relaxed);
     }
 
+    pub fn record_send(&self, outcome: SendOutcome) {
+        match outcome {
+            SendOutcome::Ok => self.incr_sent(),
+            _ => {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        *self.send.lock().unwrap() = Some(outcome);
+    }
+
     pub fn snapshot(&self) -> ChannelMetricsSnapshot {
         ChannelMetricsSnapshot {
             sent: self.sent.load(Ordering::Relaxed),
             received: self.received.load(Ordering::Relaxed),
+            dropped: self.dropped.load(Ordering::Relaxed),
             status: ConnectionStatus::from_u8(self.status.load(Ordering::Relaxed)),
+            send: self.send.lock().unwrap().clone(),
         }
     }
 }
@@ -95,7 +121,10 @@ impl ChannelMetrics {
 pub struct ChannelMetricsSnapshot {
     pub sent: u64,
     pub received: u64,
+    pub dropped: u64,
     pub status: ConnectionStatus,
+    #[serde(flatten)]
+    pub send: Option<SendOutcome>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -158,6 +187,35 @@ impl MetricsRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn send_outcomes_update_counts_and_serialize_flat() {
+        let metrics = ChannelMetrics::default();
+        let json = |m: &ChannelMetrics| serde_json::to_value(m.snapshot()).unwrap();
+
+        assert!(json(&metrics).get("send_status").is_none());
+
+        metrics.record_send(SendOutcome::Ok);
+        let v = json(&metrics);
+        assert_eq!(v["sent"], 1);
+        assert_eq!(v["dropped"], 0);
+        assert_eq!(v["send_status"], "ok");
+
+        metrics.record_send(SendOutcome::ChallengeRequired {
+            challenge_token: "tok".to_owned(),
+        });
+        let v = json(&metrics);
+        assert_eq!(v["sent"], 1);
+        assert_eq!(v["dropped"], 1);
+        assert_eq!(v["send_status"], "challenge_required");
+        assert_eq!(v["challenge_token"], "tok");
+
+        metrics.record_send(SendOutcome::RateLimited { retry_at: None });
+        let v = json(&metrics);
+        assert_eq!(v["dropped"], 2);
+        assert_eq!(v["send_status"], "rate_limited");
+        assert!(v.get("challenge_token").is_none());
+    }
 
     #[test]
     fn channels_of_one_bot_are_tracked_separately() {

@@ -53,7 +53,8 @@ use presage::{
 use presage_store_bitpart::{BitpartStore, group_ref};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeSet;
 use std::time::UNIX_EPOCH;
 use tokio::{
     runtime::Builder as TokioBuilder,
@@ -68,7 +69,10 @@ use uuid;
 
 use crate::api;
 use crate::db;
-use crate::metrics::{ChannelMetrics, ConnectionStatus, MetricsRegistry};
+use crate::limits::{ChannelLimiters, RateLimits};
+use crate::metrics::{ChannelMetrics, ConnectionStatus, MetricsRegistry, SendOutcome};
+use chrono::Utc;
+use governor::DefaultKeyedRateLimiter;
 use std::sync::Arc;
 
 // === manager + dispatch ===
@@ -95,6 +99,7 @@ pub struct ChannelMessage {
     pub tracker: TaskTracker,
     pub sender: tokio_oneshot::Sender<String>,
     pub metrics: MetricsRegistry,
+    pub limits: RateLimits,
 }
 
 const CHANNEL_MESSAGE_BUFFER: usize = 32;
@@ -159,6 +164,8 @@ pub struct ChannelState {
     channel_id: String,
     pool: bitpart_common::db::Pool,
     metrics: Arc<ChannelMetrics>,
+    limiters: Arc<ChannelLimiters>,
+    pending_purges: RefCell<BTreeSet<String>>,
 }
 
 // === device linking ===
@@ -167,6 +174,7 @@ async fn start_channel_recv(
     id: String,
     pool: bitpart_common::db::Pool,
     metrics: MetricsRegistry,
+    limits: RateLimits,
     manager: &mut Cell<Manager<BitpartStore, Registered>>,
 ) -> Result<()> {
     let channel = crate::db::channel::get_by_id(&id, &pool)
@@ -178,6 +186,8 @@ async fn start_channel_recv(
         channel_id: id,
         pool,
         metrics: channel_metrics,
+        limiters: Arc::new(ChannelLimiters::new(&limits)),
+        pending_purges: RefCell::new(BTreeSet::new()),
     };
     receive(manager, &state).await?;
     Ok(())
@@ -191,6 +201,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
         tracker: _,
         sender,
         metrics,
+        limits,
     } = msg;
     match msg {
         ChannelMessageContents::LinkChannel {
@@ -235,6 +246,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                                     id,
                                     pool.clone(),
                                     metrics.clone(),
+                                    limits,
                                     &mut manager_ref).await;
                                 error!("Link device receiver channel exited early: {:?}", res);
                             }
@@ -263,7 +275,7 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
                             Ok(manager) => {
                                 let mut manager_ref = Cell::new(manager);
                                 let res =
-                                    start_channel_recv(id, pool.clone(), metrics.clone(), &mut manager_ref).await;
+                                    start_channel_recv(id, pool.clone(), metrics.clone(), limits, &mut manager_ref).await;
 
                                 error!(
                                     "Channel message StartChannel receive task exited early: {:?}",
@@ -326,8 +338,120 @@ enum Recipient {
     Group(GroupMasterKeyBytes),
 }
 
+const MAX_INLINE_RETRY: Duration = Duration::from_secs(2);
+const MIN_RETRY_WAIT: Duration = Duration::from_secs(1);
+
+enum SendFailure {
+    RateLimited(Option<Duration>),
+    ChallengeRequired(String),
+    Other,
+}
+
+fn classify<E: std::error::Error>(error: &presage::Error<E>) -> SendFailure {
+    use presage::libsignal_service::prelude::{MessageSenderError, ServiceError};
+    let rate_limited = |service: &ServiceError| match service {
+        ServiceError::RateLimitExceeded { retry_after } => Some(SendFailure::RateLimited(
+            retry_after.and_then(|d| d.to_std().ok()),
+        )),
+        ServiceError::ProofRequiredError(proof) => {
+            Some(SendFailure::ChallengeRequired(proof.token.clone()))
+        }
+        _ => None,
+    };
+    match error {
+        presage::Error::ServiceError(service) => rate_limited(service),
+        presage::Error::MessageSenderError(sender) => match sender.as_ref() {
+            MessageSenderError::ProofRequired { token, .. } => {
+                Some(SendFailure::ChallengeRequired(token.clone()))
+            }
+            MessageSenderError::ServiceError(service) => rate_limited(service),
+            _ => None,
+        },
+        _ => None,
+    }
+    .unwrap_or(SendFailure::Other)
+}
+
+fn inline_retry_wait(failure: &SendFailure) -> Option<Duration> {
+    match failure {
+        SendFailure::RateLimited(Some(wait)) if *wait <= MAX_INLINE_RETRY => {
+            Some((*wait).max(MIN_RETRY_WAIT))
+        }
+        _ => None,
+    }
+}
+
+fn outcome_of(failure: SendFailure) -> SendOutcome {
+    match failure {
+        SendFailure::RateLimited(wait) => SendOutcome::RateLimited {
+            retry_at: wait
+                .and_then(|w| chrono::Duration::from_std(w).ok())
+                .map(|w| Utc::now() + w),
+        },
+        SendFailure::ChallengeRequired(token) => SendOutcome::ChallengeRequired {
+            challenge_token: token,
+        },
+        SendFailure::Other => SendOutcome::Failing,
+    }
+}
+
+enum Outgoing {
+    Contact(ServiceId),
+    Group(GroupMasterKeyBytes),
+}
+
+async fn deliver<S: Store>(
+    manager: &mut Manager<S, Registered>,
+    metrics: &ChannelMetrics,
+    to: Outgoing,
+    body: ContentBody,
+    timestamp: u64,
+) -> Result<()> {
+    let mut retried = false;
+    loop {
+        let result = match &to {
+            Outgoing::Contact(service_id) => {
+                manager
+                    .send_message(*service_id, body.clone(), timestamp)
+                    .await
+            }
+            Outgoing::Group(master_key) => {
+                manager
+                    .send_message_to_group(master_key, body.clone(), timestamp)
+                    .await
+            }
+        };
+        let error = match result {
+            Ok(()) => {
+                metrics.record_send(SendOutcome::Ok);
+                return Ok(());
+            }
+            Err(error) => error,
+        };
+        let failure = classify(&error);
+        if !retried
+            && matches!(to, Outgoing::Contact(_))
+            && let Some(wait) = inline_retry_wait(&failure)
+        {
+            debug!(?wait, "rate limited by Signal, retrying once");
+            retried = true;
+            sleep(wait).await;
+            continue;
+        }
+        warn!(%error, "message dropped");
+        metrics.record_send(outcome_of(failure));
+        return Err(BitpartErrorKind::PresageStore(error.to_string()).into());
+    }
+}
+
+async fn throttle(limiter: &DefaultKeyedRateLimiter<Uuid>, recipient: Uuid) {
+    limiter.until_key_ready(&recipient).await;
+}
+
 async fn send<S: Store>(
     manager: &mut Manager<S, Registered>,
+    limiter: &DefaultKeyedRateLimiter<Uuid>,
+    metrics: &ChannelMetrics,
     recipient: Recipient,
     msg: String,
     attachments: Vec<AttachmentPointer>,
@@ -349,10 +473,15 @@ async fn send<S: Store>(
             if let ContentBody::DataMessage(d) = &mut data_message {
                 d.timestamp = Some(timestamp);
             }
-            manager
-                .send_message(ServiceId::Aci(uuid.into()), data_message, timestamp)
-                .await
-                .map_err(|e| BitpartErrorKind::PresageStore(e.to_string()))?;
+            throttle(limiter, uuid).await;
+            deliver(
+                manager,
+                metrics,
+                Outgoing::Contact(ServiceId::Aci(uuid.into())),
+                data_message,
+                timestamp,
+            )
+            .await?;
         }
         Recipient::Group(master_key) => {
             info!("sending message to group");
@@ -370,10 +499,25 @@ async fn send<S: Store>(
             if let ContentBody::DataMessage(d) = &mut data_message {
                 d.timestamp = Some(timestamp);
             }
-            manager
-                .send_message_to_group(&master_key, data_message, timestamp)
-                .await
-                .map_err(|e| BitpartErrorKind::PresageStore(e.to_string()))?;
+            let me = manager.registration_data().service_ids.aci;
+            if let Ok(Some(group)) = manager.store().group(master_key).await {
+                for member in group
+                    .members
+                    .iter()
+                    .map(|m| m.aci.into())
+                    .filter(|a: &Uuid| *a != me)
+                {
+                    throttle(limiter, member).await;
+                }
+            }
+            deliver(
+                manager,
+                metrics,
+                Outgoing::Group(master_key),
+                data_message,
+                timestamp,
+            )
+            .await?;
         }
     }
 
@@ -382,6 +526,8 @@ async fn send<S: Store>(
 
 async fn send_delivery_receipt<S: Store>(
     manager: &mut Manager<S, Registered>,
+    limiter: &DefaultKeyedRateLimiter<Uuid>,
+    metrics: &ChannelMetrics,
     content: &Content,
 ) -> Result<()> {
     // Only acknowledge actual inbound messages, not sync/receipt/typing content.
@@ -400,10 +546,15 @@ async fn send_delivery_receipt<S: Store>(
     }
     .into();
 
-    manager
-        .send_message(content.metadata.sender, receipt, now)
-        .await
-        .map_err(|e| BitpartErrorKind::PresageStore(e.to_string()))?;
+    throttle(limiter, content.metadata.sender.raw_uuid()).await;
+    deliver(
+        manager,
+        metrics,
+        Outgoing::Contact(content.metadata.sender),
+        receipt,
+        now,
+    )
+    .await?;
 
     Ok(())
 }
@@ -649,8 +800,45 @@ fn describe_attachments(content: &Content) -> Vec<serde_json::Value> {
         .collect()
 }
 
+fn take_due_purges(
+    pending: &RefCell<BTreeSet<String>>,
+    limiter: &DefaultKeyedRateLimiter<String>,
+) -> Vec<String> {
+    let mut pending = pending.borrow_mut();
+    let due: Vec<String> = pending
+        .iter()
+        .filter(|user| limiter.check_key(user).is_ok())
+        .cloned()
+        .collect();
+    for user in &due {
+        pending.remove(user);
+    }
+    due
+}
+
+async fn purge_signal_state(channel_id: &str, pool: &bitpart_common::db::Pool, user_id: &str) {
+    let store = match BitpartStore::open(channel_id, pool, OnNewIdentity::Trust).await {
+        Ok(store) => store,
+        Err(error) => {
+            warn!(%error, "could not open store to purge signal state");
+            return;
+        }
+    };
+    let errors = store.purge_conversation(user_id).await;
+    if errors.is_empty() {
+        info!("purged signal state for deleted conversation");
+    } else {
+        warn!(
+            count = errors.len(),
+            "purged signal state with errors, some data may remain"
+        );
+    }
+}
+
 async fn send_expire_timer<S: Store>(
     manager: &mut Manager<S, Registered>,
+    limiter: &DefaultKeyedRateLimiter<Uuid>,
+    metrics: &ChannelMetrics,
     uuid: Uuid,
     timer: u32,
 ) -> Result<()> {
@@ -665,10 +853,15 @@ async fn send_expire_timer<S: Store>(
         timestamp: Some(timestamp),
         ..Default::default()
     };
-    manager
-        .send_message(ServiceId::Aci(uuid.into()), data_message, timestamp)
-        .await
-        .map_err(|e| BitpartErrorKind::PresageStore(e.to_string()))?;
+    throttle(limiter, uuid).await;
+    deliver(
+        manager,
+        metrics,
+        Outgoing::Contact(ServiceId::Aci(uuid.into())),
+        data_message.into(),
+        timestamp,
+    )
+    .await?;
     Ok(())
 }
 
@@ -712,7 +905,7 @@ async fn reply<S: Store>(
             .flatten()
             .is_none_or(|(t, _)| t == 0)
     {
-        send_expire_timer(manager, uuid, timer).await?;
+        send_expire_timer(manager, &state.limiters.send, &state.metrics, uuid, timer).await?;
     }
 
     let event = SerializedEvent {
@@ -744,29 +937,25 @@ async fn reply<S: Store>(
         {
             send(
                 manager,
+                &state.limiters.send,
+                &state.metrics,
                 resolve_recipient(state, &reply_get_user_id(i, &user_id)).await?,
                 reply_get_text(i),
                 reply_get_attachments(i),
             )
-            .await
-            .map_err(|err| BitpartErrorKind::Signal(err.to_string()))?;
-            state.metrics.incr_sent();
+            .await?;
         }
     }
 
     if res.get("deleted").and_then(Value::as_bool).unwrap_or(false)
         && Uuid::try_parse(&user_id).is_ok()
     {
-        let store =
-            BitpartStore::open(&state.channel_id, &state.pool, OnNewIdentity::Trust).await?;
-        let errors = store.purge_conversation(&user_id).await;
-        if errors.is_empty() {
-            info!("purged signal state for deleted conversation");
+        if state.limiters.purge.check_key(&user_id).is_ok() {
+            state.pending_purges.borrow_mut().remove(&user_id);
+            purge_signal_state(&state.channel_id, &state.pool, &user_id).await;
         } else {
-            warn!(
-                count = errors.len(),
-                "purged signal state with errors, some data may remain"
-            );
+            info!("repeated deletion, deferring signal state purge");
+            state.pending_purges.borrow_mut().insert(user_id);
         }
     }
 
@@ -928,6 +1117,10 @@ async fn receive(
                     state.metrics.set_status(ConnectionStatus::Linked);
                     pin_mut!(messages);
                     while let Some(content) = messages.next().await {
+                        for user_id in take_due_purges(&state.pending_purges, &state.limiters.purge)
+                        {
+                            purge_signal_state(&state.channel_id, &state.pool, &user_id).await;
+                        }
                         match content {
                             Received::QueueEmpty => debug!("done with synchronization"),
                             Received::Contacts => debug!("got contacts synchronization"),
@@ -935,7 +1128,14 @@ async fn receive(
                                 if matches!(content.body, ContentBody::DataMessage(_)) {
                                     state.metrics.incr_received();
                                 }
-                                if let Err(err) = send_delivery_receipt(manager, &content).await {
+                                if let Err(err) = send_delivery_receipt(
+                                    manager,
+                                    &state.limiters.send,
+                                    &state.metrics,
+                                    &content,
+                                )
+                                .await
+                                {
                                     warn!("Failed to send delivery receipt: {:?}", err);
                                 }
                                 if let Err(err) =
@@ -994,6 +1194,122 @@ mod tests {
 
     const BOT: Uuid = Uuid::from_u128(0xB07);
     const OTHER: Uuid = Uuid::from_u128(0x07E);
+
+    type TestError = presage::Error<std::io::Error>;
+
+    fn rate_limited(seconds: Option<i64>) -> TestError {
+        presage::Error::ServiceError(
+            presage::libsignal_service::prelude::ServiceError::RateLimitExceeded {
+                retry_after: seconds.map(chrono::Duration::seconds),
+            },
+        )
+    }
+
+    #[test]
+    fn rate_limits_with_short_waits_retry_inline() {
+        for (seconds, expected) in [
+            (Some(0), Some(Duration::from_secs(1))),
+            (Some(1), Some(Duration::from_secs(1))),
+            (Some(2), Some(Duration::from_secs(2))),
+            (Some(3), None),
+            (Some(600), None),
+            (None, None),
+        ] {
+            let failure = classify(&rate_limited(seconds));
+            assert!(matches!(failure, SendFailure::RateLimited(_)));
+            assert_eq!(
+                inline_retry_wait(&failure),
+                expected,
+                "retry_after {seconds:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn proof_required_is_a_challenge_and_not_retried() {
+        let sender_error: TestError =
+            presage::libsignal_service::prelude::MessageSenderError::ProofRequired {
+                token: "tok".to_owned(),
+                options: vec!["captcha".to_owned()],
+            }
+            .into();
+        let service_error: TestError = presage::Error::ServiceError(
+            presage::libsignal_service::prelude::ServiceError::ProofRequiredError(
+                presage::libsignal_service::push_service::ProofRequired {
+                    token: "tok".to_owned(),
+                    options: vec!["captcha".to_owned()],
+                },
+            ),
+        );
+        for error in [sender_error, service_error] {
+            let failure = classify(&error);
+            assert!(matches!(&failure, SendFailure::ChallengeRequired(t) if t == "tok"));
+            assert_eq!(inline_retry_wait(&failure), None);
+            assert_eq!(
+                outcome_of(failure),
+                SendOutcome::ChallengeRequired {
+                    challenge_token: "tok".to_owned()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn other_errors_are_reported_as_failing() {
+        let error: TestError = presage::Error::ServiceError(
+            presage::libsignal_service::prelude::ServiceError::Unauthorized,
+        );
+        assert_eq!(outcome_of(classify(&error)), SendOutcome::Failing);
+    }
+
+    #[test]
+    fn dropped_rate_limit_reports_when_to_retry() {
+        let before = Utc::now();
+        let outcome = outcome_of(classify(&rate_limited(Some(600))));
+        let SendOutcome::RateLimited { retry_at: Some(at) } = outcome else {
+            panic!("expected a retry time, got {outcome:?}");
+        };
+        assert!(at >= before + chrono::Duration::seconds(600));
+        assert_eq!(
+            outcome_of(classify(&rate_limited(None))),
+            SendOutcome::RateLimited { retry_at: None }
+        );
+    }
+
+    #[test]
+    fn due_purges_respect_the_per_user_quota() {
+        let quota = governor::Quota::with_period(Duration::from_secs(3600))
+            .unwrap()
+            .allow_burst(std::num::NonZeroU32::new(1).unwrap());
+        let limiter = DefaultKeyedRateLimiter::keyed(quota);
+        let pending = RefCell::new(BTreeSet::from(["a".to_owned(), "b".to_owned()]));
+
+        assert!(limiter.check_key(&"a".to_owned()).is_ok());
+
+        assert_eq!(take_due_purges(&pending, &limiter), vec!["b".to_owned()]);
+        assert_eq!(*pending.borrow(), BTreeSet::from(["a".to_owned()]));
+        assert!(take_due_purges(&pending, &limiter).is_empty());
+    }
+
+    #[tokio::test]
+    async fn throttle_delays_only_the_busy_recipient() {
+        let quota = governor::Quota::with_period(Duration::from_millis(200))
+            .unwrap()
+            .allow_burst(std::num::NonZeroU32::new(2).unwrap());
+        let limiter = DefaultKeyedRateLimiter::keyed(quota);
+
+        let start = std::time::Instant::now();
+        throttle(&limiter, BOT).await;
+        throttle(&limiter, BOT).await;
+        assert!(start.elapsed() < Duration::from_millis(100));
+
+        throttle(&limiter, BOT).await;
+        assert!(start.elapsed() >= Duration::from_millis(150));
+
+        let other = std::time::Instant::now();
+        throttle(&limiter, OTHER).await;
+        assert!(other.elapsed() < Duration::from_millis(100));
+    }
 
     #[test]
     fn unmentioned_group_message_is_ignored() {

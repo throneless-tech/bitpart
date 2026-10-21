@@ -72,6 +72,7 @@ pub async fn get_test_socket() -> (TestWebSocket, tempfile::TempDir) {
         auth: "test".into(),
         manager: Arc::new(MockChannelBackend),
         metrics: crate::metrics::MetricsRegistry::new(),
+        limits: crate::limits::RateLimits::default(),
     };
 
     let app = Router::new()

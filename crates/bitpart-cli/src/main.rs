@@ -499,12 +499,28 @@ async fn main() -> Result<()> {
                                                 .unwrap_or_default()
                                         };
                                         println!(
-                                            "  {}: {} (sent {}, received {})",
+                                            "  {}: {} (sent {}, received {}, dropped {})",
                                             field("channel_id"),
                                             field("status"),
                                             field("sent"),
                                             field("received"),
+                                            field("dropped"),
                                         );
+                                        match c.get("send_status").and_then(|v| v.as_str()) {
+                                            Some("rate_limited") => println!(
+                                                "    last send: rate limited by Signal{}",
+                                                c.get("retry_at")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|t| format!(", retry after {t}"))
+                                                    .unwrap_or_default()
+                                            ),
+                                            Some("challenge_required") => println!(
+                                                "    last send: Signal requires a captcha, token {}",
+                                                field("challenge_token")
+                                            ),
+                                            Some("failing") => println!("    last send: failed"),
+                                            Some(_) | None => {}
+                                        }
                                     }
                                 }
                             }

@@ -22,6 +22,7 @@ use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::channels::signal;
+use crate::limits::RateLimits;
 use crate::metrics::MetricsRegistry;
 
 pub mod bot;
@@ -47,4 +48,5 @@ pub struct ApiState {
     pub tracker: TaskTracker,
     pub manager: Arc<dyn signal::ChannelBackend>,
     pub metrics: MetricsRegistry,
+    pub limits: RateLimits,
 }

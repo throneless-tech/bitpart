@@ -18,6 +18,7 @@ pub mod api;
 mod channels;
 mod csml;
 pub mod db;
+mod limits;
 mod metrics;
 mod socket;
 mod utils;
@@ -309,6 +310,7 @@ async fn main() -> Result<()> {
         tracker: tracker.clone(),
         manager: Arc::new(signal::SignalManager::new()),
         metrics: metrics_registry,
+        limits: limits::RateLimits::default(),
     };
     for channel in channels.iter() {
         let res = api::start_channel(&channel.id, &mut state).await?;
