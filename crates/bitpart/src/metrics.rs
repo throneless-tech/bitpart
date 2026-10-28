@@ -96,6 +96,22 @@ impl ChannelMetrics {
         self.status.store(status.as_u8(), Ordering::Relaxed);
     }
 
+    pub fn pending_challenge(&self) -> Option<String> {
+        match &*self.send.lock().unwrap() {
+            Some(SendOutcome::ChallengeRequired { challenge_token }) => {
+                Some(challenge_token.clone())
+            }
+            _ => None,
+        }
+    }
+
+    pub fn clear_challenge(&self) {
+        let mut send = self.send.lock().unwrap();
+        if matches!(*send, Some(SendOutcome::ChallengeRequired { .. })) {
+            *send = None;
+        }
+    }
+
     pub fn record_send(&self, outcome: SendOutcome) {
         match outcome {
             SendOutcome::Ok => self.incr_sent(),
@@ -215,6 +231,27 @@ mod tests {
         assert_eq!(v["dropped"], 2);
         assert_eq!(v["send_status"], "rate_limited");
         assert!(v.get("challenge_token").is_none());
+    }
+
+    #[test]
+    fn answered_challenge_is_cleared_but_drops_are_kept() {
+        let metrics = ChannelMetrics::default();
+        assert_eq!(metrics.pending_challenge(), None);
+
+        metrics.record_send(SendOutcome::ChallengeRequired {
+            challenge_token: "tok".to_owned(),
+        });
+        assert_eq!(metrics.pending_challenge().as_deref(), Some("tok"));
+
+        metrics.clear_challenge();
+        assert_eq!(metrics.pending_challenge(), None);
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.send, None);
+        assert_eq!(snapshot.dropped, 1);
+
+        metrics.record_send(SendOutcome::Failing);
+        metrics.clear_challenge();
+        assert_eq!(metrics.snapshot().send, Some(SendOutcome::Failing));
     }
 
     #[test]

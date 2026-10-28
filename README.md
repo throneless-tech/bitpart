@@ -95,6 +95,34 @@ A bot can have several channels, each linked to a different Signal account; give
 
 After you enter this command, a QR code will be displayed. In your Signal client, go to _Settings -> Linked Devices -> Link new device_ and take a picture of the QR code. After a few seconds, your bot will finish linking with Signal. From another Signal device, send a message to the number or username associated with the bot (**NOTE**: unless you pass `--profile-name`, the bot will take on the profile information of the linked device) and it should reply!
 
+### Checking a bot's status
+
+To see a bot's definition and the state of each of its channels:
+
+```
+  bitpart-cli --auth <AUTH> --connect <BIND> describe --id <BOT_ID>
+```
+
+After the bot definition, each channel is listed with its connection status (`linked`, `failing` or `unlinked`) and how many messages it has sent, received and dropped since the server started. If the channel's most recent send failed, a line underneath says why: Signal rate-limited it (with the time after which it can send again), Signal requires a captcha (with a challenge token), or the send failed for another reason. A dropped message is not retried.
+
+Bitpart paces its own sending to stay under Signal's rate limits, so rate-limited sends should be rare.
+
+### Answering a captcha challenge
+
+Signal may decide that the bot's account is sending suspicious traffic and stop accepting its messages until someone proves a person controls the account. When that happens, `describe` reports that Signal requires a captcha and shows a challenge token. To unblock the channel:
+
+1. Open <https://signalcaptchas.org/challenge/generate.html> in a browser and solve the captcha.
+2. When it finishes, the browser offers to open a `signalcaptcha://` link. Copy that link.
+3. Submit it for the channel:
+
+```
+  bitpart-cli --auth <AUTH> --connect <BIND> channel-challenge --id <CHANNEL_ID> --bot-id <BOT_ID> --captcha '<SIGNALCAPTCHA_LINK>'
+```
+
+The challenge token shown by `describe` is used automatically. If the Bitpart server has restarted since the challenge was reported, pass it explicitly with `--token <TOKEN>`.
+
+Signal limits how often a challenge can be answered (at most 10 attempts per account in about 2.4 hours, and 2 successful answers in 12 hours), so a bot that keeps being challenged will need its sending reduced rather than repeatedly answering captchas. Messages dropped while the channel was blocked are not resent.
+
 ## CSML
 
 Bitpart's conversation logic is defined by scripts written in the open-source Conversational Standard Meta Language, or CSML. Visit [the documentation from the CSML project](https://docs.csml.dev/) to learn how to write a CSML conversation flow. Each instance of Bitpart can run one or more bots, where each bot processes incoming messages according to one or more CSML flows.

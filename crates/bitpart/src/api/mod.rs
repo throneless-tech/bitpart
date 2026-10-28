@@ -35,7 +35,7 @@ pub use bot::{
 };
 pub use channel::{
     create_channel, delete_channel, link_channel, list_channels, read_channel, reset_channel,
-    start_channel,
+    start_channel, submit_channel_challenge,
 };
 pub use request::process_request;
 

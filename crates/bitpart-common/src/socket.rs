@@ -65,6 +65,12 @@ pub enum SocketMessage<S: Serialize> {
         id: String,
         bot_id: String,
     },
+    SubmitChallenge {
+        id: String,
+        bot_id: String,
+        token: Option<String>,
+        captcha: String,
+    },
     ChatRequest(Box<Request>),
     Response(Response<S>),
     Error(Response<S>),

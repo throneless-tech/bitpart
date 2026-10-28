@@ -90,6 +90,11 @@ pub enum ChannelMessageContents {
     ResetSessions {
         id: String,
     },
+    SubmitChallenge {
+        id: String,
+        token: Option<String>,
+        captcha: String,
+    },
 }
 
 pub struct ChannelMessage {
@@ -296,6 +301,17 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             Ok(sender
                 .send("".to_owned())
                 .map_err(BitpartErrorKind::Signal)?)
+        }
+        ChannelMessageContents::SubmitChallenge { id, token, captcha } => {
+            let result = submit_challenge(&id, &pool, &metrics, token, &captcha).await;
+            let reply = match result {
+                Ok(()) => "".to_owned(),
+                Err(error) => {
+                    warn!(%error, "captcha challenge not accepted");
+                    format!("error: {error}")
+                }
+            };
+            Ok(sender.send(reply).map_err(BitpartErrorKind::Signal)?)
         }
         ChannelMessageContents::ResetSessions { id } => {
             let store = BitpartStore::open(&id, &pool, OnNewIdentity::Trust).await?;
@@ -800,6 +816,45 @@ fn describe_attachments(content: &Content) -> Vec<serde_json::Value> {
         .collect()
 }
 
+fn captcha_response(input: &str) -> &str {
+    let input = input.trim();
+    input.strip_prefix("signalcaptcha://").unwrap_or(input)
+}
+
+async fn submit_challenge(
+    id: &str,
+    pool: &bitpart_common::db::Pool,
+    metrics: &MetricsRegistry,
+    token: Option<String>,
+    captcha: &str,
+) -> Result<()> {
+    let channel = crate::db::channel::get_by_id(id, pool)
+        .await?
+        .ok_or_else(|| BitpartErrorKind::Signal("No such channel.".to_owned()))?;
+    let channel_metrics = metrics.get_or_create(id, &channel.bot_id);
+    let token = token
+        .filter(|t| !t.trim().is_empty())
+        .or_else(|| channel_metrics.pending_challenge())
+        .ok_or_else(|| {
+            BitpartErrorKind::Signal(
+                "No pending challenge for this channel; pass a token.".to_owned(),
+            )
+        })?;
+    let store = BitpartStore::open(id, pool, OnNewIdentity::Trust).await?;
+    let manager = Manager::load_registered(store)
+        .await
+        .map_err(|e| BitpartErrorKind::Signal(e.to_string()))?;
+
+    manager
+        .submit_recaptcha_challenge(token.trim(), captcha_response(captcha))
+        .await
+        .map_err(|e| BitpartErrorKind::Signal(e.to_string()))?;
+
+    channel_metrics.clear_challenge();
+    info!("captcha challenge accepted");
+    Ok(())
+}
+
 fn take_due_purges(
     pending: &RefCell<BTreeSet<String>>,
     limiter: &DefaultKeyedRateLimiter<String>,
@@ -1274,6 +1329,13 @@ mod tests {
             outcome_of(classify(&rate_limited(None))),
             SendOutcome::RateLimited { retry_at: None }
         );
+    }
+
+    #[test]
+    fn captcha_response_accepts_link_or_bare_value() {
+        assert_eq!(captcha_response("signalcaptcha://abc.def"), "abc.def");
+        assert_eq!(captcha_response("  signalcaptcha://abc.def\n"), "abc.def");
+        assert_eq!(captcha_response("abc.def"), "abc.def");
     }
 
     #[test]

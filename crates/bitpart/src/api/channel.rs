@@ -106,6 +106,38 @@ pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
     }
 }
 
+pub async fn submit_channel_challenge(
+    channel_id: &str,
+    bot_id: &str,
+    token: Option<String>,
+    captcha: String,
+    state: &mut ApiState,
+) -> Result<String> {
+    let Some(channel) = db::channel::get(channel_id, bot_id, &state.pool).await? else {
+        return Err(BitpartErrorKind::Api("No such channel".into()).into());
+    };
+    let (send, recv) = oneshot::channel();
+    let msg = signal::ChannelMessage {
+        msg: signal::ChannelMessageContents::SubmitChallenge {
+            id: channel.id,
+            token,
+            captcha,
+        },
+        pool: state.pool.clone(),
+        token: state.parent_token.child_token(),
+        tracker: state.tracker.clone(),
+        sender: send,
+        metrics: state.metrics.clone(),
+        limits: state.limits,
+    };
+    state.manager.send(msg).await?;
+    let reply = recv.await?;
+    match reply.strip_prefix("error: ") {
+        Some(error) => Err(BitpartErrorKind::Api(error.to_owned()).into()),
+        None => Ok(reply),
+    }
+}
+
 pub async fn read_channel(
     id: &str,
     bot_id: &str,
@@ -142,6 +174,25 @@ pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<
 mod test_channel {
     use crate::utils::get_test_socket;
     use serde_json::json;
+
+    #[tokio::test]
+    async fn it_should_reject_a_challenge_for_an_unknown_channel() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "SubmitChallenge",
+                "data": {
+                    "id": "signal",
+                    "bot_id": "no_such_bot",
+                    "token": null,
+                    "captcha": "signalcaptcha://abc",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("No such channel").await
+    }
 
     #[tokio::test]
     async fn it_should_create_a_channel() {

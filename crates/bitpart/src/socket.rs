@@ -154,6 +154,14 @@ async fn process_message(
                         .await
                         .into_ws("ResetChannel")
                 }
+                SocketMessage::SubmitChallenge {
+                    id,
+                    bot_id,
+                    token,
+                    captcha,
+                } => api::submit_channel_challenge(&id, &bot_id, token, captcha, state)
+                    .await
+                    .into_ws("SubmitChallenge"),
                 SocketMessage::ListChannels(options) => {
                     let (limit, offset) =
                         options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));

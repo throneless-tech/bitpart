@@ -127,6 +127,26 @@ enum Commands {
         bot_id: String,
     },
 
+    /// answer a Signal captcha challenge for a channel
+    #[command(arg_required_else_help = true)]
+    ChannelChallenge {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+
+        /// Bot ID
+        #[arg(short, long)]
+        bot_id: String,
+
+        /// Captcha result from https://signalcaptchas.org/challenge/generate.html (the signalcaptcha:// link)
+        #[arg(short, long)]
+        captcha: String,
+
+        /// Challenge token (defaults to the one shown by describe)
+        #[arg(short, long)]
+        token: Option<String>,
+    },
+
     /// delete a bot
     #[command(arg_required_else_help = true)]
     Delete {
@@ -324,6 +344,24 @@ async fn main() -> Result<()> {
                 "bot_id": bot_id,
                 "device_name": device_name,
                 "profile_name": profile_name
+            }});
+            debug!("Request: {:?}", req.to_string());
+
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
+        }
+        Commands::ChannelChallenge {
+            id,
+            bot_id,
+            captcha,
+            token,
+        } => {
+            let req = json!({"message_type": "SubmitChallenge",
+                "data" : {
+                "id": id,
+                "bot_id": bot_id,
+                "token": token,
+                "captcha": captcha,
             }});
             debug!("Request: {:?}", req.to_string());
 
@@ -585,6 +623,9 @@ async fn main() -> Result<()> {
                             }
                             res_type if res_type == "ResetChannel" => {
                                 println!("Reset the channel");
+                            }
+                            res_type if res_type == "SubmitChallenge" => {
+                                println!("Signal accepted the captcha; sending is unblocked");
                             }
                             res_type if res_type == "LinkChannel" => {
                                 let _ = qr2term::print_qr(res.response.to_string());
