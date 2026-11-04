@@ -89,6 +89,7 @@ struct Cli {
 
     /// Enable Opentelemetry
     #[arg(short, long)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     opentelemetry: bool,
 }
 
@@ -110,6 +111,7 @@ struct Config {
     key: String,
 
     /// Enable Opentelemetry
+    #[serde(default)]
     opentelemetry: bool,
 }
 
@@ -356,4 +358,47 @@ async fn main() -> Result<()> {
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[allow(clippy::result_large_err)]
+    fn opentelemetry_enabled(args: &[&str], env: Option<&str>) -> bool {
+        let mut enabled = false;
+        figment::Jail::expect_with(|jail| {
+            if let Some(value) = env {
+                jail.set_env("BITPART_OPENTELEMETRY", value);
+            }
+            let cli = Cli::try_parse_from(
+                ["bitpart", "-a", "a", "-b", "b", "-d", "d", "-k", "k"]
+                    .iter()
+                    .chain(args),
+            )
+            .map_err(|e| e.to_string())?;
+            let config: Config = Figment::new()
+                .merge(FileAdapter::wrap(Env::prefixed("BITPART_")))
+                .merge(Serialized::defaults(cli))
+                .extract()?;
+            enabled = config.opentelemetry;
+            Ok(())
+        });
+        enabled
+    }
+
+    #[test]
+    fn opentelemetry_from_env_is_not_overridden_by_cli_default() {
+        assert!(opentelemetry_enabled(&[], Some("true")));
+    }
+
+    #[test]
+    fn opentelemetry_from_cli_flag() {
+        assert!(opentelemetry_enabled(&["--opentelemetry"], None));
+    }
+
+    #[test]
+    fn opentelemetry_defaults_off() {
+        assert!(!opentelemetry_enabled(&[], None));
+    }
 }
