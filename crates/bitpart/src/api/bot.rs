@@ -84,6 +84,9 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotDescriptio
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_bot_id(id, &state.pool).await?;
     db::memory::delete_by_bot_id(id, &state.pool).await?;
+    db::message::delete_by_bot_id(id, &state.pool).await?;
+    db::conversation::delete_by_bot_id(id, &state.pool).await?;
+    db::state::delete_by_bot_id(id, &state.pool).await?;
     let channels = db::channel::get_by_bot_id(id, &state.pool).await?;
     for channel in channels.iter() {
         crate::api::channel::delete_channel(&channel.channel_id, id, state).await?;
@@ -429,5 +432,141 @@ mod test_bot {
             .await;
 
         socket.assert_receive_text_contains("Hello").await
+    }
+
+    #[tokio::test]
+    async fn deleting_a_bot_removes_its_conversation_records() {
+        use crate::csml::data::ConversationData;
+        use crate::{api::delete_bot, db, utils::get_test_state};
+        use bitpart_csml::data::{Client, CsmlBot, CsmlFlow, context::Context};
+        use std::collections::HashMap;
+
+        let (state, _dir) = get_test_state().await;
+        let client = |bot_id: &str| Client {
+            bot_id: bot_id.to_owned(),
+            channel_id: "channel".to_owned(),
+            user_id: "user".to_owned(),
+        };
+
+        for bot_id in ["doomed", "kept"] {
+            let bot = CsmlBot::new(
+                bot_id,
+                None,
+                vec![CsmlFlow::new(
+                    "Default",
+                    "Default",
+                    "start: say \"Hello\" goto end",
+                    vec![],
+                )],
+                None,
+                None,
+                "Default",
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            db::bot::create(bot, None, &state.pool).await.unwrap();
+            let client = client(bot_id);
+            let conversation_id =
+                db::conversation::create("Default", "start", &client, &state.pool)
+                    .await
+                    .unwrap();
+            let data = ConversationData {
+                conversation_id,
+                request_id: "request".to_owned(),
+                client: client.clone(),
+                callback_url: None,
+                context: Context::new(
+                    HashMap::new(),
+                    HashMap::new(),
+                    None,
+                    None,
+                    "start",
+                    "Default",
+                    None,
+                ),
+                metadata: json!({}),
+                messages: vec![],
+                low_data: false,
+                deleted: false,
+            };
+            db::message::create(
+                &data,
+                &[json!({"content_type": "text"})],
+                0,
+                "RECEIVE",
+                &state.pool,
+            )
+            .await
+            .unwrap();
+            db::memory::create(&client, "key", &json!("value"), &state.pool)
+                .await
+                .unwrap();
+            db::state::set(&client, "hold", "position", &json!({}), &state.pool)
+                .await
+                .unwrap();
+        }
+
+        delete_bot("doomed", &state).await.unwrap();
+
+        for (bot_id, expected) in [("doomed", 0), ("kept", 1)] {
+            let client = client(bot_id);
+            let pool = &state.pool;
+            assert_eq!(
+                db::conversation::get_by_client(&client, None, None, pool)
+                    .await
+                    .unwrap()
+                    .len(),
+                expected,
+                "{bot_id} conversations"
+            );
+            assert_eq!(
+                db::memory::get_by_client(&client, None, None, pool)
+                    .await
+                    .unwrap()
+                    .len(),
+                expected,
+                "{bot_id} memories"
+            );
+            assert_eq!(
+                db::state::get_by_client(&client, pool).await.unwrap().len(),
+                expected,
+                "{bot_id} state"
+            );
+        }
+        let pool = &state.pool;
+        let messages = pool
+            .get()
+            .await
+            .unwrap()
+            .interact(|conn| {
+                conn.query_row(
+                    "SELECT bot_id, COUNT(*) FROM message JOIN conversation \
+                     ON message.conversation_id = conversation.id GROUP BY bot_id",
+                    [],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+                )
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(messages, ("kept".to_owned(), 1));
+        let orphans: i64 = pool
+            .get()
+            .await
+            .unwrap()
+            .interact(|conn| {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM message WHERE conversation_id NOT IN (SELECT id FROM conversation)",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(orphans, 0);
     }
 }

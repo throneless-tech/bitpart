@@ -946,17 +946,33 @@ async fn reply<S: Store>(
     let first_contact = db::conversation::get_by_client(&client, Some(1), None, &state.pool)
         .await?
         .is_empty();
-    if first_contact
-        && let Ok(Recipient::Contact(uuid)) = try_user_id_to_recipient(&user_id)
-        && let Some(bot) = db::bot::get_latest_by_bot_id(&state.id, &state.pool).await?
-        && let Some(timer) = bot.expire_timer.filter(|t| *t > 0)
-        && manager
+    let contact = match try_user_id_to_recipient(&user_id) {
+        Ok(Recipient::Contact(uuid)) => Some(uuid),
+        _ => None,
+    };
+    let bot_timer = db::bot::get_latest_by_bot_id(&state.id, &state.pool)
+        .await?
+        .and_then(|bot| bot.expire_timer);
+    let chat_timer = match contact {
+        Some(uuid) => manager
             .store()
             .expire_timer(&Thread::Contact(ServiceId::Aci(uuid.into())))
             .await
             .ok()
-            .flatten()
-            .is_none_or(|(t, _)| t == 0)
+            .flatten(),
+        None => None,
+    };
+    debug!(
+        first_contact,
+        contact = contact.is_some(),
+        ?bot_timer,
+        ?chat_timer,
+        "disappearing message timer check"
+    );
+    if first_contact
+        && let Some(uuid) = contact
+        && let Some(timer) = bot_timer.filter(|t| *t > 0)
+        && chat_timer.is_none_or(|(t, _)| t == 0)
     {
         send_expire_timer(manager, &state.limiters.send, &state.metrics, uuid, timer).await?;
     }

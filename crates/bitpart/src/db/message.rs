@@ -94,7 +94,7 @@ pub async fn create(
             if i > 0 {
                 sql.push_str(", ");
             }
-            sql.push_str("(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            sql.push_str("(?, ?, ?, ?, ?, ?, ?, ?, ?)");
             params_vec.push(Uuid::new_v4().to_string().into());
             params_vec.push(conversation_id.clone().into());
             params_vec.push(flow_id.clone().into());
@@ -107,6 +107,21 @@ pub async fn create(
         }
         conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
         Ok(())
+    })
+    .await
+    .map_err(pool_err)??;
+    Ok(())
+}
+
+pub async fn delete_by_bot_id(bot_id: &str, db: &Pool) -> Result<()> {
+    let bot_id = bot_id.to_owned();
+    let obj = db.get().await.map_err(pool_err)?;
+    obj.interact(move |conn| -> rusqlite::Result<usize> {
+        conn.execute(
+            "DELETE FROM message WHERE conversation_id IN \
+             (SELECT id FROM conversation WHERE bot_id = ?)",
+            params![bot_id],
+        )
     })
     .await
     .map_err(pool_err)??;
