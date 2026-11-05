@@ -628,6 +628,7 @@ async fn process_signal_message<S: Store>(
             DataMessage {
                 body: Some(body), ..
             } => Some(body.to_string()),
+            DataMessage { attachments, .. } if !attachments.is_empty() => Some(String::new()),
             _ => {
                 debug!("Empty data message");
                 None
@@ -929,10 +930,7 @@ async fn reply<S: Store>(
     state: &ChannelState,
     manager: &mut Manager<S, Registered>,
 ) -> Result<()> {
-    let mut content = json!({ "text": body });
-    if !attachments.is_empty() {
-        content["attachments"] = json!(attachments);
-    }
+    let content = json!({ "text": body, "attachments": attachments });
 
     let payload = json!({
         "content_type": "text",
@@ -1121,15 +1119,31 @@ fn reply_get_text(res: &serde_json::Value) -> String {
     "".to_owned()
 }
 
+fn anonymous_file_name(file_name: &str) -> Option<String> {
+    let (_, extension) = file_name.rsplit_once('.')?;
+    (!extension.is_empty()
+        && extension.len() <= 8
+        && extension.chars().all(|c| c.is_ascii_alphanumeric()))
+    .then(|| format!("attachment.{}", extension.to_ascii_lowercase()))
+}
+
 fn reply_get_attachments(res: &serde_json::Value) -> Vec<AttachmentPointer> {
-    let Some(items) = res
+    let Some(content) = res
         .get("payload")
         .and_then(|payload| payload.get("content"))
-        .and_then(|content| content.get("attachments"))
+    else {
+        return Vec::new();
+    };
+    let Some(items) = content
+        .get("attachments")
         .and_then(|attachments| attachments.as_array())
     else {
         return Vec::new();
     };
+    let strip_file_names = content
+        .get("strip_file_names")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     items
         .iter()
@@ -1149,7 +1163,13 @@ fn reply_get_attachments(res: &serde_json::Value) -> Vec<AttachmentPointer> {
                 }
             };
             match AttachmentPointer::decode(decoded.as_slice()) {
-                Ok(pointer) => Some(pointer),
+                Ok(mut pointer) => {
+                    if strip_file_names {
+                        pointer.file_name =
+                            pointer.file_name.as_deref().and_then(anonymous_file_name);
+                    }
+                    Some(pointer)
+                }
                 Err(error) => {
                     warn!(%error, "outgoing attachment _ref is not a valid pointer");
                     None
@@ -1457,6 +1477,56 @@ mod tests {
     fn group_members_get_distinct_conversations() {
         let key = [7u8; 32];
         assert_ne!(group_user_id(&key, &BOT), group_user_id(&key, &OTHER));
+    }
+
+    fn outgoing(content: Value) -> Value {
+        json!({ "payload": { "content": content } })
+    }
+
+    fn pointer_ref(file_name: Option<&str>) -> Value {
+        let pointer = AttachmentPointer {
+            content_type: Some("image/jpeg".to_owned()),
+            file_name: file_name.map(str::to_owned),
+            ..Default::default()
+        };
+        json!({ "_ref": BASE64_STANDARD.encode(pointer.encode_to_vec()) })
+    }
+
+    #[test]
+    fn outgoing_attachments_keep_file_names_by_default() {
+        let res =
+            outgoing(json!({ "text": "hi", "attachments": [pointer_ref(Some("Jane Doe.jpg"))] }));
+        let pointers = reply_get_attachments(&res);
+        assert_eq!(pointers.len(), 1);
+        assert_eq!(pointers[0].file_name.as_deref(), Some("Jane Doe.jpg"));
+    }
+
+    #[test]
+    fn stripped_file_names_keep_only_the_extension() {
+        let res = outgoing(json!({
+            "text": "hi",
+            "strip_file_names": true,
+            "attachments": [
+                pointer_ref(Some("IMG_from_jane.JPG")),
+                pointer_ref(Some("no-extension")),
+                pointer_ref(Some("report.from jane doe")),
+                pointer_ref(None),
+            ],
+        }));
+        let names: Vec<_> = reply_get_attachments(&res)
+            .into_iter()
+            .map(|p| p.file_name)
+            .collect();
+        assert_eq!(
+            names,
+            vec![Some("attachment.jpg".to_owned()), None, None, None]
+        );
+    }
+
+    #[test]
+    fn empty_attachment_list_sends_nothing() {
+        let res = outgoing(json!({ "text": "hi", "attachments": [] }));
+        assert!(reply_get_attachments(&res).is_empty());
     }
 
     #[test]
