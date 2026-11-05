@@ -891,6 +891,14 @@ async fn purge_signal_state(channel_id: &str, pool: &bitpart_common::db::Pool, u
     }
 }
 
+fn timer_to_apply(bot_timer: Option<u32>, chat_timer: Option<u32>) -> Option<u32> {
+    let bot_timer = bot_timer.filter(|t| *t > 0)?;
+    match chat_timer.filter(|t| *t > 0) {
+        Some(chat_timer) if chat_timer <= bot_timer => None,
+        _ => Some(bot_timer),
+    }
+}
+
 async fn send_expire_timer<S: Store>(
     manager: &mut Manager<S, Registered>,
     limiter: &DefaultKeyedRateLimiter<Uuid>,
@@ -971,8 +979,7 @@ async fn reply<S: Store>(
     );
     if first_contact
         && let Some(uuid) = contact
-        && let Some(timer) = bot_timer.filter(|t| *t > 0)
-        && chat_timer.is_none_or(|(t, _)| t == 0)
+        && let Some(timer) = timer_to_apply(bot_timer, chat_timer.map(|(t, _)| t))
     {
         send_expire_timer(manager, &state.limiters.send, &state.metrics, uuid, timer).await?;
     }
@@ -1543,6 +1550,25 @@ mod tests {
     fn empty_attachment_list_sends_nothing() {
         let res = outgoing(json!({ "text": "hi", "attachments": [] }));
         assert!(reply_get_attachments(&res).is_empty());
+    }
+
+    #[test]
+    fn shorter_disappearing_timer_wins() {
+        for (bot, chat, expected) in [
+            (Some(86400), None, Some(86400)),
+            (Some(86400), Some(0), Some(86400)),
+            (Some(86400), Some(2419200), Some(86400)),
+            (Some(86400), Some(3600), None),
+            (Some(86400), Some(86400), None),
+            (None, Some(2419200), None),
+            (Some(0), Some(2419200), None),
+        ] {
+            assert_eq!(
+                timer_to_apply(bot, chat),
+                expected,
+                "bot {bot:?} chat {chat:?}"
+            );
+        }
     }
 
     #[test]
