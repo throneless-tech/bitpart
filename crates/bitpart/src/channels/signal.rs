@@ -407,7 +407,7 @@ fn outcome_of(failure: SendFailure) -> SendOutcome {
         SendFailure::ChallengeRequired(token) => SendOutcome::ChallengeRequired {
             challenge_token: token,
         },
-        SendFailure::Other => SendOutcome::Failing,
+        SendFailure::Other => SendOutcome::Failed,
     }
 }
 
@@ -1357,7 +1357,7 @@ mod tests {
         let error: TestError = presage::Error::ServiceError(
             presage::libsignal_service::prelude::ServiceError::Unauthorized,
         );
-        assert_eq!(outcome_of(classify(&error)), SendOutcome::Failing);
+        assert_eq!(outcome_of(classify(&error)), SendOutcome::Failed);
     }
 
     #[test]

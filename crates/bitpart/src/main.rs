@@ -53,6 +53,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::prelude::*;
 
 use api::ApiState;
@@ -172,6 +173,10 @@ fn telemetry_tracer_init() -> Result<SdkTracer> {
     Ok(tracer_provider.tracer("bitpart_tracer"))
 }
 
+fn exported_span(meta: &tracing::Metadata<'_>) -> bool {
+    meta.is_span() && meta.target().starts_with(env!("CARGO_CRATE_NAME"))
+}
+
 fn telemetry_meter_init() -> Result<SdkMeterProvider> {
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder().with_http();
 
@@ -280,7 +285,11 @@ async fn main() -> Result<()> {
         tracing_subscriber::registry()
             .with(server.verbose.log_level_filter().as_trace())
             .with(tracing_subscriber::fmt::layer())
-            .with(tracing_opentelemetry::layer().with_tracer(telemetry_tracer_init()?))
+            .with(
+                tracing_opentelemetry::layer()
+                    .with_tracer(telemetry_tracer_init()?)
+                    .with_filter(filter_fn(exported_span)),
+            )
             .with(MetricsLayer::new(meter_provider))
             .init();
     } else {
@@ -400,5 +409,43 @@ mod tests {
     #[test]
     fn opentelemetry_defaults_off() {
         assert!(!opentelemetry_enabled(&[], None));
+    }
+
+    #[test]
+    fn only_bitpart_spans_are_exported() {
+        use tracing_subscriber::layer::Context;
+
+        struct Exported(std::sync::Mutex<Vec<String>>);
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for &'static Exported {
+            fn on_new_span(
+                &self,
+                attrs: &tracing::span::Attributes<'_>,
+                _: &tracing::span::Id,
+                _: Context<'_, S>,
+            ) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(attrs.metadata().name().to_owned());
+            }
+            fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("event {}", event.metadata().target()));
+            }
+        }
+        let exported: &'static Exported = Box::leak(Box::new(Exported(Default::default())));
+        let filter = filter_fn(exported_span);
+
+        let subscriber = tracing_subscriber::registry().with(exported.with_filter(filter));
+        tracing::subscriber::with_default(subscriber, || {
+            let _ours = tracing::info_span!("ours", user = "someone").entered();
+            tracing::info!(user = "someone", "an event inside our span");
+            let _theirs =
+                tracing::info_span!(target: "libsignal_service::cipher", "theirs").entered();
+        });
+
+        assert_eq!(*exported.0.lock().unwrap(), vec!["ours".to_owned()]);
     }
 }

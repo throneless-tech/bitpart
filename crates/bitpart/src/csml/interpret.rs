@@ -49,7 +49,6 @@ enum InterpreterReturn {
     skip_all,
     fields(
         bot_id = %data.client.bot_id,
-        user_id = %data.client.user_id,
         channel_id = %data.client.channel_id,
         flow = %data.context.flow,
     ),
@@ -312,7 +311,6 @@ pub async fn step(
     skip_all,
     fields(
         bot_id = %data.client.bot_id,
-        user_id = %data.client.user_id,
         channel_id = %data.client.channel_id,
         flow = %data.context.flow,
         target_bot = %target_bot,
@@ -428,7 +426,6 @@ async fn manage_switch_bot(
     skip_all,
     fields(
         bot_id = %data.client.bot_id,
-        user_id = %data.client.user_id,
         channel_id = %data.client.channel_id,
         flow = %data.context.flow,
     ),

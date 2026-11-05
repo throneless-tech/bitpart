@@ -68,7 +68,7 @@ pub enum SendOutcome {
     Ok,
     RateLimited { retry_at: Option<DateTime<Utc>> },
     ChallengeRequired { challenge_token: String },
-    Failing,
+    Failed,
 }
 
 impl Default for ChannelMetrics {
@@ -231,6 +231,9 @@ mod tests {
         assert_eq!(v["dropped"], 2);
         assert_eq!(v["send_status"], "rate_limited");
         assert!(v.get("challenge_token").is_none());
+
+        metrics.record_send(SendOutcome::Failed);
+        assert_eq!(json(&metrics)["send_status"], "failed");
     }
 
     #[test]
@@ -249,9 +252,9 @@ mod tests {
         assert_eq!(snapshot.send, None);
         assert_eq!(snapshot.dropped, 1);
 
-        metrics.record_send(SendOutcome::Failing);
+        metrics.record_send(SendOutcome::Failed);
         metrics.clear_challenge();
-        assert_eq!(metrics.snapshot().send, Some(SendOutcome::Failing));
+        assert_eq!(metrics.snapshot().send, Some(SendOutcome::Failed));
     }
 
     #[test]

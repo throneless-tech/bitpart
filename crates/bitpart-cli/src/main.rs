@@ -556,7 +556,7 @@ async fn main() -> Result<()> {
                                                 "    last send: Signal requires a captcha, token {}",
                                                 field("challenge_token")
                                             ),
-                                            Some("failing") => println!("    last send: failed"),
+                                            Some("failed") => println!("    last send: failed"),
                                             Some(_) | None => {}
                                         }
                                     }
