@@ -1,11 +1,11 @@
 use crate::data::{
+    Interval, Literal,
     position::Position,
     primitive::{PrimitiveArray, PrimitiveObject, PrimitiveString},
-    Interval, Literal,
 };
 use crate::error_format::*;
 
-use std::collections::{hash_map::Iter, HashMap};
+use std::collections::{HashMap, hash_map::Iter};
 
 use serde::{Deserialize, Serialize};
 

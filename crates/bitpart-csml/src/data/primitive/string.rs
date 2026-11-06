@@ -1,5 +1,6 @@
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
+use crate::data::primitive::Right;
 use crate::data::primitive::array::PrimitiveArray;
 use crate::data::primitive::boolean::PrimitiveBoolean;
 use crate::data::primitive::float::PrimitiveFloat;
@@ -7,9 +8,8 @@ use crate::data::primitive::int::PrimitiveInt;
 use crate::data::primitive::null::PrimitiveNull;
 use crate::data::primitive::object::PrimitiveObject;
 use crate::data::primitive::tools::*;
-use crate::data::primitive::Right;
 use crate::data::primitive::{Primitive, PrimitiveType};
-use crate::data::{ast::Interval, message::Message, Data, Literal, MemoryType, MessageData, MSG};
+use crate::data::{Data, Literal, MSG, MemoryType, MessageData, ast::Interval, message::Message};
 use crate::data::{literal, literal::ContentType};
 use crate::error_format::*;
 use crate::interpreter::json_to_literal;
@@ -19,9 +19,9 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::{collections::HashMap, sync::mpsc};
+use url::Url;
 use url::form_urlencoded;
 use url::form_urlencoded::Parse;
-use url::Url;
 
 ////////////////////////////////////////////////////////////////////////////////
 // DATA STRUCTURES
@@ -110,21 +110,19 @@ fn encode_value(pairs: &Parse) -> String {
         let encoded_value: String = if val.contains(",") {
             let split: Vec<&str> = val.split(',').collect();
 
-            let value =
-                split
-                    .into_iter()
-                    .enumerate()
-                    .fold(String::new(), |mut acc, (index, val)| {
-                        if index > 0 {
-                            acc.push(',');
-                        }
+            split
+                .into_iter()
+                .enumerate()
+                .fold(String::new(), |mut acc, (index, val)| {
+                    if index > 0 {
+                        acc.push(',');
+                    }
 
-                        let encoded = urlencoding::encode(val);
-                        acc.push_str(&encoded);
+                    let encoded = urlencoding::encode(val);
+                    acc.push_str(&encoded);
 
-                        acc
-                    });
-            value
+                    acc
+                })
         } else {
             urlencoding::encode(&val).into_owned()
         };
@@ -145,23 +143,21 @@ fn decode_value(pairs: &Parse) -> String {
         let encoded_value: String = if val.contains(",") {
             let split: Vec<&str> = val.split(',').collect();
 
-            let value =
-                split
-                    .into_iter()
-                    .enumerate()
-                    .fold(String::new(), |mut acc, (index, val)| {
-                        if index > 0 {
-                            acc.push(',');
-                        }
+            split
+                .into_iter()
+                .enumerate()
+                .fold(String::new(), |mut acc, (index, val)| {
+                    if index > 0 {
+                        acc.push(',');
+                    }
 
-                        match urlencoding::decode(val) {
-                            Ok(decoded) => acc.push_str(&decoded),
-                            Err(_) => acc.push_str(val),
-                        };
+                    match urlencoding::decode(val) {
+                        Ok(decoded) => acc.push_str(&decoded),
+                        Err(_) => acc.push_str(val),
+                    };
 
-                        acc
-                    });
-            value
+                    acc
+                })
         } else {
             match urlencoding::decode(&val) {
                 Ok(decoded) => decoded.into_owned(),
@@ -1262,10 +1258,10 @@ impl PrimitiveString {
             }
         };
 
-        if let Some(res) = action.find(&string.value) {
-            if res.start() == 0 {
-                return Ok(PrimitiveBoolean::get_literal(true, interval));
-            }
+        if let Some(res) = action.find(&string.value)
+            && res.start() == 0
+        {
+            return Ok(PrimitiveBoolean::get_literal(true, interval));
         }
 
         Ok(PrimitiveBoolean::get_literal(false, interval))
@@ -1378,7 +1374,7 @@ impl PrimitiveString {
                             return Err(gen_error_info(
                                 Position::new(interval, &data.context.flow),
                                 ERROR_SLICE_ARG_LEN.to_owned(),
-                            ))
+                            ));
                         }
                     };
 
@@ -1435,7 +1431,7 @@ impl PrimitiveString {
                             return Err(gen_error_info(
                                 Position::new(interval, &data.context.flow),
                                 ERROR_SLICE_ARG_LEN.to_owned(),
-                            ))
+                            ));
                         }
                     };
                     let value = text_vec[start..end].iter().cloned().collect::<String>();
@@ -2077,12 +2073,10 @@ impl PrimitiveString {
     }
 
     pub fn get_array_char(string: String, interval: Interval) -> Vec<Literal> {
-        let array = string
+        string
             .chars()
             .map(|c| PrimitiveString::get_literal(&c.to_string(), interval))
-            .collect::<Vec<Literal>>();
-
-        array
+            .collect::<Vec<Literal>>()
     }
 }
 

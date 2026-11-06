@@ -24,7 +24,6 @@ use bitpart_csml::data::{
     context::ContextStepInfo, event::Event,
 };
 use bitpart_csml::interpret;
-use chrono::Utc;
 use serde_json::{Value, map::Map};
 use std::collections::HashMap;
 use std::sync::mpsc as std_mpsc;
@@ -50,7 +49,6 @@ enum InterpreterReturn {
     skip_all,
     fields(
         bot_id = %data.client.bot_id,
-        user_id = %data.client.user_id,
         channel_id = %data.client.channel_id,
         flow = %data.context.flow,
     ),
@@ -178,8 +176,11 @@ pub async fn step(
 
                 debug!("CONTEXT {:?}", data.context);
 
+                db::message::delete_by_client(&data.client, pool).await?;
                 db::conversation::delete_by_client(&data.client, pool).await?;
                 db::memory::delete_by_client(&data.client, pool).await?;
+                db::state::delete_by_client(&data.client, pool).await?;
+                data.deleted = true;
             }
             MSG::Log {
                 flow,
@@ -217,15 +218,7 @@ pub async fn step(
                 info!("hold bot");
                 debug!("hold bot, state_hold {:?}", state_hold);
 
-                db::state::set(
-                    &data.client,
-                    "hold",
-                    "position",
-                    &state_hold,
-                    data.ttl.map(|t| Utc::now().naive_utc() + t),
-                    pool,
-                )
-                .await?;
+                db::state::set(&data.client, "hold", "position", &state_hold, pool).await?;
                 data.context.hold = Some(Hold {
                     index,
                     step_vars,
@@ -297,10 +290,10 @@ pub async fn step(
             .map(|var| var.clone().message_to_json())
             .collect();
 
-        db::message::create(data, &msgs, interaction_order, "SEND", None, pool).await?;
+        db::message::create(data, &msgs, interaction_order, "SEND", pool).await?;
     }
 
-    db::memory::create_many(&data.client, &memories, None, pool).await?;
+    db::memory::create_many(&data.client, &memories, pool).await?;
 
     Ok((
         messages_formatter(
@@ -318,7 +311,6 @@ pub async fn step(
     skip_all,
     fields(
         bot_id = %data.client.bot_id,
-        user_id = %data.client.user_id,
         channel_id = %data.client.channel_id,
         flow = %data.context.flow,
         target_bot = %target_bot,
@@ -416,7 +408,6 @@ async fn manage_switch_bot(
         "bot",
         "previous",
         &previous_bot,
-        data.ttl.map(|t| Utc::now().naive_utc() + t),
         pool,
     )
     .await?;
@@ -435,7 +426,6 @@ async fn manage_switch_bot(
     skip_all,
     fields(
         bot_id = %data.client.bot_id,
-        user_id = %data.client.user_id,
         channel_id = %data.client.channel_id,
         flow = %data.context.flow,
     ),

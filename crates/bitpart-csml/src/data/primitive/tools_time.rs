@@ -1,10 +1,10 @@
 use crate::data::{
+    Literal,
     ast::Interval,
     error_info::ErrorInfo,
     position::Position,
     primitive::PrimitiveType,
     primitive::{Data, PrimitiveInt, PrimitiveNull, PrimitiveObject},
-    Literal,
 };
 use crate::error_format::*;
 use chrono::{DateTime, NaiveDate, NaiveDateTime, SecondsFormat, TimeZone, Utc};
@@ -54,10 +54,10 @@ pub fn get_date(args: &HashMap<String, Literal>) -> [i64; 7] {
 
     // Iterate over `date` slots so extra positional args cannot index past the array.
     for (index, slot) in date.iter_mut().enumerate() {
-        if let Some(lit) = args.get(&format!("arg{}", index)) {
-            if lit.primitive.get_type() == PrimitiveType::PrimitiveInt {
-                *slot = serde_json::from_str(&lit.primitive.to_string()).unwrap();
-            }
+        if let Some(lit) = args.get(&format!("arg{}", index))
+            && lit.primitive.get_type() == PrimitiveType::PrimitiveInt
+        {
+            *slot = serde_json::from_str(&lit.primitive.to_string()).unwrap();
         }
     }
 
@@ -95,7 +95,7 @@ pub fn parse_rfc3339(
             return Err(gen_error_info(
                 Position::new(interval, &data.context.flow),
                 usage.to_string(),
-            ))
+            ));
         }
     };
 

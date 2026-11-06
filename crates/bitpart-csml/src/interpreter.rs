@@ -10,7 +10,7 @@ pub use json_to_rust::{json_to_literal, memory_to_literal};
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
 use crate::data::{
-    ast::*, warnings::DisplayWarnings, Data, Hold, IndexInfo, Literal, MessageData, MSG,
+    Data, Hold, IndexInfo, Literal, MSG, MessageData, ast::*, warnings::DisplayWarnings,
 };
 use crate::error_format::*;
 use crate::interpreter::{
@@ -136,7 +136,7 @@ pub async fn interpret_scope(
             Expr::ObjectExpr(fun) => {
                 message_data = Box::pin(match_actions(fun, message_data, data, sender)).await?
             }
-            Expr::IfExpr(ref if_statement) => {
+            Expr::IfExpr(if_statement) => {
                 message_data = Box::pin(solve_if_statement(
                     if_statement,
                     message_data,

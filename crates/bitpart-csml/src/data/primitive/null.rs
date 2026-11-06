@@ -2,12 +2,12 @@ use crate::data::error_info::ErrorInfo;
 use crate::data::literal;
 use crate::data::position::Position;
 use crate::data::primitive::{
-    boolean::PrimitiveBoolean, object::PrimitiveObject, string::PrimitiveString, Primitive,
-    PrimitiveType, Right,
+    Primitive, PrimitiveType, Right, boolean::PrimitiveBoolean, object::PrimitiveObject,
+    string::PrimitiveString,
 };
 use crate::data::{
-    ast::Interval, literal::ContentType, message::Message, tokens::NULL, Data, Literal, MemoryType,
-    MessageData, MSG,
+    Data, Literal, MSG, MemoryType, MessageData, ast::Interval, literal::ContentType,
+    message::Message, tokens::NULL,
 };
 use crate::error_format::*;
 use phf::phf_map;

@@ -1,5 +1,5 @@
 use crate::data::tokens::*;
-use crate::error_format::{gen_nom_failure, ERROR_LEFT_BRACE, ERROR_RIGHT_BRACE};
+use crate::error_format::{ERROR_LEFT_BRACE, ERROR_RIGHT_BRACE, gen_nom_failure};
 use nom::{
     bytes::complete::tag,
     error::{ContextError, ParseError},

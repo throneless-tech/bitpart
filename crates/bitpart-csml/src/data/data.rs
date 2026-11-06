@@ -1,6 +1,6 @@
-use crate::data::context::Context;
 use crate::data::Event;
-use crate::data::{ast::*, Literal};
+use crate::data::context::Context;
+use crate::data::{Literal, ast::*};
 
 use crate::data::context::ContextStepInfo;
 

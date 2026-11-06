@@ -1,6 +1,6 @@
 use crate::data::{ast::*, csml_logs::LogLvl, tokens::*};
 use crate::error_format::{
-    gen_nom_failure, ERROR_ACTION_ARGUMENT, ERROR_REMEMBER, ERROR_RETURN, ERROR_USE,
+    ERROR_ACTION_ARGUMENT, ERROR_REMEMBER, ERROR_RETURN, ERROR_USE, gen_nom_failure,
 };
 use crate::parser::{
     operator::parse_operator,
@@ -17,13 +17,13 @@ use crate::parser::{
 };
 
 use nom::{
+    Err, IResult,
     branch::alt,
     bytes::complete::{tag, take_while1},
     combinator::opt,
     error::{ContextError, ErrorKind, ParseError},
     multi::separated_list0,
     sequence::{preceded, terminated, tuple},
-    Err, IResult,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

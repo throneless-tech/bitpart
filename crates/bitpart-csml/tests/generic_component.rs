@@ -4,11 +4,11 @@
 
 mod support;
 
+use bitpart_csml::data::MessageData;
 use bitpart_csml::data::context::Context;
 use bitpart_csml::data::csml_bot::CsmlBot;
 use bitpart_csml::data::csml_flow::CsmlFlow;
 use bitpart_csml::data::event::Event;
-use bitpart_csml::data::MessageData;
 use bitpart_csml::interpret;
 use std::collections::HashMap;
 
@@ -19,7 +19,6 @@ use serde_json::Value;
 
 const DEFAULT_ID_NAME: &str = "id";
 const DEFAULT_FLOW_NAME: &str = "default";
-const DEFAULT_BOT_NAME: &str = "my_bot";
 
 ////////////////////////////////////////////////////////////////////////////////
 // PRIVATE FUNCTION
@@ -36,14 +35,12 @@ fn format_message(
 
     let bot = CsmlBot::new(
         DEFAULT_ID_NAME,
-        DEFAULT_BOT_NAME,
         None,
         vec![default_flow],
         None,
-        Some(serde_json::json!(custom_components
-            .as_object()
-            .unwrap()
-            .to_owned())),
+        Some(serde_json::json!(
+            custom_components.as_object().unwrap().to_owned()
+        )),
         DEFAULT_FLOW_NAME,
         None,
         None,

@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use std::sync::mpsc;
 use std::thread;
 
+use bitpart_csml::data::Literal;
 use bitpart_csml::data::ast::Interval;
 use bitpart_csml::data::context::Context;
 use bitpart_csml::data::event::Event;
 use bitpart_csml::data::primitive::{PrimitiveBoolean, PrimitiveObject, PrimitiveString};
-use bitpart_csml::data::Literal;
 use bitpart_csml::interpreter::builtins::http_builtin::http_request;
 
 use crate::support::tools::{build_bot, interpret_collecting};
@@ -244,7 +244,9 @@ async fn https_with_disable_ssl_verify() {
 
     // The per-call `disable_ssl_verify` flag now works standalone, with no
     // DISABLE_SSL_VERIFY env var present (the env var is an additional global override).
-    std::env::remove_var("DISABLE_SSL_VERIFY");
+    unsafe {
+        std::env::remove_var("DISABLE_SSL_VERIFY");
+    }
 
     // Sanity: without the per-call flag the self-signed cert should be rejected.
     let object_secure = build_object(&url, false, None);

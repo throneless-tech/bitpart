@@ -1,12 +1,13 @@
 use crate::data::tokens::*;
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::{tag, take_till, take_until, take_while},
     character::complete::multispace0,
     error::ParseError,
     multi::many0,
     sequence::delimited,
-    IResult, *,
+    *,
 };
 
 fn comment_single_line<'a, E: ParseError<Span<'a>>>(s: Span<'a>) -> IResult<Span<'a>, Span<'a>, E> {

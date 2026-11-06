@@ -1,8 +1,8 @@
 use crate::data::{
+    Data, Literal, MSG, MessageData,
     ast::{Block, Expr, IfStatement, Infix, InstructionInfo},
     context::ContextStepInfo,
     warnings::DisplayWarnings,
-    Data, Literal, MessageData, MSG,
 };
 use crate::error_format::*;
 use crate::interpreter::{

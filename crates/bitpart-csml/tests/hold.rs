@@ -1,8 +1,8 @@
 mod support;
 
+use bitpart_csml::data::Context;
 use bitpart_csml::data::event::Event;
 use bitpart_csml::data::hold::{Hold, IndexInfo};
-use bitpart_csml::data::Context;
 use std::collections::HashMap;
 
 use crate::support::tools::format_message;

@@ -2,7 +2,7 @@ use crate::data::position::Position;
 use crate::data::primitive::PrimitiveObject;
 use std::collections::HashMap;
 
-use crate::data::{ast::Interval, ArgsType, Literal};
+use crate::data::{ArgsType, Literal, ast::Interval};
 use crate::error_format::*;
 
 pub fn crypto(args: ArgsType, flow_name: &str, interval: Interval) -> Result<Literal, ErrorInfo> {

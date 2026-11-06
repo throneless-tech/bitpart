@@ -1,6 +1,6 @@
 use crate::data::position::Position;
-use crate::data::primitive::{object::PrimitiveObject, PrimitiveType};
-use crate::data::{ast::Interval, ArgsType, Literal};
+use crate::data::primitive::{PrimitiveType, object::PrimitiveObject};
+use crate::data::{ArgsType, Literal, ast::Interval};
 use crate::error_format::*;
 use std::collections::HashMap;
 

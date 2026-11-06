@@ -74,6 +74,26 @@ pub async fn set(
     .map_err(BitpartStoreError::from)
 }
 
+pub async fn remove_like(
+    channel_id: &str,
+    address_pattern: &str,
+    pool: &Pool,
+) -> Result<u64, BitpartStoreError> {
+    let conn = pool.get().await.map_err(pool_err)?;
+    let channel_id = channel_id.to_owned();
+    let address_pattern = address_pattern.to_owned();
+    conn.interact(move |c| -> rusqlite::Result<u64> {
+        let n = c.execute(
+            "DELETE FROM signal_identities WHERE channel_id = ?1 AND address LIKE ?2",
+            params![channel_id, address_pattern],
+        )?;
+        Ok(n as u64)
+    })
+    .await
+    .map_err(pool_err)?
+    .map_err(BitpartStoreError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

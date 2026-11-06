@@ -1,12 +1,12 @@
 use crate::data::error_info::ErrorInfo;
 use crate::data::position::Position;
 use crate::data::primitive::{PrimitiveInt, PrimitiveObject, PrimitiveString, PrimitiveType};
-use crate::data::{ast::Interval, csml_logs::*, ArgsType, Literal};
+use crate::data::{ArgsType, Literal, ast::Interval, csml_logs::*};
 use crate::error_format::*;
 use std::collections::HashMap;
 use std::env;
 
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method, StatusCode};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -116,7 +116,7 @@ pub fn get_url(
                         return Err(gen_error_info(
                             Position::new(interval, flow_name),
                             format!("'{}' {}", key, ERROR_HTTP_GET_VALUE),
-                        ))
+                        ));
                     }
                 };
 
@@ -218,7 +218,7 @@ pub async fn http_request(
                 return Err(gen_error_info(
                     Position::new(interval, flow_name),
                     format!("'{}' {}", key, ERROR_HTTP_GET_VALUE),
-                ))
+                ));
             }
         };
 

@@ -1,7 +1,7 @@
 pub mod data;
 
 use crate::data::tokens::Span;
-use crate::data::{position::Position, warnings::Warnings, Interval};
+use crate::data::{Interval, position::Position, warnings::Warnings};
 use nom::{
     error::{ContextError, ErrorKind, ParseError},
     *,
@@ -54,10 +54,8 @@ pub const ERROR_NO_FLOW: &str = "bot must have at least one flow";
 // ### Validation
 pub const ERROR_STEP_EXIST: &str = "step does not exist";
 pub const ERROR_INVALID_FLOW: &str = "invalid flow: ";
-pub const ERROR_START_INSTRUCTIONS: &str =
-    "to start an action one of the following instructions is expected: [say, do, if, foreach, goto]";
-pub const ERROR_FOREACH: &str =
-    "foreach only accepts iterable elements like arrays and strings. Example: foreach(elem) in [1, 2, 3]";
+pub const ERROR_START_INSTRUCTIONS: &str = "to start an action one of the following instructions is expected: [say, do, if, foreach, goto]";
+pub const ERROR_FOREACH: &str = "foreach only accepts iterable elements like arrays and strings. Example: foreach(elem) in [1, 2, 3]";
 pub const ERROR_FIND_BY_INDEX: &str =
     "index must be of type int or string. Example var.[42] or var.[\"key\"]";
 pub const ERROR_ASSIGN_IDENT: &str = "key must be of type identifier";
@@ -128,8 +126,7 @@ pub const ERROR_LENGTH: &str =
 pub const ERROR_FIND: &str = "Find builtin expects 'in' param to be of type String. Example: Find(value, in = \"hola\", case_sensitive = true)";
 pub const ERROR_FLOOR: &str =
     "Floor builtin expects one argument of type float. Example: Floor(4.2)";
-pub const ERROR_UUID: &str =
-    "UUID builtin expects one optional argument of type String. Example: UUID(\"v4\") or UUID(\"v1\")";
+pub const ERROR_UUID: &str = "UUID builtin expects one optional argument of type String. Example: UUID(\"v4\") or UUID(\"v1\")";
 pub const ERROR_IMAGE: &str =
     "Image component expects one argument of type string. Example: Image(\"hola\")";
 pub const ERROR_URL: &str = "Url component expects one argument of type string and 2 optional string arguments: text, title. Example: Url(\"hola\", text = \"text\", title = \"title\")";
@@ -139,8 +136,7 @@ pub const ERROR_AUDIO: &str =
     "Audio component expects one argument of type string. Example: Audio(url = \"hola\")";
 pub const ERROR_FILE: &str =
     "File component expects one argument of type string. Example: File(url = \"hola\")";
-pub const ERROR_HTTP_GET_VALUE: &str =
-    "not found in HTTP object. Use the HTTP() builtin to construct the correct object to make HTTP calls";
+pub const ERROR_HTTP_GET_VALUE: &str = "not found in HTTP object. Use the HTTP() builtin to construct the correct object to make HTTP calls";
 pub const ERROR_HTTP_QUERY_VALUES: &str =
     "must have a value of type String. Example: {key: \"value\"}";
 pub const ERROR_HTTP: &str =
@@ -200,12 +196,9 @@ pub const ERROR_STRING_APPEND: &str =
     "[append] takes one parameter of type String. Usage: string.append(\"text to append\")";
 pub const ERROR_STRING_CONTAINS: &str =
     "[contains] takes one parameter of type String. Usage: string.contains(\"word\")";
-pub const ERROR_STRING_REPLACE: &str =
-    "[replace] takes tow parameter of type String. Usage: \"this is old\".replace(\"old\", \"new\")";
-pub const ERROR_STRING_REPLACE_ALL: &str =
-    "[replace_all] takes tow parameter of type String. Usage: \"old old old old\".replace_all(\"old\", \"new\")";
-pub const ERROR_STRING_REPLACE_REGEX: &str =
-    "[replace_regex] takes tow parameter of type String. Usage: \"hello world\".replace_regex(\"world\", \"Clevy\")";
+pub const ERROR_STRING_REPLACE: &str = "[replace] takes tow parameter of type String. Usage: \"this is old\".replace(\"old\", \"new\")";
+pub const ERROR_STRING_REPLACE_ALL: &str = "[replace_all] takes tow parameter of type String. Usage: \"old old old old\".replace_all(\"old\", \"new\")";
+pub const ERROR_STRING_REPLACE_REGEX: &str = "[replace_regex] takes tow parameter of type String. Usage: \"hello world\".replace_regex(\"world\", \"Clevy\")";
 pub const ERROR_STRING_CONTAINS_REGEX: &str =
     "[contains_regex] takes one parameter of type String. Usage: string.contains_regex(\"regex\")";
 pub const ERROR_STRING_VALID_REGEX: &str = "parameter must be a valid regex expression"; // link to docs
@@ -214,8 +207,7 @@ pub const ERROR_STRING_START_WITH: &str =
 pub const ERROR_STRING_START_WITH_REGEX: &str = "[starts_with_regex] takes one parameter of type String. Usage: string.start_with_regex(\"regex\")";
 pub const ERROR_STRING_END_WITH: &str =
     "[ends_with] takes one parameter of type String. Usage: string.ends_with(\"tag\")";
-pub const ERROR_STRING_END_WITH_REGEX: &str =
-    "[ends_with_regex] takes one parameter of type String. Usage: string.ends_with_regex(\"regex\")";
+pub const ERROR_STRING_END_WITH_REGEX: &str = "[ends_with_regex] takes one parameter of type String. Usage: string.ends_with_regex(\"regex\")";
 pub const ERROR_STRING_FROM_JSON: &str = "[from_json] [!] string to object failed]";
 pub const ERROR_STRING_SPLIT: &str =
     "[split] takes one parameter of type String. Usage: string.split(\"separator\")";

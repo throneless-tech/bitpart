@@ -1,0 +1,26 @@
+FROM debian:bookworm-slim AS users
+
+ENV USER=bitpart
+ENV UID=10001
+
+RUN adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    "${USER}"
+
+FROM gcr.io/distroless/cc-debian12
+
+COPY --from=users /etc/passwd /etc/passwd
+COPY --from=users /etc/group /etc/group
+
+WORKDIR /bitpart
+
+COPY --chmod=0755 dist/bitpart ./
+
+USER bitpart:bitpart
+
+CMD ["/bitpart/bitpart"]

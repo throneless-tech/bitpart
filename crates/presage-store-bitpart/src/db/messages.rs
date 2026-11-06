@@ -48,6 +48,7 @@ pub async fn get(
     .map_err(BitpartStoreError::from)
 }
 
+#[cfg(test)]
 pub async fn set(
     channel_id: &str,
     thread_id: &str,

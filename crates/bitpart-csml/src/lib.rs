@@ -19,19 +19,19 @@ pub use parser::step_checksum::get_step;
 use interpreter::{interpret_scope, json_to_literal};
 use parser::parse_flow;
 
+use data::CsmlResult;
 use data::ast::{Expr, Flow, InsertStep, InstructionScope, Interval};
-use data::context::{get_hashmap_from_mem, ContextStepInfo};
+use data::context::{ContextStepInfo, get_hashmap_from_mem};
 use data::error_info::ErrorInfo;
 use data::event::Event;
 use data::literal::create_error_info;
 use data::message_data::MessageData;
 use data::msg::MSG;
-use data::CsmlResult;
-use data::{csml_bot::CsmlBot, CsmlFlow};
 use data::{Context, Data, Position, STEP_LIMIT};
+use data::{CsmlFlow, csml_bot::CsmlBot};
 use error_format::*;
 use fold_bot::fold_bot as fold;
-use linter::{linter::lint_bot, FlowToValidate};
+use linter::{FlowToValidate, linter::lint_bot};
 use parser::ExitCondition;
 
 use std::collections::HashMap;

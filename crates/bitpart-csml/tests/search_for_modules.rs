@@ -43,7 +43,6 @@ fn search_for_modules_resolves_module_flow() {
 
     let mut bot = CsmlBot::new(
         "id",
-        "bot",
         None,
         vec![],
         None,
@@ -98,7 +97,6 @@ fn search_for_modules_skips_already_downloaded() {
 
     let mut bot = CsmlBot::new(
         "id",
-        "bot",
         None,
         vec![],
         None,

@@ -4,7 +4,7 @@ use crate::parser::tools::get_string;
 use crate::parser::{
     parse_comments::comment, parse_var_types::parse_expr_list, tools::get_interval,
 };
-use nom::{error::*, sequence::preceded, IResult};
+use nom::{IResult, error::*, sequence::preceded};
 
 ////////////////////////////////////////////////////////////////////////////////
 // PUBLIC FUNCTION

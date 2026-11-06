@@ -14,8 +14,6 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use std::path::PathBuf;
-
 use bitpart_common::error::{BitpartErrorKind, Result};
 use tokio::sync::oneshot;
 
@@ -29,40 +27,45 @@ pub async fn link_channel(
     id: &str,
     bot_id: &str,
     device_name: &str,
-    attachments_dir: PathBuf,
+    profile_name: Option<String>,
     state: &mut ApiState,
 ) -> Result<String> {
     let db_id = db::channel::create(id, bot_id, &state.pool).await?;
+    let mut data = state.tokens.lock().await;
+    if let Some(running) = data.remove(&db_id) {
+        running.cancel();
+    }
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::LinkChannel {
         id: db_id.clone(),
         device_name: device_name.to_owned(),
-        attachments_dir,
+        profile_name,
     };
     let token = state.parent_token.child_token();
     let msg_token = token.clone();
-    let mut data = state.tokens.lock().await;
-    data.insert((bot_id.to_owned(), id.to_owned()), token);
+    data.insert(db_id, token);
+    drop(data);
     let msg = signal::ChannelMessage {
         msg: contents,
         pool: state.pool.clone(),
         token: msg_token,
         tracker: state.tracker.clone(),
         sender: send,
+        metrics: state.metrics.clone(),
+        limits: state.limits,
     };
     state.manager.send(msg).await?;
     Ok(recv.await?)
 }
 
-pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState) -> Result<String> {
+pub async fn start_channel(row_id: &str, state: &mut ApiState) -> Result<String> {
     let (send, recv) = oneshot::channel();
     let contents = signal::ChannelMessageContents::StartChannel {
-        id: channel_id.to_owned(),
-        attachments_dir: state.attachments_dir.clone(),
+        id: row_id.to_owned(),
     };
     let mut data = state.tokens.lock().await;
     let token = data
-        .entry((bot_id.to_owned(), channel_id.to_owned()))
+        .entry(row_id.to_owned())
         .or_insert(state.parent_token.child_token());
     let msg = signal::ChannelMessage {
         msg: contents,
@@ -70,6 +73,8 @@ pub async fn start_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
         token: token.clone(),
         tracker: state.tracker.clone(),
         sender: send,
+        metrics: state.metrics.clone(),
+        limits: state.limits,
     };
     state.manager.send(msg).await?;
     Ok(recv.await?)
@@ -83,7 +88,7 @@ pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
         };
         let mut data = state.tokens.lock().await;
         let token = data
-            .entry((bot_id.to_owned(), channel_id.to_owned()))
+            .entry(channel.id.clone())
             .or_insert(state.parent_token.child_token());
         let msg = signal::ChannelMessage {
             msg: contents,
@@ -91,11 +96,45 @@ pub async fn reset_channel(channel_id: &str, bot_id: &str, state: &mut ApiState)
             token: token.clone(),
             tracker: state.tracker.clone(),
             sender: send,
+            metrics: state.metrics.clone(),
+            limits: state.limits,
         };
         state.manager.send(msg).await?;
         Ok(recv.await?)
     } else {
         Err(BitpartErrorKind::Api("Resetting non-existent channel".into()).into())
+    }
+}
+
+pub async fn submit_channel_challenge(
+    channel_id: &str,
+    bot_id: &str,
+    token: Option<String>,
+    captcha: String,
+    state: &mut ApiState,
+) -> Result<String> {
+    let Some(channel) = db::channel::get(channel_id, bot_id, &state.pool).await? else {
+        return Err(BitpartErrorKind::Api("No such channel".into()).into());
+    };
+    let (send, recv) = oneshot::channel();
+    let msg = signal::ChannelMessage {
+        msg: signal::ChannelMessageContents::SubmitChallenge {
+            id: channel.id,
+            token,
+            captcha,
+        },
+        pool: state.pool.clone(),
+        token: state.parent_token.child_token(),
+        tracker: state.tracker.clone(),
+        sender: send,
+        metrics: state.metrics.clone(),
+        limits: state.limits,
+    };
+    state.manager.send(msg).await?;
+    let reply = recv.await?;
+    match reply.strip_prefix("error: ") {
+        Some(error) => Err(BitpartErrorKind::Api(error.to_owned()).into()),
+        None => Ok(reply),
     }
 }
 
@@ -120,10 +159,13 @@ pub async fn list_channels(
 }
 
 pub async fn delete_channel(id: &str, bot_id: &str, state: &ApiState) -> Result<()> {
+    let row = db::channel::get(id, bot_id, &state.pool).await?;
     db::channel::delete(id, bot_id, &state.pool).await?;
-    let data = state.tokens.lock().await;
-    if let Some(token) = data.get(&(bot_id.to_owned(), id.to_owned())) {
-        token.cancel();
+    if let Some(row) = row {
+        if let Some(token) = state.tokens.lock().await.remove(&row.id) {
+            token.cancel();
+        }
+        state.metrics.remove(&row.id);
     }
     Ok(())
 }
@@ -134,8 +176,27 @@ mod test_channel {
     use serde_json::json;
 
     #[tokio::test]
+    async fn it_should_reject_a_challenge_for_an_unknown_channel() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "SubmitChallenge",
+                "data": {
+                    "id": "signal",
+                    "bot_id": "no_such_bot",
+                    "token": null,
+                    "captcha": "signalcaptcha://abc",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("No such channel").await
+    }
+
+    #[tokio::test]
     async fn it_should_create_a_channel() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -173,7 +234,7 @@ mod test_channel {
 
     #[tokio::test]
     async fn it_should_get_a_channel() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -223,7 +284,7 @@ mod test_channel {
 
     #[tokio::test]
     async fn it_should_delete_a_channel() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -301,7 +362,7 @@ mod test_channel {
 
     #[tokio::test]
     async fn it_should_get_multiple_channels() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({

@@ -1,14 +1,14 @@
 use crate::data::{
+    Literal,
     ast::*,
     position::Position,
     primitive::{PrimitiveClosure, PrimitiveType},
-    tokens::{Span, BUILT_IN, BUILT_IN_WITHOUT_WARNINGS, COMPONENT},
+    tokens::{BUILT_IN, BUILT_IN_WITHOUT_WARNINGS, COMPONENT, Span},
     warnings::*,
-    Literal,
 };
 use crate::error_format::{
-    convert_error_from_interval, gen_error_info, gen_infinite_loop_error_msg, gen_warning_info,
-    ErrorInfo,
+    ErrorInfo, convert_error_from_interval, gen_error_info, gen_infinite_loop_error_msg,
+    gen_warning_info,
 };
 use crate::interpreter::variable_handler::interval::interval_from_expr;
 use crate::linter::{
@@ -568,7 +568,7 @@ fn validate_expr_literals(to_be_literal: &Expr, state: &mut State, linter_info: 
             validate_expr_literals(args, state, linter_info);
         }
         Expr::MapExpr { object, .. } => {
-            for (_, expr) in object.iter() {
+            for expr in object.values() {
                 validate_expr_literals(expr, state, linter_info);
             }
         }
@@ -582,20 +582,19 @@ fn validate_expr_literals(to_be_literal: &Expr, state: &mut State, linter_info: 
             validate_expr_literals(exp_2, state, linter_info);
         }
         Expr::LitExpr { literal, .. } => {
-            if literal.primitive.get_type() == PrimitiveType::PrimitiveClosure {
-                if let Ok(closure) = Literal::get_value::<PrimitiveClosure>(
+            if literal.primitive.get_type() == PrimitiveType::PrimitiveClosure
+                && let Ok(closure) = Literal::get_value::<PrimitiveClosure>(
                     &literal.primitive,
                     linter_info.flow_name,
                     literal.interval,
                     String::new(),
-                ) {
-                    if let Expr::Scope { scope, .. } = &*closure.func {
-                        state.in_function += 1;
-                        validate_scope(scope, state, linter_info, &mut None);
-                        state.in_function -= 1;
-                    };
-                }
-            }
+                )
+                && let Expr::Scope { scope, .. } = &*closure.func
+            {
+                state.in_function += 1;
+                validate_scope(scope, state, linter_info, &mut None);
+                state.in_function -= 1;
+            };
         }
         Expr::ObjectExpr(ObjectType::Assign(_assign, target, new)) => {
             validate_expr_literals(target, state, linter_info);
@@ -897,7 +896,7 @@ fn validate_scope(
                 validate_expr_literals(expr, state, linter_info);
             }
 
-            Expr::ObjectExpr(ObjectType::Remember(ref name, value)) => {
+            Expr::ObjectExpr(ObjectType::Remember(name, value)) => {
                 register_closure(name, true, value, linter_info);
 
                 if state.in_function > 0 {

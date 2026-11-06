@@ -1,6 +1,6 @@
 use crate::data::{
-    ast::ForgetMemory, context::ContextStepInfo, csml_logs::LogLvl, error_info::ErrorInfo,
-    hold::Hold, message::Message, primitive::PrimitiveNull, Literal, Memory, MessageData,
+    Literal, Memory, MessageData, ast::ForgetMemory, context::ContextStepInfo, csml_logs::LogLvl,
+    error_info::ErrorInfo, hold::Hold, message::Message, primitive::PrimitiveNull,
 };
 
 use std::sync::mpsc;

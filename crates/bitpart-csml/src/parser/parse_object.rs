@@ -3,13 +3,13 @@ use crate::parser::{parse_comments::comment, tools::get_interval};
 
 use crate::parser::operator::parse_operator;
 use nom::{
+    IResult,
     bytes::complete::tag,
     bytes::complete::take_till1,
     combinator::{cut, map, opt},
-    error::{context, ContextError, ParseError},
+    error::{ContextError, ParseError, context},
     multi::separated_list0,
     sequence::{preceded, separated_pair, terminated, tuple},
-    IResult,
 };
 use std::collections::HashMap;
 

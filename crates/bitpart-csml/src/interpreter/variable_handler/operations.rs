@@ -1,11 +1,11 @@
 use crate::data::{
+    Data, Literal, MSG, MessageData,
     ast::{Expr, Infix, Pretfix},
     position::Position,
     primitive::boolean::PrimitiveBoolean,
     warnings::DisplayWarnings,
-    Data, Literal, MessageData, MSG,
 };
-use crate::error_format::{gen_error_info, ErrorInfo};
+use crate::error_format::{ErrorInfo, gen_error_info};
 use crate::interpreter::variable_handler::{
     expr_to_literal, interval::interval_from_expr, match_literals::match_obj,
 };

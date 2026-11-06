@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use bitpart_common::socket::SocketMessage;
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::Verbosity;
@@ -62,17 +62,17 @@ enum Commands {
         #[arg(short, long)]
         id: String,
 
-        /// Bot Name
+        /// Default flow (the file's basename; may be omitted when only one CSML file is given)
         #[arg(short, long)]
-        name: String,
-
-        /// Default flow
-        #[arg(short, long)]
-        default: String,
+        default: Option<String>,
 
         /// Apps endpoint
         #[arg(short, long)]
         endpoint: Option<String>,
+
+        /// Disappearing message timer for new conversations, in seconds (0 removes it; omit to keep the previous version's timer)
+        #[arg(short = 't', long)]
+        expire_timer: Option<u32>,
 
         /// CSML file
         #[arg(required = true)]
@@ -109,6 +109,10 @@ enum Commands {
         /// Device name
         #[arg(short, long)]
         device_name: String,
+
+        /// Signal profile name for the linked account (this renames the account on all of its devices)
+        #[arg(short, long)]
+        profile_name: Option<String>,
     },
 
     /// reset all active chat sessions on a channel
@@ -121,6 +125,26 @@ enum Commands {
         /// Bot ID
         #[arg(short, long)]
         bot_id: String,
+    },
+
+    /// answer a Signal captcha challenge for a channel
+    #[command(arg_required_else_help = true)]
+    ChannelChallenge {
+        /// Channel ID
+        #[arg(short, long)]
+        id: String,
+
+        /// Bot ID
+        #[arg(short, long)]
+        bot_id: String,
+
+        /// Captcha result from https://signalcaptchas.org/challenge/generate.html (the signalcaptcha:// link)
+        #[arg(short, long)]
+        captcha: String,
+
+        /// Challenge token (defaults to the one shown by describe)
+        #[arg(short, long)]
+        token: Option<String>,
     },
 
     /// delete a bot
@@ -184,6 +208,13 @@ enum Commands {
     },
 }
 
+fn flow_name(path: &std::path::Path) -> Result<String> {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(str::to_owned)
+        .with_context(|| format!("invalid CSML file name: {}", path.display()))
+}
+
 async fn send<S>(sender: &mut S, req: &serde_json::Value) -> Result<()>
 where
     S: Sink<Message> + Unpin,
@@ -211,7 +242,16 @@ where
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let args = Cli::parse();
+    let mut args = Cli::parse();
+
+    if let Commands::Add { default, path, .. } = &mut args.command
+        && default.is_none()
+    {
+        match path.as_slice() {
+            [only] => *default = Some(flow_name(only)?),
+            _ => bail!("--default is required when more than one CSML file is given"),
+        }
+    }
     tracing_subscriber::fmt()
         .with_max_level(args.verbose.log_level_filter().as_trace())
         .init();
@@ -242,9 +282,9 @@ async fn main() -> Result<()> {
         Commands::Add {
             default: default_flow,
             id,
-            name,
             path,
             endpoint,
+            expire_timer,
         } => {
             let flows = path
                 .iter()
@@ -263,10 +303,10 @@ async fn main() -> Result<()> {
             "message_type": "CreateBot",
             "data" : {
                 "id": id,
-                "name": name,
                 "default_flow": default_flow,
                 "flows": flows,
-                "apps_endpoint": endpoint
+                "apps_endpoint": endpoint,
+                "expire_timer": expire_timer
                 }
             });
             debug!("Request: {:?}", req.to_string());
@@ -296,12 +336,32 @@ async fn main() -> Result<()> {
             id,
             bot_id,
             device_name,
+            profile_name,
         } => {
             let req = json!({"message_type": "LinkChannel",
                 "data" : {
                 "id": id,
                 "bot_id": bot_id,
-                "device_name": device_name
+                "device_name": device_name,
+                "profile_name": profile_name
+            }});
+            debug!("Request: {:?}", req.to_string());
+
+            send(&mut sender, &req).await?;
+            hangup(&mut sender).await?;
+        }
+        Commands::ChannelChallenge {
+            id,
+            bot_id,
+            captcha,
+            token,
+        } => {
+            let req = json!({"message_type": "SubmitChallenge",
+                "data" : {
+                "id": id,
+                "bot_id": bot_id,
+                "token": token,
+                "captcha": captcha,
             }});
             debug!("Request: {:?}", req.to_string());
 
@@ -444,16 +504,63 @@ async fn main() -> Result<()> {
                                 );
                             }
                             res_type if res_type == "ReadBot" => {
+                                let Some(bot) = res.response.get("bot") else {
+                                    println!("No such bot");
+                                    continue;
+                                };
                                 println!(
                                     "{}",
                                     unescaper::unescape(
-                                        &serde_json::to_string_pretty(
-                                            res.response.get("bot").unwrap()
-                                        )
-                                        .unwrap(),
+                                        &serde_json::to_string_pretty(bot).unwrap(),
                                     )
                                     .unwrap()
                                 );
+                                let channels = res
+                                    .response
+                                    .get("channels")
+                                    .and_then(|c| c.as_array())
+                                    .map(Vec::as_slice)
+                                    .unwrap_or_default();
+                                if channels.is_empty() {
+                                    println!("Channels: none");
+                                } else {
+                                    println!("Channels:");
+                                    for c in channels {
+                                        let field = |k: &str| {
+                                            c.get(k)
+                                                .map(|v| {
+                                                    v.as_str().map_or_else(
+                                                        || v.to_string(),
+                                                        str::to_owned,
+                                                    )
+                                                })
+                                                .unwrap_or_default()
+                                        };
+                                        println!(
+                                            "  {}: {} (sent {}, received {}, dropped {})",
+                                            field("channel_id"),
+                                            field("status"),
+                                            field("sent"),
+                                            field("received"),
+                                            field("dropped"),
+                                        );
+                                        match c.get("send_status").and_then(|v| v.as_str()) {
+                                            Some("rate_limited") => println!(
+                                                "    last send: rate limited by Signal{}",
+                                                c.get("retry_at")
+                                                    .and_then(|v| v.as_str())
+                                                    .map(|t| format!(", retry after {t}"))
+                                                    .unwrap_or_default()
+                                            ),
+                                            Some("challenge_required") => println!(
+                                                "    last send: Signal requires a captcha, token {}",
+                                                field("challenge_token")
+                                            ),
+                                            Some("failed") => println!("    last send: failed"),
+                                            Some(_) | None => {}
+                                        }
+                                    }
+                                }
                             }
                             res_type if res_type == "BotVersions" => {
                                 res.response
@@ -517,6 +624,9 @@ async fn main() -> Result<()> {
                             res_type if res_type == "ResetChannel" => {
                                 println!("Reset the channel");
                             }
+                            res_type if res_type == "SubmitChallenge" => {
+                                println!("Signal accepted the captcha; sending is unblocked");
+                            }
                             res_type if res_type == "LinkChannel" => {
                                 let _ = qr2term::print_qr(res.response.to_string());
                                 println!("{}", res.response);
@@ -548,7 +658,7 @@ async fn main() -> Result<()> {
                                             ),
                                             _ => println!(
                                                 "{}",
-                                                &msg.get("payload")
+                                                msg.get("payload")
                                                     .and_then(|v| v.get("content"))
                                                     .unwrap()
                                             ),

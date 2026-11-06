@@ -14,7 +14,6 @@
 use bitpart_common::db::Pool;
 use bitpart_common::error::{BitpartErrorKind, Result};
 use bitpart_csml::data::Client;
-use chrono::NaiveDateTime;
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -35,11 +34,10 @@ pub struct Model {
     pub last_interaction_at: String,
     pub updated_at: String,
     pub created_at: String,
-    pub expires_at: Option<String>,
 }
 
 const SELECT_COLS: &str = "id, bot_id, channel_id, user_id, flow_id, step_id, status, \
-                          last_interaction_at, updated_at, created_at, expires_at";
+                          last_interaction_at, updated_at, created_at";
 
 fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
     Ok(Model {
@@ -53,41 +51,25 @@ fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
         last_interaction_at: r.get("last_interaction_at")?,
         updated_at: r.get("updated_at")?,
         created_at: r.get("created_at")?,
-        expires_at: r.get("expires_at")?,
     })
 }
 
-pub async fn create(
-    flow_id: &str,
-    step_id: &str,
-    client: &Client,
-    expires_at: Option<NaiveDateTime>,
-    db: &Pool,
-) -> Result<String> {
+pub async fn create(flow_id: &str, step_id: &str, client: &Client, db: &Pool) -> Result<String> {
     let id = Uuid::new_v4().to_string();
     let bot_id = client.bot_id.clone();
     let channel_id = client.channel_id.clone();
     let user_id = client.user_id.clone();
     let flow_id = flow_id.to_owned();
     let step_id = step_id.to_owned();
-    let expires_at_str = expires_at.map(|e| e.to_string());
 
     let obj = db.get().await.map_err(pool_err)?;
     let id_clone = id.clone();
     obj.interact(move |conn| -> rusqlite::Result<()> {
         conn.execute(
             "INSERT INTO conversation \
-             (id, bot_id, channel_id, user_id, flow_id, step_id, status, expires_at) \
-             VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?)",
-            params![
-                id_clone,
-                bot_id,
-                channel_id,
-                user_id,
-                flow_id,
-                step_id,
-                expires_at_str,
-            ],
+             (id, bot_id, channel_id, user_id, flow_id, step_id, status) \
+             VALUES (?, ?, ?, ?, ?, ?, 'OPEN')",
+            params![id_clone, bot_id, channel_id, user_id, flow_id, step_id,],
         )?;
         Ok(())
     })

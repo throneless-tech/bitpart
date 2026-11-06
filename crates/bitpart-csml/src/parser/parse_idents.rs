@@ -1,6 +1,6 @@
 use crate::data::{ast::*, tokens::*};
 use crate::error_format::{
-    gen_nom_error, gen_nom_failure, ERROR_NUMBER_AS_IDENT, ERROR_RESERVED, ERROR_SIZE_IDENT,
+    ERROR_NUMBER_AS_IDENT, ERROR_RESERVED, ERROR_SIZE_IDENT, gen_nom_error, gen_nom_failure,
 };
 use crate::parser::{
     parse_comments::comment,
@@ -8,11 +8,11 @@ use crate::parser::{
     tools::{get_string, get_tag},
 };
 use nom::{
+    Err::*,
+    IResult,
     combinator::cut,
     error::{ContextError, ParseError},
     sequence::preceded,
-    Err::*,
-    IResult,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

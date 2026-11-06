@@ -1,4 +1,4 @@
-use crate::data::{ast::*, data::Data, MessageData};
+use crate::data::{MessageData, ast::*, data::Data};
 
 pub fn forget_scope_memories(forget_mem: &ForgetMemory, data: &mut Data) {
     match forget_mem {

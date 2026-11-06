@@ -1,5 +1,5 @@
 use crate::data::{ast::*, primitive::PrimitiveInt, tokens::*};
-use crate::error_format::{gen_nom_failure, ERROR_RIGHT_BRACKET};
+use crate::error_format::{ERROR_RIGHT_BRACKET, gen_nom_failure};
 use crate::parser::{
     operator::{parse_operator, tools::parse_item_operator},
     parse_built_in::parse_built_in,
@@ -15,13 +15,13 @@ use crate::parser::{
 };
 
 use nom::{
+    Err, IResult,
     branch::alt,
     bytes::complete::tag,
     combinator::{cut, opt},
     error::{ContextError, ParseError},
     multi::separated_list0,
     sequence::{delimited, preceded, terminated, tuple},
-    Err, IResult,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

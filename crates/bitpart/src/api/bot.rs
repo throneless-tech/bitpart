@@ -20,9 +20,21 @@ use bitpart_csml::{
     load_components, search_for_modules, validate_bot,
 };
 
-use crate::{api::ApiState, csml::data::BotVersion, db};
+use crate::{api::ApiState, csml::data::BotVersion, db, metrics::ChannelStatus};
+use serde::Serialize;
 
-pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion> {
+#[derive(Debug, Serialize)]
+pub struct BotDescription {
+    #[serde(flatten)]
+    pub bot: BotVersion,
+    pub channels: Vec<ChannelStatus>,
+}
+
+pub async fn create_bot(
+    mut bot: CsmlBot,
+    expire_timer: Option<u32>,
+    state: &ApiState,
+) -> Result<BotVersion> {
     bot.native_components = match load_components() {
         Ok(components) => Some(components),
         Err(err) => return Err(BitpartErrorKind::Interpreter(err.format_error()).into()),
@@ -38,7 +50,7 @@ pub async fn create_bot(mut bot: CsmlBot, state: &ApiState) -> Result<BotVersion
             ..
         } => Err(BitpartErrorKind::Api(format!("{:?}", errors)).into()),
         CsmlResult { .. } => {
-            let created = db::bot::create(bot, &state.pool).await?;
+            let created = db::bot::create(bot, expire_timer, &state.pool).await?;
             Ok(created)
         }
     }
@@ -53,9 +65,17 @@ pub async fn list_bots(
     Ok(list)
 }
 
-pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> {
+pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotDescription>> {
     if let Some(bot) = db::bot::get_latest_by_bot_id(id, &state.pool).await? {
-        Ok(Some(bot))
+        let channels: Vec<(String, String)> = db::channel::get_by_bot_id(id, &state.pool)
+            .await?
+            .into_iter()
+            .map(|c| (c.id, c.channel_id))
+            .collect();
+        Ok(Some(BotDescription {
+            bot,
+            channels: state.metrics.for_channels(&channels),
+        }))
     } else {
         Ok(None)
     }
@@ -64,6 +84,9 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotVersion>> 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_bot_id(id, &state.pool).await?;
     db::memory::delete_by_bot_id(id, &state.pool).await?;
+    db::message::delete_by_bot_id(id, &state.pool).await?;
+    db::conversation::delete_by_bot_id(id, &state.pool).await?;
+    db::state::delete_by_bot_id(id, &state.pool).await?;
     let channels = db::channel::get_by_bot_id(id, &state.pool).await?;
     for channel in channels.iter() {
         crate::api::channel::delete_channel(&channel.channel_id, id, state).await?;
@@ -113,7 +136,7 @@ mod test_bot {
 
     #[tokio::test]
     async fn it_should_create_a_bot() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -138,8 +161,132 @@ mod test_bot {
     }
 
     #[tokio::test]
+    async fn it_should_create_a_bot_with_an_expire_timer() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "name": "test",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                    "expire_timer": 604800,
+                }
+            }))
+            .await;
+
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "ReadBot",
+                "data": {
+                    "id": "bot_id"
+                }
+            }))
+            .await;
+
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await
+    }
+
+    #[tokio::test]
+    async fn it_should_inherit_or_remove_the_expire_timer() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        let bot = |expire_timer: Option<u32>| {
+            let mut data = json!({
+                "id": "bot_id",
+                "name": "test",
+                "flows": [
+                  {
+                    "id": "Default",
+                    "name": "Default",
+                    "content": "start: say \"Hello\" goto end",
+                    "commands": [],
+                  }
+                ],
+                "default_flow": "Default",
+            });
+            if let Some(timer) = expire_timer {
+                data["expire_timer"] = json!(timer);
+            }
+            json!({ "message_type": "CreateBot", "data": data })
+        };
+
+        socket.send_json(&bot(Some(604800))).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await;
+
+        socket.send_json(&bot(None)).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":604800")
+            .await;
+
+        socket.send_json(&bot(Some(0))).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":null")
+            .await;
+
+        socket.send_json(&bot(None)).await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":null")
+            .await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "ReadBot",
+                "data": {
+                    "id": "bot_id"
+                }
+            }))
+            .await;
+        socket
+            .assert_receive_text_contains("\"expire_timer\":null")
+            .await
+    }
+
+    #[tokio::test]
+    async fn it_should_create_a_bot_without_a_name() {
+        let (mut socket, _dir) = get_test_socket().await;
+
+        socket
+            .send_json(&json!({
+                "message_type": "CreateBot",
+                "data": {
+                    "id": "bot_id",
+                    "flows": [
+                      {
+                        "id": "Default",
+                        "name": "Default",
+                        "content": "start: say \"Hello\" goto end",
+                        "commands": [],
+                      }
+                    ],
+                    "default_flow": "Default",
+                }
+            }))
+            .await;
+
+        socket.assert_receive_text_contains("Hello").await
+    }
+
+    #[tokio::test]
     async fn it_should_get_a_bot() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -174,7 +321,7 @@ mod test_bot {
 
     #[tokio::test]
     async fn it_should_delete_a_bot() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -238,7 +385,7 @@ mod test_bot {
 
     #[tokio::test]
     async fn it_should_get_multiple_versions() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({
@@ -285,5 +432,141 @@ mod test_bot {
             .await;
 
         socket.assert_receive_text_contains("Hello").await
+    }
+
+    #[tokio::test]
+    async fn deleting_a_bot_removes_its_conversation_records() {
+        use crate::csml::data::ConversationData;
+        use crate::{api::delete_bot, db, utils::get_test_state};
+        use bitpart_csml::data::{Client, CsmlBot, CsmlFlow, context::Context};
+        use std::collections::HashMap;
+
+        let (state, _dir) = get_test_state().await;
+        let client = |bot_id: &str| Client {
+            bot_id: bot_id.to_owned(),
+            channel_id: "channel".to_owned(),
+            user_id: "user".to_owned(),
+        };
+
+        for bot_id in ["doomed", "kept"] {
+            let bot = CsmlBot::new(
+                bot_id,
+                None,
+                vec![CsmlFlow::new(
+                    "Default",
+                    "Default",
+                    "start: say \"Hello\" goto end",
+                    vec![],
+                )],
+                None,
+                None,
+                "Default",
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            db::bot::create(bot, None, &state.pool).await.unwrap();
+            let client = client(bot_id);
+            let conversation_id =
+                db::conversation::create("Default", "start", &client, &state.pool)
+                    .await
+                    .unwrap();
+            let data = ConversationData {
+                conversation_id,
+                request_id: "request".to_owned(),
+                client: client.clone(),
+                callback_url: None,
+                context: Context::new(
+                    HashMap::new(),
+                    HashMap::new(),
+                    None,
+                    None,
+                    "start",
+                    "Default",
+                    None,
+                ),
+                metadata: json!({}),
+                messages: vec![],
+                low_data: false,
+                deleted: false,
+            };
+            db::message::create(
+                &data,
+                &[json!({"content_type": "text"})],
+                0,
+                "RECEIVE",
+                &state.pool,
+            )
+            .await
+            .unwrap();
+            db::memory::create(&client, "key", &json!("value"), &state.pool)
+                .await
+                .unwrap();
+            db::state::set(&client, "hold", "position", &json!({}), &state.pool)
+                .await
+                .unwrap();
+        }
+
+        delete_bot("doomed", &state).await.unwrap();
+
+        for (bot_id, expected) in [("doomed", 0), ("kept", 1)] {
+            let client = client(bot_id);
+            let pool = &state.pool;
+            assert_eq!(
+                db::conversation::get_by_client(&client, None, None, pool)
+                    .await
+                    .unwrap()
+                    .len(),
+                expected,
+                "{bot_id} conversations"
+            );
+            assert_eq!(
+                db::memory::get_by_client(&client, None, None, pool)
+                    .await
+                    .unwrap()
+                    .len(),
+                expected,
+                "{bot_id} memories"
+            );
+            assert_eq!(
+                db::state::get_by_client(&client, pool).await.unwrap().len(),
+                expected,
+                "{bot_id} state"
+            );
+        }
+        let pool = &state.pool;
+        let messages = pool
+            .get()
+            .await
+            .unwrap()
+            .interact(|conn| {
+                conn.query_row(
+                    "SELECT bot_id, COUNT(*) FROM message JOIN conversation \
+                     ON message.conversation_id = conversation.id GROUP BY bot_id",
+                    [],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+                )
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(messages, ("kept".to_owned(), 1));
+        let orphans: i64 = pool
+            .get()
+            .await
+            .unwrap()
+            .interact(|conn| {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM message WHERE conversation_id NOT IN (SELECT id FROM conversation)",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(orphans, 0);
     }
 }

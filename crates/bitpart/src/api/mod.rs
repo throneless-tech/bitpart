@@ -15,7 +15,6 @@
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use bitpart_common::db::Pool;
@@ -23,6 +22,8 @@ use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 
 use crate::channels::signal;
+use crate::limits::RateLimits;
+use crate::metrics::MetricsRegistry;
 
 pub mod bot;
 pub mod channel;
@@ -34,7 +35,7 @@ pub use bot::{
 };
 pub use channel::{
     create_channel, delete_channel, link_channel, list_channels, read_channel, reset_channel,
-    start_channel,
+    start_channel, submit_channel_challenge,
 };
 pub use request::process_request;
 
@@ -43,8 +44,9 @@ pub struct ApiState {
     pub pool: Pool,
     pub auth: String,
     pub parent_token: CancellationToken,
-    pub tokens: Arc<Mutex<HashMap<(String, String), CancellationToken>>>,
+    pub tokens: Arc<Mutex<HashMap<String, CancellationToken>>>,
     pub tracker: TaskTracker,
-    pub attachments_dir: PathBuf,
     pub manager: Arc<dyn signal::ChannelBackend>,
+    pub metrics: MetricsRegistry,
+    pub limits: RateLimits,
 }

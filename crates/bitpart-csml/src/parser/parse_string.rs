@@ -1,9 +1,9 @@
 use crate::data::primitive::string::PrimitiveString;
 use crate::data::{
-    ast::*, position::Position, tokens::*, warnings::DisplayWarnings, Data, Literal, MessageData,
-    MSG,
+    Data, Literal, MSG, MessageData, ast::*, position::Position, tokens::*,
+    warnings::DisplayWarnings,
 };
-use crate::error_format::{gen_nom_failure, CustomError, *};
+use crate::error_format::{CustomError, gen_nom_failure, *};
 use crate::interpreter::variable_handler::expr_to_literal;
 use crate::parser::operator::parse_operator;
 use crate::parser::parse_comments::comment;
@@ -308,7 +308,7 @@ where
 {
     let (start, _) = get_interval(s)?;
 
-    let toto = match (
+    match (
         tag(DOUBLE_QUOTE)(s) as IResult<Span<'a>, Span<'a>, E>,
         tag(BACKSLASH_DOUBLE_QUOTE)(s) as IResult<Span<'a>, Span<'a>, E>,
     ) {
@@ -327,9 +327,7 @@ where
             ),
         ),
         (Err(err), ..) => Err(err),
-    };
-
-    toto
+    }
 }
 
 pub async fn interpolate_string(

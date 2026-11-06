@@ -1,6 +1,6 @@
 use crate::data::{
     ast::Expr,
-    tokens::{Span, L_PAREN, R_PAREN, WHILE},
+    tokens::{L_PAREN, R_PAREN, Span, WHILE},
 };
 use crate::parser::operator::parse_operator;
 use crate::parser::{parse_comments::comment, parse_scope::parse_scope, tools::get_interval};

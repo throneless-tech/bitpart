@@ -19,6 +19,7 @@
 
 pub mod base_keys_seen;
 pub mod contacts;
+pub mod expire_timers;
 pub mod groups;
 pub mod identities;
 pub mod kyber_pre_keys;

@@ -1,12 +1,12 @@
 use crate::data::{
+    ArgsType, Literal, MSG, MemoryType, MessageData, Position,
     ast::*,
-    data::{init_child_context, init_child_scope, Data},
+    data::{Data, init_child_context, init_child_scope},
     error_info::ErrorInfo,
     literal::create_error_info,
     primitive::PrimitiveClosure,
     tokens::*,
     warnings::DisplayWarnings,
-    ArgsType, Literal, MemoryType, MessageData, Position, MSG,
 };
 use crate::error_format::*;
 use crate::interpreter::{
@@ -166,7 +166,7 @@ fn search_function<'a>(
             }
         },
         FromFlow::None => {
-            for (_name, flow) in bot_flows.iter() {
+            for flow in bot_flows.values() {
                 if let Some(values) = get_function(flow, &import.name, &import.original_name) {
                     return Ok(values);
                 }
@@ -431,15 +431,13 @@ pub async fn exec_fn(
         insert_memories_in_scope_memory(&mut new_scope_data, memories, msg_data, sender);
     }
 
-    let res = Box::pin(exec_fn_in_new_scope(
+    Box::pin(exec_fn_in_new_scope(
         scope,
         &mut new_scope_data,
         msg_data,
         sender,
     ))
-    .await;
-
-    res
+    .await
 }
 
 pub async fn exec_closure(

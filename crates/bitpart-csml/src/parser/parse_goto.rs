@@ -1,9 +1,9 @@
 use crate::data::{ast::*, tokens::*};
-use crate::error_format::{gen_nom_failure, ERROR_GOTO_STEP};
+use crate::error_format::{ERROR_GOTO_STEP, gen_nom_failure};
 use crate::parser::{
-    get_interval, parse_comments::comment, parse_idents::parse_string_assignation,
-    parse_path::parse_path, parse_var_types::parse_idents_expr_usage, tools::get_string,
-    tools::get_tag, GotoType, GotoValueType,
+    GotoType, GotoValueType, get_interval, parse_comments::comment,
+    parse_idents::parse_string_assignation, parse_path::parse_path,
+    parse_var_types::parse_idents_expr_usage, tools::get_string, tools::get_tag,
 };
 
 use nom::{branch::alt, bytes::complete::tag, combinator::opt, error::*, sequence::preceded, *};

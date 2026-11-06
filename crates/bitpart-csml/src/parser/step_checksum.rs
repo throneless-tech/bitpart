@@ -4,11 +4,11 @@ use crate::interpreter::variable_handler::interval::interval_from_expr;
 use crate::parser::parse_comments::comment;
 
 use nom::{
+    Err, IResult, InputTake,
     bytes::complete::take_while1,
     error::{ContextError, ParseError},
     multi::fold_many0,
     sequence::preceded,
-    Err, IResult, InputTake,
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -113,7 +113,7 @@ fn get_offsets(ast: &Flow) -> (Vec<(String, usize)>, Vec<usize>) {
             InstructionScope::DuplicateInstruction(..) => {}
         }
     }
-    offsets.sort_by(|(_, a), (_, b)| a.cmp(b));
+    offsets.sort_by_key(|(_, a)| *a);
     skip_offsets.sort();
 
     (offsets, skip_offsets)

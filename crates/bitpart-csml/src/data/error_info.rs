@@ -1,5 +1,5 @@
 use crate::data::{
-    literal::{create_error_info, Literal},
+    literal::{Literal, create_error_info},
     position::Position,
 };
 

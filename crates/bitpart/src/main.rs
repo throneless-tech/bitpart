@@ -18,6 +18,8 @@ pub mod api;
 mod channels;
 mod csml;
 pub mod db;
+mod limits;
+mod metrics;
 mod socket;
 mod utils;
 
@@ -51,6 +53,7 @@ use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::info;
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
+use tracing_subscriber::filter::filter_fn;
 use tracing_subscriber::prelude::*;
 
 use api::ApiState;
@@ -87,6 +90,7 @@ struct Cli {
 
     /// Enable Opentelemetry
     #[arg(short, long)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
     opentelemetry: bool,
 }
 
@@ -108,6 +112,7 @@ struct Config {
     key: String,
 
     /// Enable Opentelemetry
+    #[serde(default)]
     opentelemetry: bool,
 }
 
@@ -168,6 +173,18 @@ fn telemetry_tracer_init() -> Result<SdkTracer> {
     Ok(tracer_provider.tracer("bitpart_tracer"))
 }
 
+fn exported_span(meta: &tracing::Metadata<'_>) -> bool {
+    meta.is_span() && meta.target().starts_with(env!("CARGO_CRATE_NAME"))
+}
+
+fn logged_event(meta: &tracing::Metadata<'_>, debug_logging: bool) -> bool {
+    debug_logging
+        || *meta.level() <= tracing::Level::ERROR
+        || !["presage", "libsignal"]
+            .iter()
+            .any(|dependency| meta.target().starts_with(dependency))
+}
+
 fn telemetry_meter_init() -> Result<SdkMeterProvider> {
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder().with_http();
 
@@ -176,6 +193,79 @@ fn telemetry_meter_init() -> Result<SdkMeterProvider> {
         .build();
 
     Ok(meter_provider)
+}
+
+fn register_signal_metrics(
+    registry: &metrics::MetricsRegistry,
+) -> (
+    opentelemetry::metrics::ObservableCounter<u64>,
+    opentelemetry::metrics::ObservableCounter<u64>,
+    opentelemetry::metrics::ObservableGauge<u64>,
+) {
+    use opentelemetry::KeyValue;
+
+    let meter = opentelemetry::global::meter("bitpart_signal");
+
+    let sent = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_counter("bitpart.signal.messages.sent")
+            .with_description("Signal messages sent by a bot channel")
+            .with_callback(move |observer| {
+                for (bot_id, channel, snap) in registry.snapshot_all() {
+                    observer.observe(
+                        snap.sent,
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("channel", channel),
+                        ],
+                    );
+                }
+            })
+            .build()
+    };
+
+    let received = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_counter("bitpart.signal.messages.received")
+            .with_description("Signal messages received by a bot channel")
+            .with_callback(move |observer| {
+                for (bot_id, channel, snap) in registry.snapshot_all() {
+                    observer.observe(
+                        snap.received,
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("channel", channel),
+                        ],
+                    );
+                }
+            })
+            .build()
+    };
+
+    let status = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_gauge("bitpart.signal.connection_status")
+            .with_description(
+                "Signal connection status per bot channel (0=unlinked, 1=linked, 2=failing)",
+            )
+            .with_callback(move |observer| {
+                for (bot_id, channel, snap) in registry.snapshot_all() {
+                    observer.observe(
+                        snap.status.as_u8() as u64,
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("channel", channel),
+                        ],
+                    );
+                }
+            })
+            .build()
+    };
+
+    (sent, received, status)
 }
 
 #[tokio::main]
@@ -194,18 +284,35 @@ async fn main() -> Result<()> {
         .merge(Serialized::defaults(Cli::parse()))
         .extract()?;
 
-    // Setup logging and telemetry
+    let debug_logging =
+        server.verbose.log_level_filter().as_trace() >= tracing::level_filters::LevelFilter::DEBUG;
+    let metrics_registry = metrics::MetricsRegistry::new();
+    let _signal_instruments;
     if server.opentelemetry {
+        let meter_provider = telemetry_meter_init()?;
+        opentelemetry::global::set_meter_provider(meter_provider.clone());
+        _signal_instruments = Some(register_signal_metrics(&metrics_registry));
         tracing_subscriber::registry()
             .with(server.verbose.log_level_filter().as_trace())
-            .with(tracing_subscriber::fmt::layer())
-            .with(tracing_opentelemetry::layer().with_tracer(telemetry_tracer_init()?))
-            .with(MetricsLayer::new(telemetry_meter_init()?))
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_filter(filter_fn(move |meta| logged_event(meta, debug_logging))),
+            )
+            .with(
+                tracing_opentelemetry::layer()
+                    .with_tracer(telemetry_tracer_init()?)
+                    .with_filter(filter_fn(exported_span)),
+            )
+            .with(MetricsLayer::new(meter_provider))
             .init();
     } else {
+        _signal_instruments = None;
         tracing_subscriber::registry()
             .with(server.verbose.log_level_filter().as_trace())
-            .with(tracing_subscriber::fmt::layer())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_filter(filter_fn(move |meta| logged_event(meta, debug_logging))),
+            )
             .init();
     }
 
@@ -221,18 +328,19 @@ async fn main() -> Result<()> {
     let channels = db::channel::list(None, None, &pool).await?;
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
-    let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
+    let tokens: HashMap<String, CancellationToken> = HashMap::new();
     let mut state = ApiState {
         pool,
         auth: server.auth,
         parent_token: token.clone(),
         tokens: Arc::new(Mutex::new(tokens)),
         tracker: tracker.clone(),
-        attachments_dir: proj_dirs.cache_dir().to_path_buf(),
         manager: Arc::new(signal::SignalManager::new()),
+        metrics: metrics_registry,
+        limits: limits::RateLimits::default(),
     };
     for channel in channels.iter() {
-        let res = api::start_channel(&channel.id, &channel.bot_id, &mut state).await?;
+        let res = api::start_channel(&channel.id, &mut state).await?;
         info!("Started channel: {}", res);
     }
 
@@ -275,4 +383,129 @@ async fn main() -> Result<()> {
     };
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[allow(clippy::result_large_err)]
+    fn opentelemetry_enabled(args: &[&str], env: Option<&str>) -> bool {
+        let mut enabled = false;
+        figment::Jail::expect_with(|jail| {
+            if let Some(value) = env {
+                jail.set_env("BITPART_OPENTELEMETRY", value);
+            }
+            let cli = Cli::try_parse_from(
+                ["bitpart", "-a", "a", "-b", "b", "-d", "d", "-k", "k"]
+                    .iter()
+                    .chain(args),
+            )
+            .map_err(|e| e.to_string())?;
+            let config: Config = Figment::new()
+                .merge(FileAdapter::wrap(Env::prefixed("BITPART_")))
+                .merge(Serialized::defaults(cli))
+                .extract()?;
+            enabled = config.opentelemetry;
+            Ok(())
+        });
+        enabled
+    }
+
+    #[test]
+    fn opentelemetry_from_env_is_not_overridden_by_cli_default() {
+        assert!(opentelemetry_enabled(&[], Some("true")));
+    }
+
+    #[test]
+    fn opentelemetry_from_cli_flag() {
+        assert!(opentelemetry_enabled(&["--opentelemetry"], None));
+    }
+
+    #[test]
+    fn opentelemetry_defaults_off() {
+        assert!(!opentelemetry_enabled(&[], None));
+    }
+
+    #[test]
+    fn signal_library_logs_only_errors_below_debug() {
+        let events = |debug_logging: bool| {
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let writer = {
+                let seen = seen.clone();
+                move || Collect(seen.clone())
+            };
+            let subscriber = tracing_subscriber::registry().with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(writer)
+                    .with_ansi(false)
+                    .with_filter(filter_fn(move |meta| logged_event(meta, debug_logging))),
+            );
+            tracing::subscriber::with_default(subscriber, || {
+                tracing::info!(target: "presage::manager", "presage info");
+                tracing::error!(target: "libsignal_service::cipher", "libsignal error");
+                tracing::info!("bitpart info");
+            });
+            let seen = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+            ["presage info", "libsignal error", "bitpart info"]
+                .into_iter()
+                .filter(|m| seen.contains(m))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(events(false), vec!["libsignal error", "bitpart info"]);
+        assert_eq!(
+            events(true),
+            vec!["presage info", "libsignal error", "bitpart info"]
+        );
+    }
+
+    struct Collect(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Collect {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn only_bitpart_spans_are_exported() {
+        use tracing_subscriber::layer::Context;
+
+        struct Exported(std::sync::Mutex<Vec<String>>);
+        impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for &'static Exported {
+            fn on_new_span(
+                &self,
+                attrs: &tracing::span::Attributes<'_>,
+                _: &tracing::span::Id,
+                _: Context<'_, S>,
+            ) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(attrs.metadata().name().to_owned());
+            }
+            fn on_event(&self, event: &tracing::Event<'_>, _: Context<'_, S>) {
+                self.0
+                    .lock()
+                    .unwrap()
+                    .push(format!("event {}", event.metadata().target()));
+            }
+        }
+        let exported: &'static Exported = Box::leak(Box::new(Exported(Default::default())));
+        let filter = filter_fn(exported_span);
+
+        let subscriber = tracing_subscriber::registry().with(exported.with_filter(filter));
+        tracing::subscriber::with_default(subscriber, || {
+            let _ours = tracing::info_span!("ours", user = "someone").entered();
+            tracing::info!(user = "someone", "an event inside our span");
+            let _theirs =
+                tracing::info_span!(target: "libsignal_service::cipher", "theirs").entered();
+        });
+
+        assert_eq!(*exported.0.lock().unwrap(), vec!["ours".to_owned()]);
+    }
 }

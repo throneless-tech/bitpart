@@ -51,10 +51,10 @@ impl ChannelBackend for MockChannelBackend {
 }
 
 #[cfg(test)]
-pub async fn get_test_socket() -> TestWebSocket {
+pub async fn get_test_state() -> (ApiState, tempfile::TempDir) {
     // File-backed: deadpool's `:memory:` gives each connection its own
     // private DB.
-    let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
+    let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("bitpart-test.sqlite");
     let key = "bitparttestkey";
 
@@ -63,16 +63,23 @@ pub async fn get_test_socket() -> TestWebSocket {
 
     let token = CancellationToken::new();
     let tracker = TaskTracker::new();
-    let tokens: HashMap<(String, String), CancellationToken> = HashMap::new();
+    let tokens: HashMap<String, CancellationToken> = HashMap::new();
     let state = ApiState {
         pool,
         parent_token: token.clone(),
         tokens: Arc::new(Mutex::new(tokens)),
         tracker: tracker.clone(),
         auth: "test".into(),
-        attachments_dir: "/tmp".into(),
         manager: Arc::new(MockChannelBackend),
+        metrics: crate::metrics::MetricsRegistry::new(),
+        limits: crate::limits::RateLimits::default(),
     };
+    (state, dir)
+}
+
+#[cfg(test)]
+pub async fn get_test_socket() -> (TestWebSocket, tempfile::TempDir) {
+    let (state, dir) = get_test_state().await;
 
     let app = Router::new()
         .route("/ws", any(socket::handler))
@@ -82,5 +89,6 @@ pub async fn get_test_socket() -> TestWebSocket {
         .http_transport()
         .build(app.into_make_service_with_connect_info::<SocketAddr>())
         .unwrap();
-    server.get_websocket("/ws").await.into_websocket().await
+    let socket = server.get_websocket("/ws").await.into_websocket().await;
+    (socket, dir)
 }

@@ -148,6 +148,44 @@ pub async fn remove_all_pni(channel_id: &str, pool: &Pool) -> Result<u64, Bitpar
     remove_all_impl("signal_pni_sender_keys", channel_id, pool).await
 }
 
+async fn remove_like_impl(
+    table: &'static str,
+    channel_id: &str,
+    key_pattern: &str,
+    pool: &Pool,
+) -> Result<u64, BitpartStoreError> {
+    let conn = pool.get().await.map_err(pool_err)?;
+    let channel_id = channel_id.to_owned();
+    let key_pattern = key_pattern.to_owned();
+    conn.interact(move |c| -> rusqlite::Result<u64> {
+        let sql = format!(
+            "DELETE FROM {} WHERE channel_id = ?1 AND sender_key LIKE ?2",
+            table
+        );
+        let n = c.execute(&sql, params![channel_id, key_pattern])?;
+        Ok(n as u64)
+    })
+    .await
+    .map_err(pool_err)?
+    .map_err(BitpartStoreError::from)
+}
+
+pub async fn remove_like_aci(
+    channel_id: &str,
+    key_pattern: &str,
+    pool: &Pool,
+) -> Result<u64, BitpartStoreError> {
+    remove_like_impl("signal_sender_keys", channel_id, key_pattern, pool).await
+}
+
+pub async fn remove_like_pni(
+    channel_id: &str,
+    key_pattern: &str,
+    pool: &Pool,
+) -> Result<u64, BitpartStoreError> {
+    remove_like_impl("signal_pni_sender_keys", channel_id, key_pattern, pool).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

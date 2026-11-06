@@ -107,8 +107,10 @@ async fn process_message(
             debug!(">>> {who} sent str: {t:?}");
             let contents: SocketMessage<String> = serde_json::from_slice(t.as_bytes())?;
             match contents {
-                SocketMessage::CreateBot(bot) => {
-                    api::create_bot(*bot, state).await.into_ws("CreateBot")
+                SocketMessage::CreateBot { bot, expire_timer } => {
+                    api::create_bot(*bot, expire_timer, state)
+                        .await
+                        .into_ws("CreateBot")
                 }
                 SocketMessage::ReadBot { id } => api::read_bot(&id, state).await.into_ws("ReadBot"),
                 SocketMessage::BotVersions { id, options } => {
@@ -152,6 +154,14 @@ async fn process_message(
                         .await
                         .into_ws("ResetChannel")
                 }
+                SocketMessage::SubmitChallenge {
+                    id,
+                    bot_id,
+                    token,
+                    captcha,
+                } => api::submit_channel_challenge(&id, &bot_id, token, captcha, state)
+                    .await
+                    .into_ws("SubmitChallenge"),
                 SocketMessage::ListChannels(options) => {
                     let (limit, offset) =
                         options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
@@ -171,15 +181,10 @@ async fn process_message(
                     id,
                     bot_id,
                     device_name,
-                } => api::link_channel(
-                    &id,
-                    &bot_id,
-                    &device_name,
-                    state.attachments_dir.clone(),
-                    state,
-                )
-                .await
-                .into_ws("LinkChannel"),
+                    profile_name,
+                } => api::link_channel(&id, &bot_id, &device_name, profile_name, state)
+                    .await
+                    .into_ws("LinkChannel"),
                 _ => Ok(wrap_error(
                     "SocketMessage",
                     &"Invalid SocketMessage".to_owned(),

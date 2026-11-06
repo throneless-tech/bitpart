@@ -1,11 +1,11 @@
+use bitpart_csml::data::Context;
 use bitpart_csml::data::csml_bot::CsmlBot;
 use bitpart_csml::data::csml_flow::CsmlFlow;
 use bitpart_csml::data::event::Event;
 use bitpart_csml::data::message_data::MessageData;
 use bitpart_csml::data::msg::MSG;
-use bitpart_csml::data::Context;
 use bitpart_csml::{interpret, load_components};
-use serde_json::{json, map::Map, Value};
+use serde_json::{Value, json, map::Map};
 
 use std::fs::File;
 use std::io::prelude::*;
@@ -33,7 +33,6 @@ pub fn format_message(event: Event, context: Context, filepath: &str) -> Message
 
     let bot = CsmlBot::new(
         "id",
-        "bot",
         None,
         vec![flow],
         Some(native_component),
@@ -69,7 +68,6 @@ pub fn build_bot(content: &str, env: Option<Value>) -> CsmlBot {
 
     CsmlBot::new(
         "id",
-        "bot",
         None,
         vec![flow],
         Some(native_component),

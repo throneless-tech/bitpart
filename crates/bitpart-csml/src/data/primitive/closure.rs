@@ -7,9 +7,9 @@ use crate::data::{literal, literal::ContentType};
 use crate::data::primitive::Right;
 use crate::data::primitive::{Primitive, PrimitiveType};
 use crate::data::{
+    Data, Literal, MSG, MemoryType, MessageData,
     ast::{Expr, Interval},
     message::Message,
-    Data, Literal, MemoryType, MessageData, MSG,
 };
 use crate::error_format::*;
 use phf::phf_map;

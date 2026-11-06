@@ -1,4 +1,4 @@
-use crate::data::{ast::*, tokens::*, Literal};
+use crate::data::{Literal, ast::*, tokens::*};
 use crate::parser::tools::get_string;
 use crate::parser::tools::get_tag;
 use crate::parser::{parse_comments::comment, tools::get_interval};
@@ -7,6 +7,7 @@ use crate::data::primitive::{
     boolean::PrimitiveBoolean, float::PrimitiveFloat, int::PrimitiveInt, null::PrimitiveNull,
 };
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::tag,
     character::complete::{char, one_of},
@@ -14,7 +15,6 @@ use nom::{
     error::{ContextError, ParseError},
     multi::{many0, many1},
     sequence::{preceded, terminated, tuple},
-    IResult,
 };
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -1,3 +1,15 @@
+## 1.2.0 (2026-07-07)
+
+### Feat
+
+- Bring CSML fork in-tree.
+
+### Fix
+
+- Fix flakey bitpart-csml tests.
+- Implement stub for thread_for_sender_and_timestamp
+- Update dependencies and add support for AccountEntropyPool.
+
 ## 1.1.0 (2026-06-09)
 
 ### Feat

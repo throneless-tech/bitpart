@@ -9,10 +9,10 @@ use crate::parser::{
 
 use nom::error::{ContextError, ParseError};
 use nom::{
+    Err, IResult,
     branch::alt,
     bytes::complete::tag,
     sequence::{delimited, preceded},
-    Err, IResult,
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -28,7 +28,7 @@ where
         Ok(_) => return Err(gen_nom_error(s, ERROR_FN_COLON)),
 
         Err(Err::Error((_s, _err))) | Err(Err::Failure((_s, _err))) => {
-            return Err(gen_nom_error(s, ERROR_FN_COLON))
+            return Err(gen_nom_error(s, ERROR_FN_COLON));
         }
         Err(Err::Incomplete(needed)) => return Err(Err::Incomplete(needed)),
     };

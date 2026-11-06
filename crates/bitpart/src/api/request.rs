@@ -35,7 +35,7 @@ mod test_request {
 
     #[tokio::test]
     async fn it_should_send_request() {
-        let mut socket = get_test_socket().await;
+        let (mut socket, _dir) = get_test_socket().await;
 
         socket
             .send_json(&json!({

@@ -174,15 +174,24 @@ impl ContentsStore for BitpartStore {
         thread: &Thread,
         message: Content,
     ) -> Result<(), BitpartStoreError> {
-        let ts = message.timestamp();
-        trace!(%thread, ts, "storing a message with thread");
-
-        let thread_id = messages_thread_id(thread);
-        let proto: ContentProto = message.into();
-        let content_data = proto.encode_to_vec();
-
-        db::messages::set(&self.id, &thread_id, ts as i64, &content_data, &self.pool).await?;
+        trace!(%thread, ts = message.timestamp(), "discarding message, content is not retained");
         Ok(())
+    }
+
+    async fn expire_timer(&self, thread: &Thread) -> Result<Option<(u32, u32)>, BitpartStoreError> {
+        let thread_id = messages_thread_id(thread);
+        db::expire_timers::get(&self.id, &thread_id, &self.pool).await
+    }
+
+    async fn update_expire_timer(
+        &mut self,
+        thread: &Thread,
+        timer: u32,
+        version: u32,
+    ) -> Result<(), BitpartStoreError> {
+        trace!(%thread, timer, version, "updating expire timer");
+        let thread_id = messages_thread_id(thread);
+        db::expire_timers::set_if_newer(&self.id, &thread_id, timer, version, &self.pool).await
     }
 
     async fn delete_message(
@@ -464,7 +473,7 @@ impl DoubleEndedIterator for BitpartMessagesIter {
     }
 }
 
-fn messages_thread_id(t: &Thread) -> String {
+pub(crate) fn messages_thread_id(t: &Thread) -> String {
     use base64::prelude::*;
     let key = match t {
         Thread::Contact(service_id) => {

@@ -16,7 +16,7 @@ keywords = ["chatbot", "programming-language", "csml"]
 categories = ["text-processing"]
 readme = "README.md"
 license = "Apache-2.0"
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "bitpart_csml"

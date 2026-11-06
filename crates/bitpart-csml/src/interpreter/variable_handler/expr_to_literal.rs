@@ -1,9 +1,9 @@
 use crate::data::error_info::ErrorInfo;
 use crate::data::literal::ContentType;
-use crate::data::primitive::{closure::capture_variables, PrimitiveArray, PrimitiveObject};
+use crate::data::primitive::{PrimitiveArray, PrimitiveObject, closure::capture_variables};
 use crate::data::{
-    ast::*, warnings::DisplayWarnings, ArgsType, Data, Literal, MemoryType, MessageData, Position,
-    MSG,
+    ArgsType, Data, Literal, MSG, MemoryType, MessageData, Position, ast::*,
+    warnings::DisplayWarnings,
 };
 use crate::error_format::*;
 use crate::interpreter::{
@@ -219,7 +219,7 @@ pub async fn resolve_fn_args(
                                 return Err(gen_error_info(
                                     Position::new(interval_from_expr(name), &data.context.flow),
                                     "key must be of type string".to_owned(),
-                                ))
+                                ));
                             }
                         };
                         named_args = true;

@@ -26,7 +26,7 @@ pub fn interval_from_expr(expr: &Expr) -> Interval {
 
 pub fn interval_from_if_stmt(ifstmt: &IfStatement) -> Interval {
     match ifstmt {
-        IfStatement::IfStmt { ref cond, .. } => interval_from_expr(cond),
+        IfStatement::IfStmt { cond, .. } => interval_from_expr(cond),
         IfStatement::ElseStmt(_e, range_interval) => *range_interval,
     }
 }
