@@ -177,6 +177,14 @@ fn exported_span(meta: &tracing::Metadata<'_>) -> bool {
     meta.is_span() && meta.target().starts_with(env!("CARGO_CRATE_NAME"))
 }
 
+fn logged_event(meta: &tracing::Metadata<'_>, debug_logging: bool) -> bool {
+    debug_logging
+        || *meta.level() <= tracing::Level::ERROR
+        || !["presage", "libsignal"]
+            .iter()
+            .any(|dependency| meta.target().starts_with(dependency))
+}
+
 fn telemetry_meter_init() -> Result<SdkMeterProvider> {
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder().with_http();
 
@@ -276,6 +284,8 @@ async fn main() -> Result<()> {
         .merge(Serialized::defaults(Cli::parse()))
         .extract()?;
 
+    let debug_logging =
+        server.verbose.log_level_filter().as_trace() >= tracing::level_filters::LevelFilter::DEBUG;
     let metrics_registry = metrics::MetricsRegistry::new();
     let _signal_instruments;
     if server.opentelemetry {
@@ -284,7 +294,10 @@ async fn main() -> Result<()> {
         _signal_instruments = Some(register_signal_metrics(&metrics_registry));
         tracing_subscriber::registry()
             .with(server.verbose.log_level_filter().as_trace())
-            .with(tracing_subscriber::fmt::layer())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_filter(filter_fn(move |meta| logged_event(meta, debug_logging))),
+            )
             .with(
                 tracing_opentelemetry::layer()
                     .with_tracer(telemetry_tracer_init()?)
@@ -296,7 +309,10 @@ async fn main() -> Result<()> {
         _signal_instruments = None;
         tracing_subscriber::registry()
             .with(server.verbose.log_level_filter().as_trace())
-            .with(tracing_subscriber::fmt::layer())
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_filter(filter_fn(move |meta| logged_event(meta, debug_logging))),
+            )
             .init();
     }
 
@@ -409,6 +425,50 @@ mod tests {
     #[test]
     fn opentelemetry_defaults_off() {
         assert!(!opentelemetry_enabled(&[], None));
+    }
+
+    #[test]
+    fn signal_library_logs_only_errors_below_debug() {
+        let events = |debug_logging: bool| {
+            let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let writer = {
+                let seen = seen.clone();
+                move || Collect(seen.clone())
+            };
+            let subscriber = tracing_subscriber::registry().with(
+                tracing_subscriber::fmt::layer()
+                    .with_writer(writer)
+                    .with_ansi(false)
+                    .with_filter(filter_fn(move |meta| logged_event(meta, debug_logging))),
+            );
+            tracing::subscriber::with_default(subscriber, || {
+                tracing::info!(target: "presage::manager", "presage info");
+                tracing::error!(target: "libsignal_service::cipher", "libsignal error");
+                tracing::info!("bitpart info");
+            });
+            let seen = String::from_utf8(seen.lock().unwrap().clone()).unwrap();
+            ["presage info", "libsignal error", "bitpart info"]
+                .into_iter()
+                .filter(|m| seen.contains(m))
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(events(false), vec!["libsignal error", "bitpart info"]);
+        assert_eq!(
+            events(true),
+            vec!["presage info", "libsignal error", "bitpart info"]
+        );
+    }
+
+    struct Collect(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for Collect {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 
     #[test]

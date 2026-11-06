@@ -420,7 +420,8 @@ impl IdentityKeyStore for BitpartProtocolStore {
         )
         .await
         .map_err(|error| {
-            error!(%error, %address, "failed to check existing identity");
+            error!(%error, "failed to check existing identity");
+            debug!(%address, "failed to check existing identity");
             error
         })?
         .is_some();
@@ -434,7 +435,8 @@ impl IdentityKeyStore for BitpartProtocolStore {
         )
         .await
         .map_err(|error| {
-            error!(%error, %address, "failed to save identity");
+            error!(%error, "failed to save identity");
+            debug!(%address, "failed to save identity");
             error
         })?;
 
@@ -474,7 +476,8 @@ impl IdentityKeyStore for BitpartProtocolStore {
         .transpose()?
         {
             None => {
-                warn!(%address, "trusting new identity");
+                warn!("trusting new identity");
+                debug!(%address, "trusting new identity");
                 Ok(true)
             }
             Some(left_identity_key) => {

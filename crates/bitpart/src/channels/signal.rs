@@ -479,7 +479,8 @@ async fn send<S: Store>(
 
     match recipient {
         Recipient::Contact(uuid) => {
-            info!(recipient =% uuid, "sending message to contact");
+            info!("sending message to contact");
+            debug!(recipient =% uuid, "sending message to contact");
             let mut data_message: ContentBody = DataMessage {
                 body: Some(msg),
                 attachments,
@@ -910,7 +911,8 @@ async fn send_expire_timer<S: Store>(
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::ZERO)
         .as_millis() as u64;
-    info!(recipient =% uuid, timer, "setting disappearing message timer");
+    info!(timer, "setting disappearing message timer");
+    debug!(recipient =% uuid, timer, "setting disappearing message timer");
     let data_message = DataMessage {
         flags: Some(Flags::ExpirationTimerUpdate as u32),
         expire_timer: Some(timer),
@@ -1243,7 +1245,8 @@ async fn receive(
                                 }
                             }
                             Received::DecryptionError(contact) => {
-                                warn!("Failed to decrypt message from contact: {:?}", contact);
+                                warn!("Failed to decrypt message from contact");
+                                debug!(contact = %contact.service_id_string(), "Failed to decrypt message from contact");
                             }
                         }
                     }
