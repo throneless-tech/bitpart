@@ -1,3 +1,33 @@
+## 2.0.0 (2026-11-06)
+
+### Feat
+
+- Allow for replying to CAPTCHA challenges.
+- Better rate limiters.
+- Better group support.
+- Allow setting a disappearing message timer on bot creation.
+- Upgrade presage dependencies to newest version.
+- Add attachment handling.
+- Expose per-bot metrics via OTel and by describe command.
+- Add delivery receipts.
+
+### Fix
+
+- Attempt to send a reset session for a decrypt error from an unknown session.
+- Tighten up logging verbosity so potentially sensitive data is only in debug or above.
+- Send correct failure message to dashboard, omit UUIDs from otel spans.
+- Override existing disappearing message timer if bot default is shorter.
+- Delete additional records on bot deletion, add additional debug logs around disappearing message timers.
+- Handle empty messages with attachments.
+- Make sure opentelemetry can be enabled from config file or environment variable, and add regression test.
+- Update Cargo.lock so async-trait is v1.92 to work around clippy error about double must_use with Rust v1.99
+- Show channel status in cli.
+- Update bitpart-csml formatting for Rust 2024
+- Update Github Actions.
+- Simplify CLI interface and properly handle multiple Signal channels per bot.
+- Add more thorough deletions and properly handle disappearing messages.
+- **ci**: Make sure release notes are appended to release, trigger builds from correct branch.
+
 ## 1.2.0 (2026-07-07)
 
 ### Feat
