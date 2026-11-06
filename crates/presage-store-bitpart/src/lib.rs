@@ -103,6 +103,10 @@ impl BitpartStore {
         )
     }
 
+    pub async fn has_session(&self, user_id: &str) -> Result<bool, BitpartStoreError> {
+        db::sessions::exists_like_aci(&self.id, &format!("{user_id}.%"), &self.pool).await
+    }
+
     pub async fn purge_conversation(&self, user_id: &str) -> Vec<BitpartStoreError> {
         let mut errors = Vec::new();
         let address_pattern = format!("{user_id}%");
@@ -857,8 +861,15 @@ mod tests {
         let addr = format!("{user_id}.1");
 
         db::sessions::set_aci(ch, &addr, b"session", pool).await?;
+        assert!(store.has_session(&user_id).await?);
+        assert!(
+            !store
+                .has_session(&Uuid::from_u128(0x4444).to_string())
+                .await?
+        );
         assert!(store.purge_conversation(&user_id).await.is_empty());
         assert_eq!(db::sessions::get_aci(ch, &addr, pool).await?, None);
+        assert!(!store.has_session(&user_id).await?);
 
         db::sessions::set_aci(ch, &addr, b"new_session", pool).await?;
         assert_eq!(

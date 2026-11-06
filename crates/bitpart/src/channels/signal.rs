@@ -873,6 +873,38 @@ fn take_due_purges(
     due
 }
 
+async fn reset_lost_session(
+    manager: &mut Manager<BitpartStore, Registered>,
+    state: &ChannelState,
+    contact: ServiceId,
+) {
+    let ServiceId::Aci(aci) = contact else {
+        return;
+    };
+    let uuid: Uuid = aci.into();
+    match manager.store().has_session(&uuid.to_string()).await {
+        Ok(false) => {}
+        Ok(true) => return,
+        Err(error) => {
+            warn!(%error, "could not check for a lost session");
+            return;
+        }
+    }
+    if state.limiters.session_reset.check_key(&uuid).is_err() {
+        info!("repeated decryption failures, not resetting session again yet");
+        return;
+    }
+    throttle(&state.limiters.send, uuid).await;
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::ZERO)
+        .as_millis() as u64;
+    match manager.send_session_reset(&contact, timestamp).await {
+        Ok(()) => info!("reset lost session after decryption failure"),
+        Err(error) => warn!(%error, "failed to reset lost session"),
+    }
+}
+
 async fn purge_signal_state(channel_id: &str, pool: &bitpart_common::db::Pool, user_id: &str) {
     let store = match BitpartStore::open(channel_id, pool, OnNewIdentity::Trust).await {
         Ok(store) => store,
@@ -1247,6 +1279,7 @@ async fn receive(
                             Received::DecryptionError(contact) => {
                                 warn!("Failed to decrypt message from contact");
                                 debug!(contact = %contact.service_id_string(), "Failed to decrypt message from contact");
+                                reset_lost_session(manager, state, contact).await;
                             }
                         }
                     }

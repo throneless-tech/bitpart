@@ -30,6 +30,7 @@ fn quota(burst: u32, replenish_one_per: Duration) -> Quota {
 pub struct RateLimits {
     pub send_per_recipient: Quota,
     pub purge_per_user: Quota,
+    pub session_reset_per_user: Quota,
 }
 
 // Signal-Server RateLimiters.java defaults, each set a little under Signal's:
@@ -40,6 +41,7 @@ impl Default for RateLimits {
         Self {
             send_per_recipient: quota(55, Duration::from_millis(1100)),
             purge_per_user: quota(4, Duration::from_secs(15 * 60)),
+            session_reset_per_user: quota(2, Duration::from_secs(15 * 60)),
         }
     }
 }
@@ -47,6 +49,7 @@ impl Default for RateLimits {
 pub struct ChannelLimiters {
     pub send: DefaultKeyedRateLimiter<Uuid>,
     pub purge: DefaultKeyedRateLimiter<String>,
+    pub session_reset: DefaultKeyedRateLimiter<Uuid>,
 }
 
 impl std::fmt::Debug for ChannelLimiters {
@@ -60,6 +63,7 @@ impl ChannelLimiters {
         Self {
             send: DefaultKeyedRateLimiter::keyed(limits.send_per_recipient),
             purge: DefaultKeyedRateLimiter::keyed(limits.purge_per_user),
+            session_reset: DefaultKeyedRateLimiter::keyed(limits.session_reset_per_user),
         }
     }
 }
@@ -75,6 +79,8 @@ mod tests {
         assert!(limits.send_per_recipient.replenish_interval() > Duration::from_secs(1));
         assert!(limits.purge_per_user.burst_size().get() < 6);
         assert!(limits.purge_per_user.replenish_interval() > Duration::from_secs(10 * 60));
+        assert!(limits.session_reset_per_user.burst_size().get() < 6);
+        assert!(limits.session_reset_per_user.replenish_interval() > Duration::from_secs(10 * 60));
     }
 
     #[test]

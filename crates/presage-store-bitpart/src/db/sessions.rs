@@ -253,6 +253,26 @@ async fn remove_like_impl(
     .map_err(BitpartStoreError::from)
 }
 
+pub async fn exists_like_aci(
+    channel_id: &str,
+    address_pattern: &str,
+    pool: &Pool,
+) -> Result<bool, BitpartStoreError> {
+    let conn = pool.get().await.map_err(pool_err)?;
+    let channel_id = channel_id.to_owned();
+    let address_pattern = address_pattern.to_owned();
+    conn.interact(move |c| -> rusqlite::Result<bool> {
+        c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM signal_sessions WHERE channel_id = ?1 AND address LIKE ?2)",
+            params![channel_id, address_pattern],
+            |row| row.get(0),
+        )
+    })
+    .await
+    .map_err(pool_err)?
+    .map_err(BitpartStoreError::from)
+}
+
 pub async fn remove_like_aci(
     channel_id: &str,
     address_pattern: &str,
