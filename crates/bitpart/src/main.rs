@@ -247,17 +247,18 @@ fn register_signal_metrics(
     let status = {
         let registry = registry.clone();
         meter
-            .u64_observable_gauge("bitpart.signal.connection_status")
+            .u64_observable_gauge("bitpart.signal.connection_state")
             .with_description(
-                "Signal connection status per bot channel (0=unlinked, 1=linked, 2=failing)",
+                "1 for a bot channel's current Signal connection state (unlinked, linked or failing), 0 for the others",
             )
             .with_callback(move |observer| {
-                for (bot_id, channel, snap) in registry.snapshot_all() {
+                for (bot_id, channel, state, value) in registry.connection_states() {
                     observer.observe(
-                        snap.status.as_u8() as u64,
+                        value,
                         &[
                             KeyValue::new("bot_id", bot_id),
                             KeyValue::new("channel", channel),
+                            KeyValue::new("state", state),
                         ],
                     );
                 }

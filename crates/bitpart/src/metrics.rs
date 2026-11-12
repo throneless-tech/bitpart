@@ -51,6 +51,16 @@ impl ConnectionStatus {
             Self::Failing => 2,
         }
     }
+
+    pub const ALL: [Self; 3] = [Self::Unlinked, Self::Linked, Self::Failing];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unlinked => "unlinked",
+            Self::Linked => "linked",
+            Self::Failing => "failing",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -190,6 +200,22 @@ impl MetricsRegistry {
             .collect()
     }
 
+    pub fn connection_states(&self) -> Vec<(String, String, &'static str, u64)> {
+        self.snapshot_all()
+            .into_iter()
+            .flat_map(|(bot_id, channel, snap)| {
+                ConnectionStatus::ALL.into_iter().map(move |state| {
+                    (
+                        bot_id.clone(),
+                        channel.clone(),
+                        state.as_str(),
+                        u64::from(snap.status == state),
+                    )
+                })
+            })
+            .collect()
+    }
+
     pub fn snapshot_all(&self) -> Vec<(String, String, ChannelMetricsSnapshot)> {
         self.channels
             .read()
@@ -289,6 +315,40 @@ mod tests {
         assert_eq!(all[0].0, "bot");
         assert_eq!(all[0].1, "row-a");
         assert_eq!(all[0].2.received, 2);
+    }
+
+    #[test]
+    fn connection_state_is_one_for_the_current_state_only() {
+        let registry = MetricsRegistry::new();
+        registry.get_or_create("row-a", "bot-a");
+        registry
+            .get_or_create("row-b", "bot-b")
+            .set_status(ConnectionStatus::Failing);
+
+        let mut states = registry.connection_states();
+        states.sort();
+        let expected = |bot: &str, row: &str, current: &str| {
+            ["failing", "linked", "unlinked"].map(|state| {
+                (
+                    bot.to_owned(),
+                    row.to_owned(),
+                    state,
+                    u64::from(state == current),
+                )
+            })
+        };
+        assert_eq!(
+            states,
+            [
+                expected("bot-a", "row-a", "unlinked"),
+                expected("bot-b", "row-b", "failing")
+            ]
+            .concat()
+        );
+        for state in ["unlinked", "linked", "failing"] {
+            let total: u64 = states.iter().filter(|s| s.2 == state).map(|s| s.3).sum();
+            assert_eq!(total, u64::from(state != "linked"), "{state}");
+        }
     }
 
     #[test]
