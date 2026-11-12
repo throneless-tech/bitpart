@@ -81,6 +81,17 @@ pub enum SendOutcome {
     Failed,
 }
 
+impl SendOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::RateLimited { .. } => "rate_limited",
+            Self::ChallengeRequired { .. } => "challenge_required",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 impl Default for ChannelMetrics {
     fn default() -> Self {
         Self {

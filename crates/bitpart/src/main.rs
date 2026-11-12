@@ -50,7 +50,7 @@ use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use tracing::info;
+use tracing::{Instrument, info};
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::filter::filter_fn;
@@ -333,7 +333,9 @@ async fn main() -> Result<()> {
         server.key.clone(),
         bitpart_common::db::DEFAULT_POOL_SIZE,
     )?;
-    migrate(&pool).await?;
+    migrate(&pool)
+        .instrument(tracing::info_span!("db.migrate"))
+        .await?;
 
     metrics_registry.set_bots(db::bot::count(&pool).await?);
 
@@ -517,8 +519,13 @@ mod tests {
             tracing::info!(user = "someone", "an event inside our span");
             let _theirs =
                 tracing::info_span!(target: "libsignal_service::cipher", "theirs").entered();
+            let _interpreter =
+                tracing::info_span!(target: "bitpart_csml::interpreter", "interpreter").entered();
         });
 
-        assert_eq!(*exported.0.lock().unwrap(), vec!["ours".to_owned()]);
+        assert_eq!(
+            *exported.0.lock().unwrap(),
+            vec!["ours".to_owned(), "interpreter".to_owned()]
+        );
     }
 }

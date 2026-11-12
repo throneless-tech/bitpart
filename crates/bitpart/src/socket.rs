@@ -25,7 +25,7 @@ use bitpart_common::{
 };
 use serde::Serialize;
 use std::net::SocketAddr;
-use tracing::{debug, error};
+use tracing::{Instrument, debug, error};
 
 use crate::api;
 use crate::api::ApiState;
@@ -64,7 +64,14 @@ async fn handle_socket(mut socket: WebSocket, who: SocketAddr, mut state: ApiSta
     }
 }
 
+fn record_response(response_type: &str, outcome: &str) {
+    let span = tracing::Span::current();
+    span.record("message_type", response_type);
+    span.record("outcome", outcome);
+}
+
 fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Message>> {
+    record_response(response_type, "error");
     Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Error(Response {
             response_type: response_type.to_owned(),
@@ -75,6 +82,7 @@ fn wrap_error<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Messa
 }
 
 fn wrap_response<S: Serialize>(response_type: &str, res: &S) -> Result<Option<Message>> {
+    record_response(response_type, "ok");
     Ok(Some(Message::Text(
         serde_json::to_string(&SocketMessage::Response(Response {
             response_type: response_type.to_owned(),
@@ -105,91 +113,16 @@ async fn process_message(
     match msg {
         Message::Text(t) => {
             debug!(">>> {who} sent str: {t:?}");
-            let contents: SocketMessage<String> = serde_json::from_slice(t.as_bytes())?;
-            match contents {
-                SocketMessage::CreateBot { bot, expire_timer } => {
-                    api::create_bot(*bot, expire_timer, state)
-                        .await
-                        .into_ws("CreateBot")
-                }
-                SocketMessage::ReadBot { id } => api::read_bot(&id, state).await.into_ws("ReadBot"),
-                SocketMessage::BotVersions { id, options } => {
-                    let (limit, offset) =
-                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
-                    api::get_bot_versions(&id, limit, offset, state)
-                        .await
-                        .into_ws("BotVersions")
-                }
-                SocketMessage::RollbackBot { id, version_id } => {
-                    api::touch_bot_version(&id, &version_id, state)
-                        .await
-                        .into_ws("RollbackBot")
-                }
-                SocketMessage::DiffBot {
-                    version_a,
-                    version_b,
-                } => api::get_bot_diff(&version_a, &version_b, state)
-                    .await
-                    .into_ws("DiffBot"),
-                SocketMessage::DeleteBot { id } => {
-                    api::delete_bot(&id, state).await.into_ws("DeleteBot")
-                }
-                SocketMessage::ListBots(options) => {
-                    let (limit, offset) =
-                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
-                    api::list_bots(limit, offset, state)
-                        .await
-                        .into_ws("ListBots")
-                }
-                SocketMessage::CreateChannel { id, bot_id } => {
-                    api::create_channel(&id, &bot_id, state)
-                        .await
-                        .into_ws("CreateChannel")
-                }
-                SocketMessage::ReadChannel { id, bot_id } => api::read_channel(&id, &bot_id, state)
-                    .await
-                    .into_ws("ReadChannel"),
-                SocketMessage::ResetChannel { id, bot_id } => {
-                    api::reset_channel(&id, &bot_id, state)
-                        .await
-                        .into_ws("ResetChannel")
-                }
-                SocketMessage::SubmitChallenge {
-                    id,
-                    bot_id,
-                    token,
-                    captcha,
-                } => api::submit_channel_challenge(&id, &bot_id, token, captcha, state)
-                    .await
-                    .into_ws("SubmitChallenge"),
-                SocketMessage::ListChannels(options) => {
-                    let (limit, offset) =
-                        options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
-                    api::list_channels(limit, offset, state)
-                        .await
-                        .into_ws("ListChannels")
-                }
-                SocketMessage::DeleteChannel { id, bot_id } => {
-                    api::delete_channel(&id, &bot_id, state)
-                        .await
-                        .into_ws("DeleteChannel")
-                }
-                SocketMessage::ChatRequest(req) => api::process_request(&req, &state.pool)
-                    .await
-                    .into_ws("ChatRequest"),
-                SocketMessage::LinkChannel {
-                    id,
-                    bot_id,
-                    device_name,
-                    profile_name,
-                } => api::link_channel(&id, &bot_id, &device_name, profile_name, state)
-                    .await
-                    .into_ws("LinkChannel"),
-                _ => Ok(wrap_error(
-                    "SocketMessage",
-                    &"Invalid SocketMessage".to_owned(),
-                )?),
+            let span = tracing::info_span!(
+                "api.request",
+                message_type = tracing::field::Empty,
+                outcome = tracing::field::Empty,
+            );
+            let result = process_text(&t, state).instrument(span.clone()).await;
+            if result.is_err() {
+                span.record("outcome", "invalid");
             }
+            result
         }
         Message::Binary(d) => {
             debug!(">>> {} sent {} bytes: {:?}", who, d.len(), d);
@@ -226,5 +159,82 @@ async fn process_message(
                 serde_json::to_string("Ping received")?.into(),
             )))
         }
+    }
+}
+
+async fn process_text(t: &str, state: &mut ApiState) -> Result<Option<Message>> {
+    let contents: SocketMessage<String> = serde_json::from_slice(t.as_bytes())?;
+    match contents {
+        SocketMessage::CreateBot { bot, expire_timer } => {
+            api::create_bot(*bot, expire_timer, state)
+                .await
+                .into_ws("CreateBot")
+        }
+        SocketMessage::ReadBot { id } => api::read_bot(&id, state).await.into_ws("ReadBot"),
+        SocketMessage::BotVersions { id, options } => {
+            let (limit, offset) = options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
+            api::get_bot_versions(&id, limit, offset, state)
+                .await
+                .into_ws("BotVersions")
+        }
+        SocketMessage::RollbackBot { id, version_id } => {
+            api::touch_bot_version(&id, &version_id, state)
+                .await
+                .into_ws("RollbackBot")
+        }
+        SocketMessage::DiffBot {
+            version_a,
+            version_b,
+        } => api::get_bot_diff(&version_a, &version_b, state)
+            .await
+            .into_ws("DiffBot"),
+        SocketMessage::DeleteBot { id } => api::delete_bot(&id, state).await.into_ws("DeleteBot"),
+        SocketMessage::ListBots(options) => {
+            let (limit, offset) = options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
+            api::list_bots(limit, offset, state)
+                .await
+                .into_ws("ListBots")
+        }
+        SocketMessage::CreateChannel { id, bot_id } => api::create_channel(&id, &bot_id, state)
+            .await
+            .into_ws("CreateChannel"),
+        SocketMessage::ReadChannel { id, bot_id } => api::read_channel(&id, &bot_id, state)
+            .await
+            .into_ws("ReadChannel"),
+        SocketMessage::ResetChannel { id, bot_id } => api::reset_channel(&id, &bot_id, state)
+            .await
+            .into_ws("ResetChannel"),
+        SocketMessage::SubmitChallenge {
+            id,
+            bot_id,
+            token,
+            captcha,
+        } => api::submit_channel_challenge(&id, &bot_id, token, captcha, state)
+            .await
+            .into_ws("SubmitChallenge"),
+        SocketMessage::ListChannels(options) => {
+            let (limit, offset) = options.map(|p| (p.limit, p.offset)).unwrap_or((None, None));
+            api::list_channels(limit, offset, state)
+                .await
+                .into_ws("ListChannels")
+        }
+        SocketMessage::DeleteChannel { id, bot_id } => api::delete_channel(&id, &bot_id, state)
+            .await
+            .into_ws("DeleteChannel"),
+        SocketMessage::ChatRequest(req) => api::process_request(&req, &state.pool)
+            .await
+            .into_ws("ChatRequest"),
+        SocketMessage::LinkChannel {
+            id,
+            bot_id,
+            device_name,
+            profile_name,
+        } => api::link_channel(&id, &bot_id, &device_name, profile_name, state)
+            .await
+            .into_ws("LinkChannel"),
+        _ => Ok(wrap_error(
+            "SocketMessage",
+            &"Invalid SocketMessage".to_owned(),
+        )?),
     }
 }

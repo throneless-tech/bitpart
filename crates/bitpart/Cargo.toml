@@ -54,3 +54,4 @@ uuid = { version = "1.10.0", features = ["v4", "fast-rng", "macro-diagnostics"]}
 [dev-dependencies]
 axum-test = { version = "17.2.0", features = ["ws"] }
 figment = { version = "0.10.19", features = ["env", "toml", "test"] }
+tempfile = "3.13.0"
