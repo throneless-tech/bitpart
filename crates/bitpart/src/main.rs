@@ -201,6 +201,7 @@ fn register_signal_metrics(
     opentelemetry::metrics::ObservableCounter<u64>,
     opentelemetry::metrics::ObservableCounter<u64>,
     opentelemetry::metrics::ObservableGauge<u64>,
+    opentelemetry::metrics::ObservableGauge<u64>,
 ) {
     use opentelemetry::KeyValue;
 
@@ -266,7 +267,16 @@ fn register_signal_metrics(
             .build()
     };
 
-    (sent, received, status)
+    let bots = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_gauge("bitpart.bots")
+            .with_description("Bots stored on this bitpart instance")
+            .with_callback(move |observer| observer.observe(registry.bots(), &[]))
+            .build()
+    };
+
+    (sent, received, status, bots)
 }
 
 #[tokio::main]
@@ -324,6 +334,8 @@ async fn main() -> Result<()> {
         bitpart_common::db::DEFAULT_POOL_SIZE,
     )?;
     migrate(&pool).await?;
+
+    metrics_registry.set_bots(db::bot::count(&pool).await?);
 
     // Start incoming message channels
     let channels = db::channel::list(None, None, &pool).await?;

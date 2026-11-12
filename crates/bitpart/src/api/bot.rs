@@ -22,6 +22,7 @@ use bitpart_csml::{
 
 use crate::{api::ApiState, csml::data::BotVersion, db, metrics::ChannelStatus};
 use serde::Serialize;
+use tracing::warn;
 
 #[derive(Debug, Serialize)]
 pub struct BotDescription {
@@ -51,8 +52,16 @@ pub async fn create_bot(
         } => Err(BitpartErrorKind::Api(format!("{:?}", errors)).into()),
         CsmlResult { .. } => {
             let created = db::bot::create(bot, expire_timer, &state.pool).await?;
+            refresh_bot_count(state).await;
             Ok(created)
         }
+    }
+}
+
+pub async fn refresh_bot_count(state: &ApiState) {
+    match db::bot::count(&state.pool).await {
+        Ok(count) => state.metrics.set_bots(count),
+        Err(error) => warn!(%error, "could not count bots"),
     }
 }
 
@@ -83,6 +92,7 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotDescriptio
 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_bot_id(id, &state.pool).await?;
+    refresh_bot_count(state).await;
     db::memory::delete_by_bot_id(id, &state.pool).await?;
     db::message::delete_by_bot_id(id, &state.pool).await?;
     db::conversation::delete_by_bot_id(id, &state.pool).await?;
@@ -126,7 +136,9 @@ pub async fn get_bot_diff(
 }
 
 pub async fn delete_bot_version(id: &str, state: &ApiState) -> Result<()> {
-    db::bot::delete_by_id(id, &state.pool).await
+    db::bot::delete_by_id(id, &state.pool).await?;
+    refresh_bot_count(state).await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -437,7 +449,11 @@ mod test_bot {
     #[tokio::test]
     async fn deleting_a_bot_removes_its_conversation_records() {
         use crate::csml::data::ConversationData;
-        use crate::{api::delete_bot, db, utils::get_test_state};
+        use crate::{
+            api::{create_bot, delete_bot},
+            db,
+            utils::get_test_state,
+        };
         use bitpart_csml::data::{Client, CsmlBot, CsmlFlow, context::Context};
         use std::collections::HashMap;
 
@@ -467,7 +483,7 @@ mod test_bot {
                 None,
                 None,
             );
-            db::bot::create(bot, None, &state.pool).await.unwrap();
+            create_bot(bot, None, &state).await.unwrap();
             let client = client(bot_id);
             let conversation_id =
                 db::conversation::create("Default", "start", &client, &state.pool)
@@ -509,7 +525,9 @@ mod test_bot {
                 .unwrap();
         }
 
+        assert_eq!(state.metrics.bots(), 2);
         delete_bot("doomed", &state).await.unwrap();
+        assert_eq!(state.metrics.bots(), 1);
 
         for (bot_id, expected) in [("doomed", 0), ("kept", 1)] {
             let client = client(bot_id);

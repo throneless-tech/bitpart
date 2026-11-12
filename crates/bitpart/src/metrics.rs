@@ -156,6 +156,7 @@ pub struct ChannelMetricsSnapshot {
 #[derive(Debug, Clone, Default)]
 pub struct MetricsRegistry {
     channels: Arc<RwLock<MetricsMap>>,
+    bots: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -198,6 +199,14 @@ impl MetricsRegistry {
                     .unwrap_or_else(|| ChannelMetrics::default().snapshot()),
             })
             .collect()
+    }
+
+    pub fn set_bots(&self, count: u64) {
+        self.bots.store(count, Ordering::Relaxed);
+    }
+
+    pub fn bots(&self) -> u64 {
+        self.bots.load(Ordering::Relaxed)
     }
 
     pub fn connection_states(&self) -> Vec<(String, String, &'static str, u64)> {
