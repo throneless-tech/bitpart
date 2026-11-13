@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Mutex, RwLock};
 
 use chrono::{DateTime, Utc};
+
+use crate::db::conversation::BotUsers;
 use serde::Serialize;
 
 type MetricsMap = HashMap<String, (String, Arc<ChannelMetrics>)>;
@@ -51,6 +53,16 @@ impl ConnectionStatus {
             Self::Failing => 2,
         }
     }
+
+    pub const ALL: [Self; 3] = [Self::Unlinked, Self::Linked, Self::Failing];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unlinked => "unlinked",
+            Self::Linked => "linked",
+            Self::Failing => "failing",
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -69,6 +81,17 @@ pub enum SendOutcome {
     RateLimited { retry_at: Option<DateTime<Utc>> },
     ChallengeRequired { challenge_token: String },
     Failed,
+}
+
+impl SendOutcome {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::RateLimited { .. } => "rate_limited",
+            Self::ChallengeRequired { .. } => "challenge_required",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 impl Default for ChannelMetrics {
@@ -146,6 +169,8 @@ pub struct ChannelMetricsSnapshot {
 #[derive(Debug, Clone, Default)]
 pub struct MetricsRegistry {
     channels: Arc<RwLock<MetricsMap>>,
+    bots: Arc<AtomicU64>,
+    users: Arc<RwLock<Vec<BotUsers>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -186,6 +211,49 @@ impl MetricsRegistry {
                     .get(row_id)
                     .map(|(_, m)| m.snapshot())
                     .unwrap_or_else(|| ChannelMetrics::default().snapshot()),
+            })
+            .collect()
+    }
+
+    pub fn set_bots(&self, count: u64) {
+        self.bots.store(count, Ordering::Relaxed);
+    }
+
+    pub fn bots(&self) -> u64 {
+        self.bots.load(Ordering::Relaxed)
+    }
+
+    pub fn set_users(&self, users: Vec<BotUsers>) {
+        *self.users.write().unwrap() = users;
+    }
+
+    pub fn user_counts(&self) -> Vec<(String, &'static str, u64)> {
+        self.users
+            .read()
+            .unwrap()
+            .iter()
+            .flat_map(|u| {
+                [
+                    (u.bot_id.clone(), "all", u.all),
+                    (u.bot_id.clone(), "30d", u.last_30_days),
+                    (u.bot_id.clone(), "7d", u.last_7_days),
+                ]
+            })
+            .collect()
+    }
+
+    pub fn connection_states(&self) -> Vec<(String, String, &'static str, u64)> {
+        self.snapshot_all()
+            .into_iter()
+            .flat_map(|(bot_id, channel, snap)| {
+                ConnectionStatus::ALL.into_iter().map(move |state| {
+                    (
+                        bot_id.clone(),
+                        channel.clone(),
+                        state.as_str(),
+                        u64::from(snap.status == state),
+                    )
+                })
             })
             .collect()
     }
@@ -289,6 +357,61 @@ mod tests {
         assert_eq!(all[0].0, "bot");
         assert_eq!(all[0].1, "row-a");
         assert_eq!(all[0].2.received, 2);
+    }
+
+    #[test]
+    fn connection_state_is_one_for_the_current_state_only() {
+        let registry = MetricsRegistry::new();
+        registry.get_or_create("row-a", "bot-a");
+        registry
+            .get_or_create("row-b", "bot-b")
+            .set_status(ConnectionStatus::Failing);
+
+        let mut states = registry.connection_states();
+        states.sort();
+        let expected = |bot: &str, row: &str, current: &str| {
+            ["failing", "linked", "unlinked"].map(|state| {
+                (
+                    bot.to_owned(),
+                    row.to_owned(),
+                    state,
+                    u64::from(state == current),
+                )
+            })
+        };
+        assert_eq!(
+            states,
+            [
+                expected("bot-a", "row-a", "unlinked"),
+                expected("bot-b", "row-b", "failing")
+            ]
+            .concat()
+        );
+        for state in ["unlinked", "linked", "failing"] {
+            let total: u64 = states.iter().filter(|s| s.2 == state).map(|s| s.3).sum();
+            assert_eq!(total, u64::from(state != "linked"), "{state}");
+        }
+    }
+
+    #[test]
+    fn user_counts_report_every_window_per_bot() {
+        let registry = MetricsRegistry::new();
+        registry.set_users(vec![BotUsers {
+            bot_id: "bot".to_owned(),
+            all: 5,
+            last_30_days: 3,
+            last_7_days: 1,
+        }]);
+        assert_eq!(
+            registry.user_counts(),
+            vec![
+                ("bot".to_owned(), "all", 5),
+                ("bot".to_owned(), "30d", 3),
+                ("bot".to_owned(), "7d", 1),
+            ]
+        );
+        registry.set_users(vec![]);
+        assert!(registry.user_counts().is_empty());
     }
 
     #[test]

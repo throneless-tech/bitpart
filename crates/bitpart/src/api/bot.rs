@@ -22,6 +22,7 @@ use bitpart_csml::{
 
 use crate::{api::ApiState, csml::data::BotVersion, db, metrics::ChannelStatus};
 use serde::Serialize;
+use tracing::warn;
 
 #[derive(Debug, Serialize)]
 pub struct BotDescription {
@@ -51,8 +52,16 @@ pub async fn create_bot(
         } => Err(BitpartErrorKind::Api(format!("{:?}", errors)).into()),
         CsmlResult { .. } => {
             let created = db::bot::create(bot, expire_timer, &state.pool).await?;
+            refresh_bot_count(state).await;
             Ok(created)
         }
+    }
+}
+
+pub async fn refresh_bot_count(state: &ApiState) {
+    match db::bot::count(&state.pool).await {
+        Ok(count) => state.metrics.set_bots(count),
+        Err(error) => warn!(%error, "could not count bots"),
     }
 }
 
@@ -83,6 +92,7 @@ pub async fn read_bot(id: &str, state: &ApiState) -> Result<Option<BotDescriptio
 
 pub async fn delete_bot(id: &str, state: &ApiState) -> Result<()> {
     db::bot::delete_by_bot_id(id, &state.pool).await?;
+    refresh_bot_count(state).await;
     db::memory::delete_by_bot_id(id, &state.pool).await?;
     db::message::delete_by_bot_id(id, &state.pool).await?;
     db::conversation::delete_by_bot_id(id, &state.pool).await?;
@@ -126,7 +136,9 @@ pub async fn get_bot_diff(
 }
 
 pub async fn delete_bot_version(id: &str, state: &ApiState) -> Result<()> {
-    db::bot::delete_by_id(id, &state.pool).await
+    db::bot::delete_by_id(id, &state.pool).await?;
+    refresh_bot_count(state).await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -435,9 +447,80 @@ mod test_bot {
     }
 
     #[tokio::test]
+    async fn user_counts_cover_all_time_and_recent_windows() {
+        use crate::{api::create_bot, db, db::conversation::BotUsers, utils::get_test_state};
+        use bitpart_csml::data::{CsmlBot, CsmlFlow};
+
+        let (state, _dir) = get_test_state().await;
+        for bot_id in ["busy", "quiet", "empty"] {
+            let flow = CsmlFlow::new("Default", "Default", "start: say \"Hi\" goto end", vec![]);
+            let bot = CsmlBot::new(
+                bot_id,
+                None,
+                vec![flow],
+                None,
+                None,
+                "Default",
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            create_bot(bot, None, &state).await.unwrap();
+        }
+
+        let conversations = [
+            ("busy", "alice", "-1 hours"),
+            ("busy", "alice", "-40 days"),
+            ("busy", "bob", "-10 days"),
+            ("busy", "carol", "-40 days"),
+            ("quiet", "alice", "-1 hours"),
+        ];
+        let conn = state.pool.get().await.unwrap();
+        conn.interact(move |conn| {
+            for (i, (bot_id, user_id, age)) in conversations.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO conversation \
+                     (id, bot_id, channel_id, user_id, flow_id, step_id, status, updated_at) \
+                     VALUES (?, ?, 'channel', ?, 'Default', 'start', 'OPEN', \
+                             datetime('now', 'localtime', ?))",
+                    rusqlite::params![i.to_string(), bot_id, user_id, age],
+                )?;
+            }
+            Ok::<_, rusqlite::Error>(())
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        drop(conn);
+
+        let mut users = db::conversation::count_users(&state.pool).await.unwrap();
+        users.sort_by(|a, b| a.bot_id.cmp(&b.bot_id));
+        let counts = |bot_id: &str, all, last_30_days, last_7_days| BotUsers {
+            bot_id: bot_id.to_owned(),
+            all,
+            last_30_days,
+            last_7_days,
+        };
+        assert_eq!(
+            users,
+            vec![
+                counts("busy", 3, 2, 1),
+                counts("empty", 0, 0, 0),
+                counts("quiet", 1, 1, 1),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn deleting_a_bot_removes_its_conversation_records() {
         use crate::csml::data::ConversationData;
-        use crate::{api::delete_bot, db, utils::get_test_state};
+        use crate::{
+            api::{create_bot, delete_bot},
+            db,
+            utils::get_test_state,
+        };
         use bitpart_csml::data::{Client, CsmlBot, CsmlFlow, context::Context};
         use std::collections::HashMap;
 
@@ -467,7 +550,7 @@ mod test_bot {
                 None,
                 None,
             );
-            db::bot::create(bot, None, &state.pool).await.unwrap();
+            create_bot(bot, None, &state).await.unwrap();
             let client = client(bot_id);
             let conversation_id =
                 db::conversation::create("Default", "start", &client, &state.pool)
@@ -509,7 +592,9 @@ mod test_bot {
                 .unwrap();
         }
 
+        assert_eq!(state.metrics.bots(), 2);
         delete_bot("doomed", &state).await.unwrap();
+        assert_eq!(state.metrics.bots(), 1);
 
         for (bot_id, expected) in [("doomed", 0), ("kept", 1)] {
             let client = client(bot_id);

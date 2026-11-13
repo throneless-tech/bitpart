@@ -106,6 +106,19 @@ impl BotRow {
     }
 }
 
+pub async fn count(db: &Pool) -> Result<u64> {
+    let obj = db.get().await.map_err(pool_err)?;
+    let count = obj
+        .interact(|conn| {
+            conn.query_row("SELECT COUNT(DISTINCT bot_id) FROM bot", [], |r| {
+                r.get::<_, i64>(0)
+            })
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(count as u64)
+}
+
 pub async fn list(limit: Option<u64>, offset: Option<u64>, db: &Pool) -> Result<Vec<String>> {
     let obj = db.get().await.map_err(pool_err)?;
     let res = obj

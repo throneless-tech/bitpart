@@ -8,6 +8,7 @@ use std::env;
 
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method, StatusCode};
+use tracing::Instrument;
 
 ////////////////////////////////////////////////////////////////////////////////
 // PRIVATE FUNCTIONS
@@ -263,6 +264,16 @@ pub async fn http_request(
         LogLvl::Debug,
     );
 
+    let span = tracing::info_span!(
+        "interpreter.http",
+        method = %method.to_uppercase(),
+        host = %reqwest::Url::parse(&url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_owned))
+            .unwrap_or_default(),
+        status = tracing::field::Empty,
+        failed = false,
+    );
     let result: Result<(StatusCode, HeaderMap, String, String), reqwest::Error> = async move {
         let response = request.send().await?;
         let status = response.status();
@@ -271,7 +282,18 @@ pub async fn http_request(
         let body = response.text().await?;
         Ok((status, headers, body, final_url))
     }
+    .instrument(span.clone())
     .await;
+    match &result {
+        Ok((status, ..)) => {
+            span.record("status", status.as_u16());
+            span.record("failed", status.as_u16() >= 400);
+        }
+        Err(_) => {
+            span.record("failed", true);
+        }
+    }
+    drop(span);
 
     match result {
         Ok((status, headers, body, final_url)) => {

@@ -14,7 +14,6 @@ anyhow = "1.0.97"
 bitpart-common = { path = "../bitpart-common" }
 clap = { version = "4", features = ["derive"] }
 clap-verbosity-flag = "3.0.2"
-ctrlc = "3.4.5"
 futures-util = "0.3.31"
 http = "1.2.0"
 qr2term = "0.3.3"

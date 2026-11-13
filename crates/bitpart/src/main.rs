@@ -50,7 +50,7 @@ use std::sync::Arc;
 use subtle::ConstantTimeEq;
 use tokio::sync::Mutex;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
-use tracing::info;
+use tracing::{Instrument, info};
 use tracing_log::AsTrace;
 use tracing_opentelemetry::MetricsLayer;
 use tracing_subscriber::filter::filter_fn;
@@ -195,13 +195,15 @@ fn telemetry_meter_init() -> Result<SdkMeterProvider> {
     Ok(meter_provider)
 }
 
-fn register_signal_metrics(
-    registry: &metrics::MetricsRegistry,
-) -> (
-    opentelemetry::metrics::ObservableCounter<u64>,
-    opentelemetry::metrics::ObservableCounter<u64>,
-    opentelemetry::metrics::ObservableGauge<u64>,
-) {
+struct SignalInstruments {
+    _sent: opentelemetry::metrics::ObservableCounter<u64>,
+    _received: opentelemetry::metrics::ObservableCounter<u64>,
+    _status: opentelemetry::metrics::ObservableGauge<u64>,
+    _bots: opentelemetry::metrics::ObservableGauge<u64>,
+    _users: opentelemetry::metrics::ObservableGauge<u64>,
+}
+
+fn register_signal_metrics(registry: &metrics::MetricsRegistry) -> SignalInstruments {
     use opentelemetry::KeyValue;
 
     let meter = opentelemetry::global::meter("bitpart_signal");
@@ -247,17 +249,18 @@ fn register_signal_metrics(
     let status = {
         let registry = registry.clone();
         meter
-            .u64_observable_gauge("bitpart.signal.connection_status")
+            .u64_observable_gauge("bitpart.signal.connection_state")
             .with_description(
-                "Signal connection status per bot channel (0=unlinked, 1=linked, 2=failing)",
+                "1 for a bot channel's current Signal connection state (unlinked, linked or failing), 0 for the others",
             )
             .with_callback(move |observer| {
-                for (bot_id, channel, snap) in registry.snapshot_all() {
+                for (bot_id, channel, state, value) in registry.connection_states() {
                     observer.observe(
-                        snap.status.as_u8() as u64,
+                        value,
                         &[
                             KeyValue::new("bot_id", bot_id),
                             KeyValue::new("channel", channel),
+                            KeyValue::new("state", state),
                         ],
                     );
                 }
@@ -265,7 +268,55 @@ fn register_signal_metrics(
             .build()
     };
 
-    (sent, received, status)
+    let bots = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_gauge("bitpart.bots")
+            .with_description("Bots stored on this bitpart instance")
+            .with_callback(move |observer| observer.observe(registry.bots(), &[]))
+            .build()
+    };
+
+    let users = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_gauge("bitpart.users")
+            .with_description(
+                "People who have messaged a bot and not deleted their data (window=all), or who were active in the last 30d or 7d",
+            )
+            .with_callback(move |observer| {
+                for (bot_id, window, count) in registry.user_counts() {
+                    observer.observe(
+                        count,
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("window", window),
+                        ],
+                    );
+                }
+            })
+            .build()
+    };
+
+    SignalInstruments {
+        _sent: sent,
+        _received: received,
+        _status: status,
+        _bots: bots,
+        _users: users,
+    }
+}
+
+async fn refresh_user_counts(pool: bitpart_common::db::Pool, registry: metrics::MetricsRegistry) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        match db::conversation::count_users(&pool).await {
+            Ok(users) => registry.set_users(users),
+            Err(error) => tracing::warn!(%error, "could not count users"),
+        }
+    }
 }
 
 #[tokio::main]
@@ -322,7 +373,14 @@ async fn main() -> Result<()> {
         server.key.clone(),
         bitpart_common::db::DEFAULT_POOL_SIZE,
     )?;
-    migrate(&pool).await?;
+    migrate(&pool)
+        .instrument(tracing::info_span!("db.migrate"))
+        .await?;
+
+    metrics_registry.set_bots(db::bot::count(&pool).await?);
+    if server.opentelemetry {
+        tokio::spawn(refresh_user_counts(pool.clone(), metrics_registry.clone()));
+    }
 
     // Start incoming message channels
     let channels = db::channel::list(None, None, &pool).await?;
@@ -504,8 +562,13 @@ mod tests {
             tracing::info!(user = "someone", "an event inside our span");
             let _theirs =
                 tracing::info_span!(target: "libsignal_service::cipher", "theirs").entered();
+            let _interpreter =
+                tracing::info_span!(target: "bitpart_csml::interpreter", "interpreter").entered();
         });
 
-        assert_eq!(*exported.0.lock().unwrap(), vec!["ours".to_owned()]);
+        assert_eq!(
+            *exported.0.lock().unwrap(),
+            vec!["ours".to_owned(), "interpreter".to_owned()]
+        );
     }
 }

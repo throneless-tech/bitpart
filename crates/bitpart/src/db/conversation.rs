@@ -31,13 +31,12 @@ pub struct Model {
     pub flow_id: String,
     pub step_id: String,
     pub status: String,
-    pub last_interaction_at: String,
     pub updated_at: String,
     pub created_at: String,
 }
 
-const SELECT_COLS: &str = "id, bot_id, channel_id, user_id, flow_id, step_id, status, \
-                          last_interaction_at, updated_at, created_at";
+const SELECT_COLS: &str =
+    "id, bot_id, channel_id, user_id, flow_id, step_id, status, updated_at, created_at";
 
 fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
     Ok(Model {
@@ -48,7 +47,6 @@ fn row_to_model(r: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
         flow_id: r.get("flow_id")?,
         step_id: r.get("step_id")?,
         status: r.get("status")?,
-        last_interaction_at: r.get("last_interaction_at")?,
         updated_at: r.get("updated_at")?,
         created_at: r.get("created_at")?,
     })
@@ -271,6 +269,44 @@ pub async fn delete_by_client(client: &Client, db: &Pool) -> Result<()> {
     .await
     .map_err(pool_err)??;
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BotUsers {
+    pub bot_id: String,
+    pub all: u64,
+    pub last_30_days: u64,
+    pub last_7_days: u64,
+}
+
+pub async fn count_users(db: &Pool) -> Result<Vec<BotUsers>> {
+    let obj = db.get().await.map_err(pool_err)?;
+    let rows = obj
+        .interact(|conn| -> rusqlite::Result<Vec<BotUsers>> {
+            let mut stmt = conn.prepare(
+                "SELECT b.bot_id, \
+                        COUNT(DISTINCT c.user_id), \
+                        COUNT(DISTINCT CASE WHEN c.updated_at >= datetime('now', 'localtime', '-30 days') \
+                                            THEN c.user_id END), \
+                        COUNT(DISTINCT CASE WHEN c.updated_at >= datetime('now', 'localtime', '-7 days') \
+                                            THEN c.user_id END) \
+                 FROM (SELECT DISTINCT bot_id FROM bot) b \
+                 LEFT JOIN conversation c ON c.bot_id = b.bot_id \
+                 GROUP BY b.bot_id",
+            )?;
+            let rows = stmt.query_map([], |r| {
+                Ok(BotUsers {
+                    bot_id: r.get(0)?,
+                    all: r.get::<_, i64>(1)? as u64,
+                    last_30_days: r.get::<_, i64>(2)? as u64,
+                    last_7_days: r.get::<_, i64>(3)? as u64,
+                })
+            })?;
+            rows.collect()
+        })
+        .await
+        .map_err(pool_err)??;
+    Ok(rows)
 }
 
 pub async fn delete_by_bot_id(bot_id: &str, db: &Pool) -> Result<()> {

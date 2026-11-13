@@ -64,7 +64,7 @@ use tokio::{
 };
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::warn;
-use tracing::{debug, error, info};
+use tracing::{Instrument, Span, debug, error, field, info, info_span, instrument};
 use uuid;
 
 use crate::api;
@@ -225,27 +225,35 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             spawn_local(async move {
                 tokio::select! {
                     _ = async {
-                        match Manager::link_secondary_device(
-                            config_store,
-                            SignalServers::Production,
-                            device_name.clone(),
-                            provisioning_link_tx,
-                        )
-                        .await
-                        {
-                            Ok(mut manager) => {
-                                if let Err(err) = manager.request_contacts().await {
-                                    error!("Failed to sync contacts after linking device: {}", err);
+                        let span = info_span!("signal.link_channel", channel_id = %id, linked = field::Empty);
+                        let linked = async {
+                            let mut manager = Manager::link_secondary_device(
+                                config_store,
+                                SignalServers::Production,
+                                device_name.clone(),
+                                provisioning_link_tx,
+                            )
+                            .await?;
+                            if let Err(err) = manager.request_contacts().await {
+                                error!("Failed to sync contacts after linking device: {}", err);
+                            }
+                            if let Some(name) = profile_name.filter(|n| !n.trim().is_empty()) {
+                                let name = ProfileName {
+                                    given_name: name.trim().to_owned(),
+                                    family_name: None,
+                                };
+                                if let Err(err) = manager.update_profile(name, None, None).await {
+                                    error!("Failed to set profile name after linking device: {}", err);
                                 }
-                                if let Some(name) = profile_name.filter(|n| !n.trim().is_empty()) {
-                                    let name = ProfileName {
-                                        given_name: name.trim().to_owned(),
-                                        family_name: None,
-                                    };
-                                    if let Err(err) = manager.update_profile(name, None, None).await {
-                                        error!("Failed to set profile name after linking device: {}", err);
-                                    }
-                                }
+                            }
+                            Ok::<_, presage::Error<_>>(manager)
+                        }
+                        .instrument(span.clone())
+                        .await;
+                        span.record("linked", linked.is_ok());
+                        drop(span);
+                        match linked {
+                            Ok(manager) => {
                                 let mut manager_ref = Cell::new(manager);
                                 let res = start_channel_recv(
                                     id,
@@ -276,7 +284,11 @@ async fn process_channel_message(msg: ChannelMessage) -> Result<()> {
             spawn_local(async move {
                 tokio::select! {
                     _ = async {
-                        match Manager::load_registered(store).await {
+                        let span = info_span!("signal.start_channel", channel_id = %id, registered = field::Empty);
+                        let loaded = Manager::load_registered(store).instrument(span.clone()).await;
+                        span.record("registered", loaded.is_ok());
+                        drop(span);
+                        match loaded {
                             Ok(manager) => {
                                 let mut manager_ref = Cell::new(manager);
                                 let res =
@@ -416,6 +428,20 @@ enum Outgoing {
     Group(GroupMasterKeyBytes),
 }
 
+#[instrument(
+    name = "signal.send",
+    skip_all,
+    fields(
+        group = matches!(to, Outgoing::Group(_)),
+        content = match &body {
+            ContentBody::DataMessage(_) => "data",
+            ContentBody::ReceiptMessage(_) => "receipt",
+            _ => "other",
+        },
+        outcome = field::Empty,
+        retried = false,
+    )
+)]
 async fn deliver<S: Store>(
     manager: &mut Manager<S, Registered>,
     metrics: &ChannelMetrics,
@@ -439,6 +465,7 @@ async fn deliver<S: Store>(
         };
         let error = match result {
             Ok(()) => {
+                Span::current().record("outcome", SendOutcome::Ok.as_str());
                 metrics.record_send(SendOutcome::Ok);
                 return Ok(());
             }
@@ -451,17 +478,26 @@ async fn deliver<S: Store>(
         {
             debug!(?wait, "rate limited by Signal, retrying once");
             retried = true;
+            Span::current().record("retried", true);
             sleep(wait).await;
             continue;
         }
         warn!(%error, "message dropped");
-        metrics.record_send(outcome_of(failure));
+        let outcome = outcome_of(failure);
+        Span::current().record("outcome", outcome.as_str());
+        metrics.record_send(outcome);
         return Err(BitpartErrorKind::PresageStore(error.to_string()).into());
     }
 }
 
-async fn throttle(limiter: &DefaultKeyedRateLimiter<Uuid>, recipient: Uuid) {
+#[instrument(name = "signal.throttle", skip_all, fields(waited = false))]
+async fn throttle(limiter: &DefaultKeyedRateLimiter<Uuid>, recipient: Uuid) -> bool {
+    if limiter.check_key(&recipient).is_ok() {
+        return false;
+    }
+    Span::current().record("waited", true);
     limiter.until_key_ready(&recipient).await;
+    true
 }
 
 async fn send<S: Store>(
@@ -873,6 +909,7 @@ fn take_due_purges(
     due
 }
 
+#[instrument(name = "signal.session_reset", skip_all, fields(action = field::Empty))]
 async fn reset_lost_session(
     manager: &mut Manager<BitpartStore, Registered>,
     state: &ChannelState,
@@ -882,15 +919,21 @@ async fn reset_lost_session(
         return;
     };
     let uuid: Uuid = aci.into();
+    let span = Span::current();
     match manager.store().has_session(&uuid.to_string()).await {
         Ok(false) => {}
-        Ok(true) => return,
+        Ok(true) => {
+            span.record("action", "kept_existing_session");
+            return;
+        }
         Err(error) => {
+            span.record("action", "check_failed");
             warn!(%error, "could not check for a lost session");
             return;
         }
     }
     if state.limiters.session_reset.check_key(&uuid).is_err() {
+        span.record("action", "rate_limited");
         info!("repeated decryption failures, not resetting session again yet");
         return;
     }
@@ -900,11 +943,18 @@ async fn reset_lost_session(
         .unwrap_or(Duration::ZERO)
         .as_millis() as u64;
     match manager.send_session_reset(&contact, timestamp).await {
-        Ok(()) => info!("reset lost session after decryption failure"),
-        Err(error) => warn!(%error, "failed to reset lost session"),
+        Ok(()) => {
+            span.record("action", "reset");
+            info!("reset lost session after decryption failure")
+        }
+        Err(error) => {
+            span.record("action", "failed");
+            warn!(%error, "failed to reset lost session")
+        }
     }
 }
 
+#[instrument(name = "signal.purge_conversation", skip_all, fields(%channel_id, errors = field::Empty))]
 async fn purge_signal_state(channel_id: &str, pool: &bitpart_common::db::Pool, user_id: &str) {
     let store = match BitpartStore::open(channel_id, pool, OnNewIdentity::Trust).await {
         Ok(store) => store,
@@ -914,6 +964,7 @@ async fn purge_signal_state(channel_id: &str, pool: &bitpart_common::db::Pool, u
         }
     };
     let errors = store.purge_conversation(user_id).await;
+    Span::current().record("errors", errors.len());
     if errors.is_empty() {
         info!("purged signal state for deleted conversation");
     } else {
@@ -965,6 +1016,16 @@ async fn send_expire_timer<S: Store>(
 
 // === message listener ===
 
+#[instrument(
+    name = "signal.reply",
+    skip_all,
+    fields(
+        bot_id = %state.id,
+        channel_id = %state.channel_id,
+        group = Uuid::try_parse(&user_id).is_err(),
+        attachments = attachments.len(),
+    )
+)]
 async fn reply<S: Store>(
     user_id: String,
     body: String,
@@ -1440,15 +1501,15 @@ mod tests {
         let limiter = DefaultKeyedRateLimiter::keyed(quota);
 
         let start = std::time::Instant::now();
-        throttle(&limiter, BOT).await;
-        throttle(&limiter, BOT).await;
+        assert!(!throttle(&limiter, BOT).await);
+        assert!(!throttle(&limiter, BOT).await);
         assert!(start.elapsed() < Duration::from_millis(100));
 
-        throttle(&limiter, BOT).await;
+        assert!(throttle(&limiter, BOT).await);
         assert!(start.elapsed() >= Duration::from_millis(150));
 
         let other = std::time::Instant::now();
-        throttle(&limiter, OTHER).await;
+        assert!(!throttle(&limiter, OTHER).await);
         assert!(other.elapsed() < Duration::from_millis(100));
     }
 
