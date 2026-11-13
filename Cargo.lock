@@ -3610,6 +3610,7 @@ dependencies = [
  "prost 0.14.4",
  "quickcheck",
  "quickcheck_async",
+ "quickcheck_macros",
  "rand 0.9.5",
  "rusqlite",
  "serde",
@@ -3893,6 +3894,17 @@ source = "git+https://github.com/markbt/quickcheck_async?branch=syn-deps#76b1352
 dependencies = [
  "quote",
  "syn 1.0.109",
+]
+
+[[package]]
+name = "quickcheck_macros"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9a28b8493dd664c8b171dd944da82d933f7d456b829bfb236738e1fe06c5ba4"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
