@@ -17,31 +17,60 @@
 use axum::{
     extract::ws::{Message, WebSocket, WebSocketUpgrade},
     extract::{ConnectInfo, State},
+    http::HeaderMap,
     response::IntoResponse,
 };
 use bitpart_common::{
     error::{BitpartError, BitpartErrorKind, Result},
     socket::{Response, SocketMessage},
 };
+use opentelemetry::propagation::{Extractor, TextMapPropagator};
+use opentelemetry_sdk::propagation::TraceContextPropagator;
 use serde::Serialize;
 use std::net::SocketAddr;
 use tracing::{Instrument, debug, error};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::api;
 use crate::api::ApiState;
+
+struct HeaderExtractor<'a>(&'a HeaderMap);
+
+impl Extractor for HeaderExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).and_then(|v| v.to_str().ok())
+    }
+
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|k| k.as_str()).collect()
+    }
+}
+
+// the dashboard opens a connection per request with a traceparent header, so
+// its trace continues into the api.request spans
+fn remote_parent(headers: &HeaderMap) -> opentelemetry::Context {
+    TraceContextPropagator::new().extract(&HeaderExtractor(headers))
+}
 
 pub async fn handler(
     ws: WebSocketUpgrade,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
     State(state): State<ApiState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_socket(socket, addr, state))
+    let parent = remote_parent(&headers);
+    ws.on_upgrade(move |socket| handle_socket(socket, addr, state, parent))
 }
 
-async fn handle_socket(mut socket: WebSocket, who: SocketAddr, mut state: ApiState) {
+async fn handle_socket(
+    mut socket: WebSocket,
+    who: SocketAddr,
+    mut state: ApiState,
+    parent: opentelemetry::Context,
+) {
     while let Some(msg) = socket.recv().await {
         let msg = if let Ok(msg) = msg {
-            match process_message(msg, who, &mut state).await {
+            match process_message(msg, who, &mut state, &parent).await {
                 Ok(Some(msg)) => msg,
                 Ok(None) => {
                     debug!("Websocket closed");
@@ -109,6 +138,7 @@ async fn process_message(
     msg: Message,
     who: SocketAddr,
     state: &mut ApiState,
+    parent: &opentelemetry::Context,
 ) -> Result<Option<Message>> {
     match msg {
         Message::Text(t) => {
@@ -118,6 +148,7 @@ async fn process_message(
                 message_type = tracing::field::Empty,
                 outcome = tracing::field::Empty,
             );
+            span.set_parent(parent.clone());
             let result = process_text(&t, state).instrument(span.clone()).await;
             if result.is_err() {
                 span.record("outcome", "invalid");
@@ -236,5 +267,35 @@ async fn process_text(t: &str, state: &mut ApiState) -> Result<Option<Message>> 
             "SocketMessage",
             &"Invalid SocketMessage".to_owned(),
         )?),
+    }
+}
+
+#[cfg(test)]
+mod test_trace_context {
+    use super::*;
+    use opentelemetry::trace::TraceContextExt;
+
+    #[test]
+    fn traceparent_header_becomes_the_parent() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "traceparent",
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+                .parse()
+                .unwrap(),
+        );
+        let parent = remote_parent(&headers);
+        let span = parent.span();
+        let context = span.span_context();
+        assert!(context.is_remote());
+        assert_eq!(
+            context.trace_id().to_string(),
+            "0af7651916cd43dd8448eb211c80319c"
+        );
+    }
+
+    #[test]
+    fn no_header_means_no_parent() {
+        assert!(!remote_parent(&HeaderMap::new()).has_active_span());
     }
 }
