@@ -1,3 +1,9 @@
+## 2.0.2 (2026-11-13)
+
+### Fix
+
+- Set trace parent in websocket message for logging purposes.
+
 ## 2.0.1 (2026-11-13)
 
 ### Fix
