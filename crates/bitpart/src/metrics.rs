@@ -20,6 +20,8 @@ use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 use std::sync::{Mutex, RwLock};
 
 use chrono::{DateTime, Utc};
+
+use crate::db::conversation::BotUsers;
 use serde::Serialize;
 
 type MetricsMap = HashMap<String, (String, Arc<ChannelMetrics>)>;
@@ -168,6 +170,7 @@ pub struct ChannelMetricsSnapshot {
 pub struct MetricsRegistry {
     channels: Arc<RwLock<MetricsMap>>,
     bots: Arc<AtomicU64>,
+    users: Arc<RwLock<Vec<BotUsers>>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -218,6 +221,25 @@ impl MetricsRegistry {
 
     pub fn bots(&self) -> u64 {
         self.bots.load(Ordering::Relaxed)
+    }
+
+    pub fn set_users(&self, users: Vec<BotUsers>) {
+        *self.users.write().unwrap() = users;
+    }
+
+    pub fn user_counts(&self) -> Vec<(String, &'static str, u64)> {
+        self.users
+            .read()
+            .unwrap()
+            .iter()
+            .flat_map(|u| {
+                [
+                    (u.bot_id.clone(), "all", u.all),
+                    (u.bot_id.clone(), "30d", u.last_30_days),
+                    (u.bot_id.clone(), "7d", u.last_7_days),
+                ]
+            })
+            .collect()
     }
 
     pub fn connection_states(&self) -> Vec<(String, String, &'static str, u64)> {
@@ -369,6 +391,27 @@ mod tests {
             let total: u64 = states.iter().filter(|s| s.2 == state).map(|s| s.3).sum();
             assert_eq!(total, u64::from(state != "linked"), "{state}");
         }
+    }
+
+    #[test]
+    fn user_counts_report_every_window_per_bot() {
+        let registry = MetricsRegistry::new();
+        registry.set_users(vec![BotUsers {
+            bot_id: "bot".to_owned(),
+            all: 5,
+            last_30_days: 3,
+            last_7_days: 1,
+        }]);
+        assert_eq!(
+            registry.user_counts(),
+            vec![
+                ("bot".to_owned(), "all", 5),
+                ("bot".to_owned(), "30d", 3),
+                ("bot".to_owned(), "7d", 1),
+            ]
+        );
+        registry.set_users(vec![]);
+        assert!(registry.user_counts().is_empty());
     }
 
     #[test]

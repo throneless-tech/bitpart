@@ -447,6 +447,73 @@ mod test_bot {
     }
 
     #[tokio::test]
+    async fn user_counts_cover_all_time_and_recent_windows() {
+        use crate::{api::create_bot, db, db::conversation::BotUsers, utils::get_test_state};
+        use bitpart_csml::data::{CsmlBot, CsmlFlow};
+
+        let (state, _dir) = get_test_state().await;
+        for bot_id in ["busy", "quiet", "empty"] {
+            let flow = CsmlFlow::new("Default", "Default", "start: say \"Hi\" goto end", vec![]);
+            let bot = CsmlBot::new(
+                bot_id,
+                None,
+                vec![flow],
+                None,
+                None,
+                "Default",
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+            create_bot(bot, None, &state).await.unwrap();
+        }
+
+        let conversations = [
+            ("busy", "alice", "-1 hours"),
+            ("busy", "alice", "-40 days"),
+            ("busy", "bob", "-10 days"),
+            ("busy", "carol", "-40 days"),
+            ("quiet", "alice", "-1 hours"),
+        ];
+        let conn = state.pool.get().await.unwrap();
+        conn.interact(move |conn| {
+            for (i, (bot_id, user_id, age)) in conversations.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO conversation \
+                     (id, bot_id, channel_id, user_id, flow_id, step_id, status, updated_at) \
+                     VALUES (?, ?, 'channel', ?, 'Default', 'start', 'OPEN', \
+                             datetime('now', 'localtime', ?))",
+                    rusqlite::params![i.to_string(), bot_id, user_id, age],
+                )?;
+            }
+            Ok::<_, rusqlite::Error>(())
+        })
+        .await
+        .unwrap()
+        .unwrap();
+        drop(conn);
+
+        let mut users = db::conversation::count_users(&state.pool).await.unwrap();
+        users.sort_by(|a, b| a.bot_id.cmp(&b.bot_id));
+        let counts = |bot_id: &str, all, last_30_days, last_7_days| BotUsers {
+            bot_id: bot_id.to_owned(),
+            all,
+            last_30_days,
+            last_7_days,
+        };
+        assert_eq!(
+            users,
+            vec![
+                counts("busy", 3, 2, 1),
+                counts("empty", 0, 0, 0),
+                counts("quiet", 1, 1, 1),
+            ]
+        );
+    }
+
+    #[tokio::test]
     async fn deleting_a_bot_removes_its_conversation_records() {
         use crate::csml::data::ConversationData;
         use crate::{

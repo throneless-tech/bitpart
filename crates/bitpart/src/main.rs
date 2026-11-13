@@ -195,14 +195,15 @@ fn telemetry_meter_init() -> Result<SdkMeterProvider> {
     Ok(meter_provider)
 }
 
-fn register_signal_metrics(
-    registry: &metrics::MetricsRegistry,
-) -> (
-    opentelemetry::metrics::ObservableCounter<u64>,
-    opentelemetry::metrics::ObservableCounter<u64>,
-    opentelemetry::metrics::ObservableGauge<u64>,
-    opentelemetry::metrics::ObservableGauge<u64>,
-) {
+struct SignalInstruments {
+    _sent: opentelemetry::metrics::ObservableCounter<u64>,
+    _received: opentelemetry::metrics::ObservableCounter<u64>,
+    _status: opentelemetry::metrics::ObservableGauge<u64>,
+    _bots: opentelemetry::metrics::ObservableGauge<u64>,
+    _users: opentelemetry::metrics::ObservableGauge<u64>,
+}
+
+fn register_signal_metrics(registry: &metrics::MetricsRegistry) -> SignalInstruments {
     use opentelemetry::KeyValue;
 
     let meter = opentelemetry::global::meter("bitpart_signal");
@@ -276,7 +277,46 @@ fn register_signal_metrics(
             .build()
     };
 
-    (sent, received, status, bots)
+    let users = {
+        let registry = registry.clone();
+        meter
+            .u64_observable_gauge("bitpart.users")
+            .with_description(
+                "People who have messaged a bot and not deleted their data (window=all), or who were active in the last 30d or 7d",
+            )
+            .with_callback(move |observer| {
+                for (bot_id, window, count) in registry.user_counts() {
+                    observer.observe(
+                        count,
+                        &[
+                            KeyValue::new("bot_id", bot_id),
+                            KeyValue::new("window", window),
+                        ],
+                    );
+                }
+            })
+            .build()
+    };
+
+    SignalInstruments {
+        _sent: sent,
+        _received: received,
+        _status: status,
+        _bots: bots,
+        _users: users,
+    }
+}
+
+async fn refresh_user_counts(pool: bitpart_common::db::Pool, registry: metrics::MetricsRegistry) {
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        interval.tick().await;
+        match db::conversation::count_users(&pool).await {
+            Ok(users) => registry.set_users(users),
+            Err(error) => tracing::warn!(%error, "could not count users"),
+        }
+    }
 }
 
 #[tokio::main]
@@ -338,6 +378,9 @@ async fn main() -> Result<()> {
         .await?;
 
     metrics_registry.set_bots(db::bot::count(&pool).await?);
+    if server.opentelemetry {
+        tokio::spawn(refresh_user_counts(pool.clone(), metrics_registry.clone()));
+    }
 
     // Start incoming message channels
     let channels = db::channel::list(None, None, &pool).await?;
