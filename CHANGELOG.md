@@ -1,3 +1,13 @@
+## 2.0.1 (2026-11-13)
+
+### Fix
+
+- add user-count metrics to otel.
+- re-add quickcheck_macros as dev dependency for presage store.
+- Add additional spans.
+- Update for Rust 1.100.0 and add total bots metric.
+- Update connection_status OTEL metric to be easier to chart in Grafana.
+
 ## 2.0.0 (2026-11-06)
 
 ### Feat
